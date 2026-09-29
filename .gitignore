@@ -1,0 +1,13 @@
+.DS_Store
+*.xcodeproj/
+build/
+DerivedData/
+# SwiftPM's, and SourceKit-LSP's index of a package it was pointed at
+.build/
+*.dmg
+# The design mockup and icon drafts: kept locally, not published.
+VisualReference/
+# Release builds: scripts/release.sh
+releases/
+# Local signing identity: see Config/Signing.xcconfig
+Config/Signing.local.xcconfig

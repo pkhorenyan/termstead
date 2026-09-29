@@ -1,0 +1,11 @@
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+# Jump hosts relay the next hop's connection (ssh -W / ProxyJump).
+AllowTcpForwarding yes
+PrintMotd yes
+Subsystem sftp internal-sftp

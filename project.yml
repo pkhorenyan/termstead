@@ -1,0 +1,123 @@
+name: Termstead
+options:
+  bundleIdPrefix: com.pavelkhorenyan
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  # The terminal emulator. `LocalProcessTerminalView` runs /usr/bin/ssh in a
+  # pseudo-terminal and draws a full xterm; see `Sources/SSH/`.
+  #
+  # SwiftTerm 1.11.2, vendored with a fix of our own (Vendor/SwiftTerm/PATCHES.md).
+  # Held at 1.11: 1.12 added a Metal renderer whose shaders need Xcode's
+  # separately downloaded Metal Toolchain to build.
+  SwiftTerm:
+    path: Vendor/SwiftTerm
+  # Updates outside the App Store: checks an appcast, downloads, verifies the
+  # EdDSA signature, replaces the app and relaunches. A binary framework.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    majorVersion: "2.6.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Termstead:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: Shared
+      - path: Resources/Fonts
+        type: folder
+      - path: Resources/Licenses
+        type: folder
+      - path: Resources/Assets.xcassets
+    dependencies:
+      - package: SwiftTerm
+      - package: Sparkle
+      # Installed next to the app's executable; ssh runs it as SSH_ASKPASS.
+      - target: termstead-askpass
+        embed: true
+        copy:
+          destination: executables
+    settings:
+      base:
+        # The bundle id names the UserDefaults domain, and the Keychain service
+        # and the data folder follow it: changing any of them after a release
+        # loses users' settings, passwords or sessions.
+        PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead
+        PRODUCT_NAME: Termstead
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+        DEAD_CODE_STRIPPING: YES
+        COMBINE_HIDPI_IMAGES: YES
+      configs:
+        # The unit tests are injected into the app. Under the hardened runtime,
+        # library validation refuses an ad-hoc-signed test bundle, so Debug —
+        # which is what `xcodebuild test` builds — runs without it.
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: NO
+          ENABLE_HARDENED_RUNTIME: NO
+        # Strip symbols in a plain `build`, not only on archive: without this
+        # `STRIP_INSTALLED_PRODUCT` never runs, and the binary carried 4.2 MB
+        # of symbols per architecture. The dSYM keeps them for crash reports.
+        Release:
+          DEPLOYMENT_POSTPROCESSING: YES
+    # Release signing: ad-hoc unless Config/Signing.local.xcconfig names an
+    # identity (see Config/Signing.xcconfig).
+    configFiles:
+      Release: Config/Signing.xcconfig
+    scheme:
+      testTargets:
+        - TermsteadTests
+
+  termstead-askpass:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Helpers/Askpass
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: termstead-askpass
+        PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead.askpass
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+        DEAD_CODE_STRIPPING: YES
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: NO
+          ENABLE_HARDENED_RUNTIME: YES
+        Release:
+          DEPLOYMENT_POSTPROCESSING: YES
+    configFiles:
+      Release: Config/Signing.xcconfig
+
+  TermsteadTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Termstead
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.TermsteadTests
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES

@@ -1,0 +1,197 @@
+{
+  "collapsedGroupIDs": [
+    "lab"
+  ],
+  "pinnedIDs": [
+    "prod-web-01",
+    "db-primary"
+  ],
+  "sessions": [
+    {
+      "auth": "key",
+      "host": "10.0.2.5",
+      "icon": "database",
+      "id": "db-primary",
+      "jumps": [
+        {
+          "auth": "session",
+          "host": "bastion-01",
+          "id": "40B7F515-FF49-4D5B-990A-00A0FAF1EAD3",
+          "keyPath": "~/.ssh/id_ed25519",
+          "user": ""
+        }
+      ],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 22,
+      "user": "postgres"
+    },
+    {
+      "auth": "key",
+      "host": "nas.local",
+      "icon": "drive",
+      "id": "nas",
+      "jumps": [],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 2222,
+      "user": "admin"
+    },
+    {
+      "auth": "key",
+      "host": "10.0.1.12",
+      "icon": "globe",
+      "id": "prod-web-01",
+      "jumps": [],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 22,
+      "user": "deploy"
+    },
+    {
+      "auth": "key",
+      "host": "10.0.1.13",
+      "icon": "server",
+      "id": "prod-web-02",
+      "jumps": [
+        {
+          "auth": "key",
+          "host": "bastion-01",
+          "id": "448C4456-8C90-493B-8ED7-5CB1B15CE203",
+          "keyPath": "~/.ssh/id_ed25519_bastion",
+          "user": ""
+        },
+        {
+          "auth": "session",
+          "host": "nat-gw",
+          "id": "2030B58D-0994-446E-8B45-9E9013D57645",
+          "keyPath": "~/.ssh/id_ed25519",
+          "user": ""
+        }
+      ],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 22,
+      "user": "deploy"
+    },
+    {
+      "auth": "key",
+      "host": "192.168.1.40",
+      "icon": "chip",
+      "id": "raspberry-pi",
+      "jumps": [],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 22,
+      "user": "pi"
+    },
+    {
+      "auth": "key",
+      "host": "stage.internal",
+      "icon": "container",
+      "id": "staging-app",
+      "jumps": [
+        {
+          "auth": "session",
+          "host": "bastion-01",
+          "id": "5859CDD4-CB07-4E7A-8C02-82493DB5B2F2",
+          "keyPath": "~/.ssh/id_ed25519",
+          "user": ""
+        }
+      ],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 22,
+      "user": "ubuntu"
+    }
+  ],
+  "tree": [
+    {
+      "children": [
+        {
+          "group": {
+            "_0": {
+              "children": [
+                {
+                  "session": {
+                    "_0": "prod-web-01"
+                  }
+                },
+                {
+                  "group": {
+                    "_0": {
+                      "children": [
+                        {
+                          "session": {
+                            "_0": "prod-web-02"
+                          }
+                        }
+                      ],
+                      "colorID": "orange",
+                      "id": "canary",
+                      "name": "Canary"
+                    }
+                  }
+                }
+              ],
+              "colorID": "red",
+              "id": "web",
+              "name": "Web"
+            }
+          }
+        },
+        {
+          "group": {
+            "_0": {
+              "children": [
+                {
+                  "session": {
+                    "_0": "db-primary"
+                  }
+                }
+              ],
+              "colorID": "violet",
+              "id": "db",
+              "name": "Databases"
+            }
+          }
+        }
+      ],
+      "id": "production",
+      "name": "Production"
+    },
+    {
+      "children": [
+        {
+          "session": {
+            "_0": "staging-app"
+          }
+        }
+      ],
+      "id": "staging",
+      "name": "Staging"
+    },
+    {
+      "children": [
+        {
+          "group": {
+            "_0": {
+              "children": [
+                {
+                  "session": {
+                    "_0": "raspberry-pi"
+                  }
+                }
+              ],
+              "colorID": "mint",
+              "id": "lab",
+              "name": "Lab"
+            }
+          }
+        },
+        {
+          "session": {
+            "_0": "nas"
+          }
+        }
+      ],
+      "id": "home",
+      "name": "Home"
+    }
+  ],
+  "version": 1
+}

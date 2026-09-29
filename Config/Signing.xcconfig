@@ -1,0 +1,23 @@
+// How a Release build is signed.
+//
+// By default ad-hoc, so anyone can build from source without a certificate —
+// and then without the hardened runtime. Sparkle.framework is a library of its
+// own; under the hardened runtime, library validation refuses to load it into
+// an ad-hoc app ("different Team IDs"), and the app dies at launch.
+//
+// A maintainer signs with a real identity instead, in the gitignored
+// Signing.local.xcconfig next to this file, for example:
+//
+//     CODE_SIGN_STYLE = Manual
+//     CODE_SIGN_IDENTITY = Developer ID Application
+//     DEVELOPMENT_TEAM = YHQLC8PBT3
+//     CODE_SIGNING_REQUIRED = YES
+//     ENABLE_HARDENED_RUNTIME = YES
+//
+// A stable identity also keeps Keychain access across rebuilds. The release
+// script (scripts/release.sh) passes the Developer ID settings itself.
+CODE_SIGN_IDENTITY = -
+CODE_SIGNING_REQUIRED = NO
+ENABLE_HARDENED_RUNTIME = NO
+
+#include? "Signing.local.xcconfig"

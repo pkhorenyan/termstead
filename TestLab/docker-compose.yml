@@ -1,0 +1,66 @@
+# Termstead test lab. Start with ./lab.sh up
+#
+#   this Mac ──127.0.0.1:2201──▶ direct            (one hop: none)
+#   this Mac ──127.0.0.1:2202──▶ bastion ──dmz──▶ app
+#                                        └─dmz──▶ middle ──core──▶ db
+#
+# `app` is reachable only through `bastion`; `db` only through bastion and
+# then `middle`. The dmz and core networks are internal: nothing on them is
+# published to the Mac.
+name: termstead-lab
+
+x-host: &host
+  build: .
+  image: termstead-lab-sshd
+  restart: unless-stopped
+
+services:
+  direct:
+    <<: *host
+    hostname: direct
+    environment: { LAB_ROLE: "Reached directly on 127.0.0.1:2201." }
+    ports: ["127.0.0.1:2201:22"]
+    volumes:
+      - ./.state/hostkeys/direct:/lab/hostkey:ro
+      - ./.state/authorized_keys:/lab/authorized_keys:ro
+
+  bastion:
+    <<: *host
+    hostname: bastion
+    environment: { LAB_ROLE: "The jump host: 127.0.0.1:2202, and the only way into the dmz." }
+    ports: ["127.0.0.1:2202:22"]
+    networks: [default, dmz]
+    volumes:
+      - ./.state/hostkeys/bastion:/lab/hostkey:ro
+      - ./.state/authorized_keys:/lab/authorized_keys:ro
+
+  app:
+    <<: *host
+    hostname: app
+    environment: { LAB_ROLE: "Inside the dmz. One jump: via bastion." }
+    networks: [dmz]
+    volumes:
+      - ./.state/hostkeys/app:/lab/hostkey:ro
+      - ./.state/authorized_keys:/lab/authorized_keys:ro
+
+  middle:
+    <<: *host
+    hostname: middle
+    environment: { LAB_ROLE: "Second jump host, between the dmz and the core." }
+    networks: [dmz, core]
+    volumes:
+      - ./.state/hostkeys/middle:/lab/hostkey:ro
+      - ./.state/authorized_keys:/lab/authorized_keys:ro
+
+  db:
+    <<: *host
+    hostname: db
+    environment: { LAB_ROLE: "Inside the core. Two jumps: via bastion, then middle." }
+    networks: [core]
+    volumes:
+      - ./.state/hostkeys/db:/lab/hostkey:ro
+      - ./.state/authorized_keys:/lab/authorized_keys:ro
+
+networks:
+  dmz: { internal: true }
+  core: { internal: true }
