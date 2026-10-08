@@ -51,8 +51,8 @@
   Terminal.
 
 <p align="center">
-  <img src="docs/images/sftp.png" alt="The SFTP tab next to a session" width="49%">
-  <img src="docs/images/session-settings.png" alt="Session settings with a jump host" width="49%">
+  <img src="docs/images/sftp.png" alt="The SFTP tab next to a session" width="56%">
+  <img src="docs/images/session-settings.png" alt="Session settings with a jump host" width="42%">
 </p>
 
 ## Install
