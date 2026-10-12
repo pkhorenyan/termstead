@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- A tab shows its session's icon where the status dot was, in the dot's
+  colors: green while connected, red once closed. A quick connection gets the
+  shell icon.
+
 ## [0.1.1] - 2026-10-12
 
 ### Fixed

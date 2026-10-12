@@ -51,13 +51,23 @@ struct TabBarView: View {
         } else {
             isActive ? theme.textMuted.color : .clear
         }
+        // A quick connection has no saved session, so no icon of its own.
+        let icon = tab.sessionID.flatMap { sessionStore.session($0)?.icon } ?? .terminal
 
         return HStack(spacing: 2) {
             Button {
                 connectionStore.activeID = tab.id
             } label: {
-                HStack(spacing: 8) {
-                    StatusDot(color: tab.state.isRunning ? theme.accent.color : theme.ansiRed.color)
+                HStack(spacing: 7) {
+                    // The session's icon takes the place of the status dot, and
+                    // its colour: live or closed reads the same as it did.
+                    Image(systemName: icon.symbolName)
+                        .font(.system(size: 12))
+                        .foregroundStyle((tab.state.isRunning ? theme.accent : theme.ansiRed).color)
+                        // SF Symbols differ in width; a fixed box keeps the
+                        // titles from shifting when an icon changes.
+                        .frame(width: 15)
+                        .accessibilityLabel(tab.state.isRunning ? "Connected" : "Disconnected")
                     Text(tab.title)
                         .font(SBFont.ui(12.5))
                         .foregroundStyle((isActive ? theme.text : theme.textSecondary).color)
