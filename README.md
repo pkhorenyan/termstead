@@ -27,6 +27,9 @@
 - **Sessions in a tree.** Groups and subgroups, colors that the sessions inside
   take on, an icon per session, pinned favorites at the top, search, drag and
   drop to reorder.
+- **Tabs you can arrange.** Each carries its session's icon in its group's
+  color; drag tabs into any order, and when there are more than fit, the strip
+  scrolls with the mouse wheel.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh
@@ -100,7 +103,7 @@ against the project's signing key before it is installed.
 | Settings | ⌘, |
 
 Double-click a session to connect. A closed tab keeps its output — press Return
-to reconnect.
+to reconnect. Drag a tab to move it; the middle mouse button closes it.
 
 ## Build from source
 
