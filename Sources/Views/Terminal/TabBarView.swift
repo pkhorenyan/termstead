@@ -40,8 +40,8 @@ struct TabBarView: View {
                         .onChange(of: connectionStore.activeID) { _, id in reveal(id, in: proxy) }
                 }
             }
-            // First claim on the width; otherwise the spacer below is offered
-            // half of it, and the strip starts scrolling with room to spare.
+            // First claim on the width, ahead of the spacer below, so the
+            // tabs scroll only when they truly do not fit.
             .layoutPriority(1)
 
             Button {

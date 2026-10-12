@@ -628,8 +628,8 @@ These have each cost real time. They are not hypothetical.
   whole content instead: the sidebar slid off the left edge and every title
   was squeezed to nothing. `TabBarView` lays the tabs out plainly while they
   fit and in a horizontal `ScrollView` once they do not (`ViewThatFits`). The
-  strip also needs `layoutPriority(1)`: beside a `Spacer` an `HStack` offers
-  each flexible child half the room, and the strip scrolled with space to spare.
+  strip carries `layoutPriority(1)` so that it, not the `Spacer` beside it, is
+  offered the room first.
 - **A menu shortcut matches by character, Shift included.** "Bigger" is
   ⌘+, and ⌘= alone — the key people press — matched nothing, since `+` takes
   Shift on most layouts. `AppDelegate.plusForEquals` rewrites ⌘= as ⌘+ in a
