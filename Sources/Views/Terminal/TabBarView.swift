@@ -45,7 +45,8 @@ struct TabBarView: View {
 
     private func tabView(_ tab: Connection, index: SessionStore.SessionIndex) -> some View {
         let isActive = connectionStore.active?.id == tab.id
-        let groupColor = GroupColor.rgb(for: tab.sessionID.flatMap { index.colorID[$0] })
+        let colorID = tab.sessionID.flatMap { index.colorID[$0] }
+        let groupColor = GroupColor.rgb(for: colorID)
         let topLine: Color = if let groupColor {
             isActive ? groupColor.color : groupColor.halfStrength
         } else {
@@ -53,24 +54,29 @@ struct TabBarView: View {
         }
         // A quick connection has no saved session, so no icon of its own.
         let icon = tab.sessionID.flatMap { sessionStore.session($0)?.icon } ?? .terminal
+        let isLive = tab.state.isRunning
+        // Colour belongs to the group here, as in the sidebar: red and green
+        // are group colours too, so a red or green icon for closed and live
+        // read as a group. A closed tab fades instead.
+        let iconColor = isLive ? GroupColor.rgb(for: colorID, on: theme) ?? theme.textSecondary : theme.textMuted
+        let titleColor = isLive ? (isActive ? theme.text : theme.textSecondary) : theme.textMuted
 
         return HStack(spacing: 2) {
             Button {
                 connectionStore.activeID = tab.id
             } label: {
                 HStack(spacing: 7) {
-                    // The session's icon takes the place of the status dot, and
-                    // its colour: live or closed reads the same as it did.
                     Image(systemName: icon.symbolName)
                         .font(.system(size: 12))
-                        .foregroundStyle((tab.state.isRunning ? theme.accent : theme.ansiRed).color)
+                        .foregroundStyle(iconColor.color)
+                        .opacity(isLive ? 1 : 0.6)
                         // SF Symbols differ in width; a fixed box keeps the
                         // titles from shifting when an icon changes.
                         .frame(width: 15)
-                        .accessibilityLabel(tab.state.isRunning ? "Connected" : "Disconnected")
+                        .accessibilityLabel(isLive ? "Connected" : "Disconnected")
                     Text(tab.title)
                         .font(SBFont.ui(12.5))
-                        .foregroundStyle((isActive ? theme.text : theme.textSecondary).color)
+                        .foregroundStyle(titleColor.color)
                 }
                 .padding(.leading, 10)
                 .padding(.trailing, 6)

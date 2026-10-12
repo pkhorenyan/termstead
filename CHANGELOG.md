@@ -9,9 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A tab shows its session's icon where the status dot was, in the dot's
-  colors: green while connected, red once closed. A quick connection gets the
-  shell icon.
+- A tab shows its session's icon where the status dot was, in its group's
+  color as in the sidebar; a closed tab fades instead of turning red, since red
+  and green are group colors too. A quick connection gets the shell icon.
 
 ## [0.1.1] - 2026-10-12
 
