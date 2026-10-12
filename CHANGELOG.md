@@ -9,8 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Tabs can be dragged along the strip to put them in another order, and the
-  middle mouse button closes one.
+- Tabs can be dragged along the strip to put them in another order; held
+  near either end of a strip that scrolls, a tab scrolls it along. The middle
+  mouse button closes a tab.
 
 ### Changed
 
@@ -21,8 +22,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - With more tabs than fit, the strip pushed the sidebar off the window's left
-  edge and squeezed every title out. It scrolls now, with a mouse wheel too,
-  and keeps the tab in front in view; a long title is shortened in the middle.
+  edge and squeezed every title out. It scrolls now — with a mouse wheel or a
+  vertical swipe anywhere over it, too — and keeps the tab in front in view;
+  a long title is shortened in the middle.
 
 ## [0.1.1] - 2026-10-12
 

@@ -228,7 +228,7 @@ scripts/release.sh 0.2.0
 | `TestLab/` | Docker SSH servers for manual and automated testing (`lab.sh`), and the screenshot kit in `screenshots/` |
 | `Sources/Theme/` | `Theme` tokens, the six themes, `RGB`, `ThemeStore`, `SBFont` |
 | `Sources/Views/Sidebar/` | The tree: rows, the AppKit mouse layer, the resize handle, and `SidebarTabRail` (Sessions / SFTP down the left edge) |
-| `Sources/Views/Terminal/` | Tab bar and its mouse layer (`TabInteraction`: select, drag to reorder, middle-click), find bar and `TerminalPane` (mounts the active connection's SwiftTerm view, applies the theme) |
+| `Sources/Views/Terminal/` | Tab bar and its mouse layer (`TabInteraction`: select, drag to reorder with edge scrolling, middle-click; `TabStripScrolling`: the wheel), find bar and `TerminalPane` (mounts the active connection's SwiftTerm view, applies the theme) |
 | `Sources/Views/Sheets/` | Session and group forms plus their controls, and the color picker. They are *windows* now, not sheets; the names are historical |
 | `Sources/Views/Files/` | `FilesPanel`, the sidebar's Files tab |
 | `Sources/Views/Settings/` | The Settings window: appearance and terminal behaviour |
@@ -629,7 +629,10 @@ These have each cost real time. They are not hypothetical.
   was squeezed to nothing. `TabBarView` lays the tabs out plainly while they
   fit and in a horizontal `ScrollView` once they do not (`ViewThatFits`). The
   strip carries `layoutPriority(1)` so that it, not the `Spacer` beside it, is
-  offered the room first.
+  offered the room first. A horizontal scroll view ignores a mouse wheel
+  (only Shift or a sideways swipe moves it), and over SwiftUI's own parts of
+  a tab the event never reaches a view of ours, so `TabStripScrolling` takes
+  the wheel for the whole strip in a local event monitor.
 - **A menu shortcut matches by character, Shift included.** "Bigger" is
   ⌘+, and ⌘= alone — the key people press — matched nothing, since `+` takes
   Shift on most layouts. `AppDelegate.plusForEquals` rewrites ⌘= as ⌘+ in a

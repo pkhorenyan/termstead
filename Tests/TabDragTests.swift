@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Termstead
 
@@ -75,5 +76,91 @@ struct TabDragTests {
         view.onMiddleClick = { closed += 1 }
         view.otherMouseDown(with: mouse(.otherMouseDown, x: 10, button: 2))
         #expect(closed == 1)
+    }
+}
+
+/// The strip itself, with more tabs than fit.
+@MainActor
+@Suite(.serialized)
+struct TabStripScrollTests {
+    private func strip(tabs: Int) async throws -> (NSWindow, ConnectionStore) {
+        let connectionStore = ConnectionStore()
+        for n in 1...tabs {
+            connectionStore.add(Connection(sessionID: nil, title: "server-\(n)", address: "h\(n)", keyDescription: ""))
+        }
+        connectionStore.activeID = connectionStore.connections[0].id
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 700, height: Metrics.tabBarHeight),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
+        let themeStore = ThemeStore()
+        window.contentView = NSHostingView(rootView: TabBarView()
+            .environment(themeStore)
+            .environment(SessionStore.sample())
+            .environment(connectionStore)
+            .environment(AppState())
+            .environment(\.theme, themeStore.current))
+        window.orderFront(nil)
+        try await Task.sleep(for: .milliseconds(400))
+        return (window, connectionStore)
+    }
+
+    private func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+        ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { views(type, in: $0) }
+    }
+
+    @Test func theWheelScrollsTheStripAndStopsAtItsEnds() async throws {
+        let (window, _) = try await strip(tabs: 16)
+        defer { window.close() }
+        let helper = try #require(views(TabStripScrollingView.self, in: window.contentView!).first)
+        let scrollView = try #require(helper.enclosingScrollView, "the strip did not scroll")
+        let clip = scrollView.contentView
+        #expect(clip.bounds.minX == 0)
+
+        helper.wheel(-1, precise: true, in: scrollView)
+        helper.wheel(-30, precise: true, in: scrollView)
+        #expect(clip.bounds.minX == 31)
+
+        // Three notches of a mouse wheel, gliding into place.
+        for _ in 1...3 { helper.wheel(-1, precise: false, in: scrollView) }
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(clip.bounds.minX == 31 + 3 * TabStripScrollingView.wheelStep)
+
+        helper.wheel(-100_000, precise: true, in: scrollView)
+        let end = scrollView.documentView!.frame.width - clip.bounds.width
+        #expect(clip.bounds.minX == end)
+        helper.wheel(100_000, precise: true, in: scrollView)
+        #expect(clip.bounds.minX == 0)
+    }
+
+    @Test func aTabHeldAtTheEdgeScrollsTheStripAndMovesAlong() async throws {
+        let (window, store) = try await strip(tabs: 16)
+        defer { window.close() }
+        let first = store.connections[0].id
+        let tabs = views(TabInteractionView.self, in: window.contentView!)
+        let tab = try #require(tabs.min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX })
+        let scrollView = try #require(tab.enclosingScrollView)
+        let start = tab.convert(NSPoint(x: tab.bounds.midX, y: tab.bounds.midY), to: nil)
+        let edge = scrollView.convert(NSPoint(x: scrollView.bounds.maxX - 4, y: 0), to: nil).x
+
+        func mouse(_ type: NSEvent.EventType, x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: start.y), modifierFlags: [],
+                               timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                               eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        tab.mouseDown(with: mouse(.leftMouseDown, x: start.x))
+        tab.mouseDragged(with: mouse(.leftMouseDragged, x: (start.x + edge) / 2))
+        tab.mouseDragged(with: mouse(.leftMouseDragged, x: edge))
+        // The pointer stays put at the edge; the strip keeps going.
+        try await Task.sleep(for: .milliseconds(800))
+        let scrolled = scrollView.contentView.bounds.minX
+        let slot = store.connections.firstIndex { $0.id == first } ?? 0
+        tab.mouseUp(with: mouse(.leftMouseUp, x: edge))
+        try await Task.sleep(for: .milliseconds(100))
+        let afterRelease = scrollView.contentView.bounds.minX
+
+        #expect(scrolled > 300, "the strip did not follow the tab")
+        #expect(slot > 5, "the tab did not pass the tabs scrolling under it")
+        #expect(afterRelease == scrolled, "scrolling went on after the drag ended")
     }
 }

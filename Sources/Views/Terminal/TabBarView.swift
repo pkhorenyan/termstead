@@ -34,7 +34,7 @@ struct TabBarView: View {
             ViewThatFits(in: .horizontal) {
                 tabRow(index)
                 ScrollViewReader { proxy in
-                    ScrollView(.horizontal) { tabRow(index) }
+                    ScrollView(.horizontal) { tabRow(index).background(TabStripScrolling()) }
                         .scrollIndicators(.never)
                         .onAppear { reveal(connectionStore.activeID, in: proxy) }
                         .onChange(of: connectionStore.activeID) { _, id in reveal(id, in: proxy) }

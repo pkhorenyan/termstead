@@ -36,53 +36,103 @@ final class TabInteractionView: NSView {
     /// How far the pointer moves before a press becomes a drag, so a click
     /// with a slight wobble still only selects.
     static let dragThreshold: CGFloat = 4
+    /// How close to either end of a scrolling strip a dragged tab starts it
+    /// moving, and how fast it moves at the very edge (points per second).
+    static let edgeZone: CGFloat = 48
+    static let edgeSpeed: CGFloat = 900
 
     private var pressX: CGFloat?
+    private var pointer: NSPoint?
     private var isDragging = false
+    private var edgeTimer: Timer?
+    private var lastTick = Date()
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// Where the pointer is along the strip. In a scrolling strip it is
+    /// measured in the scrolled content, so the tab stays under the pointer
+    /// while the strip moves beneath it; this view itself moves with the tab.
+    private func stripX(_ windowPoint: NSPoint) -> CGFloat {
+        guard let document = enclosingScrollView?.documentView else { return windowPoint.x }
+        return document.convert(windowPoint, from: nil).x
+    }
+
     override func mouseDown(with event: NSEvent) {
-        // Window coordinates: the tab moves under the pointer while it is
-        // dragged, so a position inside this view would not measure travel.
-        pressX = event.locationInWindow.x
+        pressX = stripX(event.locationInWindow)
+        pointer = event.locationInWindow
         isDragging = false
         onSelect()
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let pressX else { return }
-        let travel = event.locationInWindow.x - pressX
+        pointer = event.locationInWindow
+        reportTravel()
+        updateEdgeScrolling()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        stopEdgeScrolling()
+        if isDragging { onDragEnd() }
+        pressX = nil
+        pointer = nil
+        isDragging = false
+    }
+
+    private func reportTravel() {
+        guard let pressX, let pointer else { return }
+        let travel = stripX(pointer) - pressX
         guard isDragging || abs(travel) >= Self.dragThreshold else { return }
         isDragging = true
         onDrag(travel)
     }
 
-    override func mouseUp(with event: NSEvent) {
-        if isDragging { onDragEnd() }
-        pressX = nil
-        isDragging = false
-    }
-
-    /// Points per line a mouse wheel reports.
-    private static let wheelLine: CGFloat = 16
-
-    /// A mouse wheel turns vertically and the strip scrolls only sideways, so
-    /// without this a full strip moved only with Shift held. A trackpad's
-    /// sideways swipe already scrolls it and passes through untouched.
-    override func scrollWheel(with event: NSEvent) {
-        guard !event.hasPreciseScrollingDeltas, event.scrollingDeltaX == 0, event.scrollingDeltaY != 0,
-              let scrollView = enclosingScrollView, let document = scrollView.documentView else {
-            super.scrollWheel(with: event)
+    /// Scrolls the strip while a dragged tab is held near either end — the
+    /// pointer usually stops there, so no drag events arrive to do it.
+    private func updateEdgeScrolling() {
+        guard isDragging, edgeSpeedNow() != 0 else {
+            stopEdgeScrolling()
             return
         }
-        let clip = scrollView.contentView
-        let limit = max(document.frame.width - clip.bounds.width, 0)
-        var origin = clip.bounds.origin
-        origin.x = min(max(origin.x - event.scrollingDeltaY * Self.wheelLine, 0), limit)
-        clip.scroll(to: origin)
-        scrollView.reflectScrolledClipView(clip)
+        guard edgeTimer == nil else { return }
+        lastTick = Date()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.edgeTick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        edgeTimer = timer
+    }
+
+    private func stopEdgeScrolling() {
+        edgeTimer?.invalidate()
+        edgeTimer = nil
+    }
+
+    /// Faster the closer the pointer is to the edge, full speed past it.
+    private func edgeSpeedNow() -> CGFloat {
+        guard let pointer, let scrollView = enclosingScrollView else { return 0 }
+        let x = scrollView.convert(pointer, from: nil).x
+        let width = scrollView.bounds.width
+        if x > width - Self.edgeZone {
+            return Self.edgeSpeed * min((x - (width - Self.edgeZone)) / Self.edgeZone, 1)
+        }
+        if x < Self.edgeZone {
+            return -Self.edgeSpeed * min((Self.edgeZone - x) / Self.edgeZone, 1)
+        }
+        return 0
+    }
+
+    private func edgeTick() {
+        let now = Date()
+        let elapsed = CGFloat(now.timeIntervalSince(lastTick))
+        lastTick = now
+        let speed = edgeSpeedNow()
+        guard isDragging, speed != 0, let scrollView = enclosingScrollView else {
+            stopEdgeScrolling()
+            return
+        }
+        TabStripScrollingView.scroll(scrollView, by: speed * elapsed)
+        reportTravel()
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -91,6 +141,85 @@ final class TabInteractionView: NSView {
             return
         }
         onMiddleClick()
+    }
+}
+
+/// Lets a full strip of tabs scroll with what most people turn: a mouse
+/// wheel or a vertical swipe. The scroll view on its own moves only for a
+/// sideways swipe, or with Shift held. Sits behind the tabs, inside the
+/// scroll view, and catches the wheel anywhere over the strip — over the
+/// close buttons and the gaps too, which belong to SwiftUI.
+struct TabStripScrolling: NSViewRepresentable {
+    func makeNSView(context: Context) -> TabStripScrollingView { TabStripScrollingView() }
+    func updateNSView(_ view: TabStripScrollingView, context: Context) {}
+}
+
+final class TabStripScrollingView: NSView {
+    /// Points one notch of a mouse wheel moves the strip.
+    static let wheelStep: CGFloat = 40
+
+    private var monitor: Any?
+    /// Where the notches so far are taking the strip, so quick notches add
+    /// up instead of each starting from wherever the glide has got to.
+    private var wheelTarget: CGFloat?
+    private var lastWheel = Date.distantPast
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        guard window != nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            let taken = MainActor.assumeIsolated { self?.take(event) == true }
+            return taken ? nil : event
+        }
+    }
+
+    /// Moves the strip by `delta` points, within its ends.
+    static func scroll(_ scrollView: NSScrollView, by delta: CGFloat) {
+        let clip = scrollView.contentView
+        var origin = clip.bounds.origin
+        origin.x = clamped(origin.x + delta, in: scrollView)
+        clip.scroll(to: origin)
+        scrollView.reflectScrolledClipView(clip)
+    }
+
+    private static func clamped(_ x: CGFloat, in scrollView: NSScrollView) -> CGFloat {
+        let limit = max((scrollView.documentView?.frame.width ?? 0) - scrollView.contentView.bounds.width, 0)
+        return min(max(x, 0), limit)
+    }
+
+    private func take(_ event: NSEvent) -> Bool {
+        guard event.window === window, let scrollView = enclosingScrollView,
+              scrollView.bounds.contains(scrollView.convert(event.locationInWindow, from: nil)),
+              // A sideways swipe is the scroll view's own, momentum and all.
+              abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return false }
+
+        wheel(event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas, in: scrollView)
+        return true
+    }
+
+    /// Down or towards you moves the strip on to the tabs further right.
+    func wheel(_ deltaY: CGFloat, precise: Bool, in scrollView: NSScrollView) {
+        if precise {
+            // A trackpad or Magic Mouse: already smooth, point for point.
+            wheelTarget = nil
+            Self.scroll(scrollView, by: -deltaY)
+            return
+        }
+        let clip = scrollView.contentView
+        let gliding = Date().timeIntervalSince(lastWheel) < 0.3
+        let start = gliding ? wheelTarget ?? clip.bounds.minX : clip.bounds.minX
+        let target = Self.clamped(start - deltaY * Self.wheelStep, in: scrollView)
+        wheelTarget = target
+        lastWheel = Date()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            clip.animator().setBoundsOrigin(NSPoint(x: target, y: clip.bounds.minY))
+        }
     }
 }
 
