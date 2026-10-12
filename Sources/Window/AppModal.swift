@@ -1,5 +1,12 @@
 import AppKit
+import OSLog
 import SwiftUI
+
+/// When modality starts and stops, at debug level: a form that stays modal
+/// after it has gone looks like a frozen window, and the order of these is
+/// the only way to tell. `log stream --level debug --predicate
+/// 'subsystem == "com.pavelkhorenyan.Termstead"'` shows them.
+let modalLog = Logger(subsystem: "com.pavelkhorenyan.Termstead", category: "modal")
 
 /// Runs a window app-modal, like `NSAlert`: until it closes, the app's other
 /// windows take no clicks, no keys — and cannot be dragged either.
@@ -24,16 +31,25 @@ enum AppModal {
     static func begin(_ window: NSWindow, stillWanted: @escaping @MainActor () -> Bool = { true }) {
         RunLoop.main.perform(inModes: [.default]) { [weak window] in
             MainActor.assumeIsolated {
-                guard let window, window.isVisible, NSApp.modalWindow == nil, stillWanted() else { return }
+                guard let window, window.isVisible, NSApp.modalWindow == nil, stillWanted() else {
+                    modalLog.debug("modal skipped: visible \(window?.isVisible ?? false, privacy: .public), other modal \(NSApp.modalWindow?.title ?? "none", privacy: .public)")
+                    return
+                }
+                modalLog.debug("modal begins: \(window.title, privacy: .public)")
                 freezeOthers(except: window)
                 NSApp.runModal(for: window)
                 thaw()
+                modalLog.debug("modal ended: \(window.title, privacy: .public)")
             }
         }
     }
 
     static func end(_ window: NSWindow) {
-        guard NSApp.modalWindow === window else { return }
+        guard NSApp.modalWindow === window else {
+            modalLog.debug("stop not needed: \(window.title, privacy: .public); modal is \(NSApp.modalWindow?.title ?? "none", privacy: .public)")
+            return
+        }
+        modalLog.debug("stop requested: \(window.title, privacy: .public)")
         NSApp.stopModal()
         // `stopModal` takes effect once the current event is handled. When the
         // close was not itself an event — a state change — nothing would come

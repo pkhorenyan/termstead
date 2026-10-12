@@ -115,6 +115,7 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
     /// modal loop has to be stopped from inside it, and the route change alone
     /// would leave the app blocked until something else woke it.
     private func requestClose() {
+        modalLog.debug("form asked to close: \(self.window?.title ?? "none", privacy: .public)")
         inheritedCorner = nil
         close()
         onClose?()
@@ -153,6 +154,7 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
 
         self.window = window
         shownRoute = route.id
+        modalLog.debug("form opens: \(window.title, privacy: .public)")
 
         place(window)
         // A child window rather than a free-floating one: it cannot end up lost
