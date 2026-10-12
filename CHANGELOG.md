@@ -7,6 +7,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The icon picker in the session form came up empty: the space was there, the
+  icons were not.
+
 ## [0.1.0] - 2026-10-08
 
 The first public release, 0.1.0.

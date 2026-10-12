@@ -617,6 +617,12 @@ These have each cost real time. They are not hypothetical.
   Release build regenerates it from the executable it did not relink — one
   that has already lost its debug information — and warns per architecture.
   A clean build (and so `release.sh`'s archive) has no warning; check there.
+- **A `LazyVGrid` outside a scroll view can stay empty in a form window.** The
+  session form's icon grid kept its height and never made its cells, on
+  screen only: an image of the same form taken with `cacheDisplay` (in a test,
+  plain or modal, or built as `FormWindowHost` builds it) showed every icon,
+  so no test caught it. It is a plain `Grid` now. Use `Grid` for small fixed
+  sets; keep the lazy stacks for the long lists inside a `ScrollView`.
 - **A menu shortcut matches by character, Shift included.** "Bigger" is
   ⌘+, and ⌘= alone — the key people press — matched nothing, since `+` takes
   Shift on most layouts. `AppDelegate.plusForEquals` rewrites ⌘= as ⌘+ in a

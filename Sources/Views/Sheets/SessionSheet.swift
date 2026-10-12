@@ -248,37 +248,50 @@ struct SessionSheet: View {
         )
     }
 
+    /// A plain `Grid`, not a `LazyVGrid`: in the form window the lazy grid kept
+    /// its height but never made its cells, and the icons were simply missing
+    /// (an image of the form rendered with `cacheDisplay` showed them, so only
+    /// the real window gave it away). Twelve icons gain nothing from laziness.
     private var iconPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let icons = SessionIcon.allCases
+        let perRow = 6
+        return VStack(alignment: .leading, spacing: 6) {
             FormLabel("Icon")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6),
-                      spacing: 6) {
-                ForEach(SessionIcon.allCases) { candidate in
-                    let isOn = candidate == icon
-                    Button { icon = candidate } label: {
-                        Image(systemName: candidate.symbolName)
-                            .font(.system(size: 14))
-                            .foregroundStyle(isOn ? (sessionColor ?? theme.accent).color
-                                                  : theme.textSecondary.color)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 34)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(isOn ? (sessionColor?.tileFill ?? theme.accent.tileFill)
-                                               : theme.field.color)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(isOn ? (sessionColor ?? theme.accent).color
-                                                       : theme.border.color, lineWidth: 1)
-                            )
+            Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+                ForEach(Array(stride(from: 0, to: icons.count, by: perRow)), id: \.self) { start in
+                    GridRow {
+                        ForEach(icons[start..<min(start + perRow, icons.count)]) { candidate in
+                            iconButton(candidate)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(candidate.label)
-                    .accessibilityAddTraits(isOn ? .isSelected : [])
                 }
             }
         }
+    }
+
+    private func iconButton(_ candidate: SessionIcon) -> some View {
+        let isOn = candidate == icon
+        return Button { icon = candidate } label: {
+            Image(systemName: candidate.symbolName)
+                .font(.system(size: 14))
+                .foregroundStyle(isOn ? (sessionColor ?? theme.accent).color
+                                      : theme.textSecondary.color)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isOn ? (sessionColor?.tileFill ?? theme.accent.tileFill)
+                                   : theme.field.color)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(isOn ? (sessionColor ?? theme.accent).color
+                                           : theme.border.color, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(candidate.label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
     /// The session's color and the pin. A colored group sets the color of
