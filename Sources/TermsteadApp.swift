@@ -218,8 +218,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            Self.plusForEquals(event) ?? event
+            if event.keyCode == 53 {
+                MainActor.assumeIsolated { Self.traceEscape(event) }
+            }
+            return Self.plusForEquals(event) ?? event
         }
+    }
+
+    /// Where Escape is headed, for the modal log: which window has the
+    /// keyboard and what inside it will see the key first.
+    private static func traceEscape(_ event: NSEvent) {
+        let responder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
+        modalLog.debug("escape: key window \(NSApp.keyWindow?.title ?? "none", privacy: .public), responder \(responder, privacy: .public), modal \(NSApp.modalWindow?.title ?? "none", privacy: .public), event window \(event.window?.title ?? "none", privacy: .public)")
     }
 
     /// ⌘= as ⌘+. "Bigger" is ⌘+, which takes Shift on most layouts, and AppKit

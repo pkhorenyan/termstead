@@ -114,6 +114,7 @@ struct AppearanceView: View {
         HStack(spacing: 10) {
             Spacer(minLength: 0)
             Button("Cancel") {
+                modalLog.debug("settings: Cancel")
                 if let original { themeStore.restore(original) }
                 dismiss()
             }

@@ -73,6 +73,8 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
     /// Where a form was standing when it gave way to another one, so swapping
     /// forms does not throw the window back into the middle of the screen.
     private var inheritedCorner: NSPoint?
+    /// Set while a form window is being closed; see `present`.
+    private var isClosing = false
 
     /// How far below the parent's top edge a form lands, roughly where a sheet
     /// used to sit.
@@ -80,6 +82,12 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
 
     func present(route: AppState.Route, theme: Theme, themeStore: ThemeStore,
                  sessionStore: SessionStore, connectionStore: ConnectionStore) {
+        // Closing the form hands the keyboard back to the main window, and
+        // SwiftUI can update the presenter right there, inside the close. With
+        // the window already let go, that update opened the form again: a
+        // second, modal window the host no longer knew about, which nothing
+        // could close (Escape over Session settings did it).
+        guard !isClosing else { return }
         if shownRoute != route.id {
             // A fresh window rather than new content in the old one: swapping the
             // hosted view leaves the window with no first responder, and
@@ -116,9 +124,11 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
     /// would leave the app blocked until something else woke it.
     private func requestClose() {
         modalLog.debug("form asked to close: \(self.window?.title ?? "none", privacy: .public)")
+        // The route first, so nothing that runs during the close still sees
+        // this form as wanted.
+        onClose?()
         inheritedCorner = nil
         close()
-        onClose?()
     }
 
     private func open(route: AppState.Route, themeStore: ThemeStore,
@@ -182,6 +192,8 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
         window.delegate = nil
         self.window = nil
         shownRoute = nil
+        isClosing = true
+        defer { isClosing = false }
         window.close()
     }
 
@@ -208,13 +220,17 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
 final class FormWindow: NSWindow {
     var onCancel: (() -> Void)?
 
-    override func cancelOperation(_ sender: Any?) { onCancel?() }
+    override func cancelOperation(_ sender: Any?) {
+        modalLog.debug("escape reached the form: cancelOperation")
+        onCancel?()
+    }
 
     override func keyDown(with event: NSEvent) {
         guard event.keyCode == 53 else {
             super.keyDown(with: event)
             return
         }
+        modalLog.debug("escape reached the form: keyDown")
         onCancel?()
     }
 }

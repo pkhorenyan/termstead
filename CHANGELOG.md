@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Escape in Session settings closed the form and opened it straight away
+  again, in a window nothing could close, while the rest of the app ignored
+  every click.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added

@@ -106,6 +106,61 @@ struct FormModalityTests {
         #expect(parent.childWindows?.isEmpty ?? true)
     }
 
+    /// Stands in for `FormWindowPresenter`: the route, and a sync that
+    /// presents or dismisses for it, as an update of the presenter does.
+    @MainActor private final class Presenter {
+        let host = FormWindowHost()
+        var route: AppState.Route?
+        let themeStore = ThemeStore()
+        let sessionStore = SessionStore.sample()
+        let connectionStore = ConnectionStore()
+
+        func sync() {
+            guard let route else {
+                host.dismiss()
+                return
+            }
+            host.present(route: route, theme: .graphite, themeStore: themeStore,
+                         sessionStore: sessionStore, connectionStore: connectionStore)
+        }
+    }
+
+    /// Escape over Session settings closed the form and opened it again: closing
+    /// it handed the keyboard back to the main window, SwiftUI updated the
+    /// presenter right there, inside the close, and the route was still set.
+    /// The second window was modal and no longer the host's, so nothing could
+    /// close it.
+    @Test func anUpdateDuringTheCloseDoesNotOpenTheFormAgain() async throws {
+        let parent = testWindow(NSRect(x: 200, y: 200, width: 900, height: 600), [.titled])
+        parent.orderFront(nil)
+        defer { parent.close() }
+
+        let presenter = Presenter()
+        presenter.host.parent = parent
+        presenter.route = .sessionSettings(id: "staging-app")
+        presenter.host.onClose = { presenter.route = nil }
+        presenter.sync()
+        try await settle { NSApp.modalWindow != nil }
+        let form = try #require(NSApp.modalWindow)
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: form, queue: nil
+        ) { _ in
+            MainActor.assumeIsolated { presenter.sync() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        form.cancelOperation(nil)
+        try await settle { NSApp.modalWindow == nil }
+        try await Task.sleep(for: .milliseconds(300))
+
+        let open = NSApp.windows.filter { $0.isVisible && $0.title == "Session settings" }
+        for window in open { AppModal.end(window); window.close() }
+        #expect(open.isEmpty, "the form came back")
+        #expect(NSApp.modalWindow == nil)
+        #expect(presenter.route == nil)
+    }
+
     /// How the Appearance window is made modal: SwiftUI creates that window, so
     /// the view inside it does the work.
     @Test func aSwiftUIWindowWithModalWhileOpenBlocksTheAppUntilItCloses() async throws {

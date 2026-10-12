@@ -503,6 +503,17 @@ These have each cost real time. They are not hypothetical.
   the current event, so a close that comes from a state change posts a wake-up
   event, and the form closes itself rather than waiting for SwiftUI to apply the
   cleared route.
+- **Closing a form can update its presenter from inside the close.** The
+  window hands the keyboard back to the main window, and SwiftUI may run
+  `FormWindowPresenter.updateNSView` right there. While the route was still
+  set, that update opened the form again — a second, modal window the host had
+  already let go of, so nothing could close it. Escape over Session settings
+  did it, with a sidebar row holding the main window's focus; tests (with the
+  app inactive, so no key-window change) never saw it. `FormWindowHost` clears
+  the route before closing and ignores `present` while a close is under way.
+  `log stream --level debug --predicate 'subsystem == "com.pavelkhorenyan.Termstead"
+  AND category == "modal"'` shows each form's open, modal begin and end, and
+  where Escape went.
 - **An NSWindow created in Swift must set `isReleasedWhenClosed = false`.**
   Otherwise closing releases it on top of ARC, and the close animation later
   touches freed memory — in the tests this crashed the host mid-suite and
