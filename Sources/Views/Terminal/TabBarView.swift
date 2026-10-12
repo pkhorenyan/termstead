@@ -77,7 +77,7 @@ struct TabBarView: View {
                 tabView(tab, index: index)
                     .overlay(alignment: .trailing) { Divider1(theme.border, vertical: true) }
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { widths[tab.id] = $0 }
-                    .offset(x: isDragged ? drag?.offset ?? 0 : 0)
+                    .offset(x: isDragged ? shownOffset(of: tab) : 0)
                     .zIndex(isDragged ? 1 : 0)
                     // The dragged tab follows the pointer exactly: when it
                     // takes a neighbour's slot, its slot and its offset change
@@ -85,6 +85,13 @@ struct TabBarView: View {
                     .transaction { if isDragged { $0.animation = nil } }
             }
         }
+    }
+
+    private func shownOffset(of tab: Connection) -> CGFloat {
+        guard let drag else { return 0 }
+        let tabs = connectionStore.connections
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return 0 }
+        return TabReorder.clamped(drag.offset, at: index, widths: tabs.map { widths[$0.id] ?? 0 })
     }
 
     private func reveal(_ id: UUID?, in proxy: ScrollViewProxy) {

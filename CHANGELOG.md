@@ -7,6 +7,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- A dragged tab stops at the ends of the strip instead of sliding past the
+  first slot or over the "+" button.
+
 ### Fixed
 
 - Escape in Session settings closed the form and opened it straight away

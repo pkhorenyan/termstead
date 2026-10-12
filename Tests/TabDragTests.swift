@@ -26,6 +26,17 @@ struct TabDragTests {
         #expect(TabReorder.slot(from: 0, offset: -900, widths: widths).index == 0)
     }
 
+    @Test func aDraggedTabStopsAtTheEndsOfTheStrip() {
+        let widths: [CGFloat] = [100, 160, 80]
+        // The first tab cannot go left of the strip, the last not past it.
+        #expect(TabReorder.clamped(-50, at: 0, widths: widths) == 0)
+        #expect(TabReorder.clamped(500, at: 2, widths: widths) == 0)
+        // The middle one has 100 to its left and 80 to its right.
+        #expect(TabReorder.clamped(-300, at: 1, widths: widths) == -100)
+        #expect(TabReorder.clamped(300, at: 1, widths: widths) == 80)
+        #expect(TabReorder.clamped(30, at: 1, widths: widths) == 30)
+    }
+
     @Test func movingKeepsEveryTabAndTheOneInFront() {
         let store = ConnectionStore()
         for name in ["a", "b", "c"] {

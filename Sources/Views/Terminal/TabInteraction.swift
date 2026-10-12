@@ -250,4 +250,14 @@ enum TabReorder {
         }
         return (target, shift)
     }
+
+    /// Where a dragged tab is drawn: it follows the pointer, but stops at
+    /// either end of the strip instead of sliding past the first slot or over
+    /// the "+" button, where there is nowhere left to go.
+    static func clamped(_ offset: CGFloat, at index: Int, widths: [CGFloat]) -> CGFloat {
+        guard widths.indices.contains(index) else { return 0 }
+        let before = widths[..<index].reduce(0, +)
+        let after = widths[(index + 1)...].reduce(0, +)
+        return min(max(offset, -before), after)
+    }
 }
