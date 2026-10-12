@@ -199,6 +199,9 @@ enum Metrics {
     /// The narrowest still fits the SFTP toolbar's seven buttons.
     static let sidebarWidthRange: ClosedRange<Double> = 230...434
     static let tabBarHeight: CGFloat = 38
+    /// The longest a tab's title gets before it is shortened in the middle,
+    /// where a host name and a port both stay readable.
+    static let tabTitleMaxWidth: CGFloat = 180
     static let statusBarHeight: CGFloat = 26
     static let defaultWindowSize = CGSize(width: 1280, height: 800)
     // Wide enough that the toolbar still fits with the sidebar dragged out to

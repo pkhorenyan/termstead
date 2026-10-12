@@ -94,6 +94,13 @@ final class ConnectionStore {
         }
     }
 
+    /// Moves a tab along the strip, to the slot it is dragged to.
+    func move(_ id: UUID, to index: Int) {
+        guard let from = connections.firstIndex(where: { $0.id == id }),
+              connections.indices.contains(index), from != index else { return }
+        connections.insert(connections.remove(at: from), at: index)
+    }
+
     /// A tab with ssh still running ends a session someone may be using; an
     /// exited one has nothing left to lose.
     func needsCloseConfirmation(_ id: UUID, setting: Bool) -> Bool {

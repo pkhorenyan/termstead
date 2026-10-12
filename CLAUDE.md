@@ -228,7 +228,7 @@ scripts/release.sh 0.2.0
 | `TestLab/` | Docker SSH servers for manual and automated testing (`lab.sh`), and the screenshot kit in `screenshots/` |
 | `Sources/Theme/` | `Theme` tokens, the six themes, `RGB`, `ThemeStore`, `SBFont` |
 | `Sources/Views/Sidebar/` | The tree: rows, the AppKit mouse layer, the resize handle, and `SidebarTabRail` (Sessions / SFTP down the left edge) |
-| `Sources/Views/Terminal/` | Tab bar, find bar and `TerminalPane` (mounts the active connection's SwiftTerm view, applies the theme) |
+| `Sources/Views/Terminal/` | Tab bar and its mouse layer (`TabInteraction`: select, drag to reorder, middle-click), find bar and `TerminalPane` (mounts the active connection's SwiftTerm view, applies the theme) |
 | `Sources/Views/Sheets/` | Session and group forms plus their controls, and the color picker. They are *windows* now, not sheets; the names are historical |
 | `Sources/Views/Files/` | `FilesPanel`, the sidebar's Files tab |
 | `Sources/Views/Settings/` | The Settings window: appearance and terminal behaviour |
@@ -623,6 +623,13 @@ These have each cost real time. They are not hypothetical.
   plain or modal, or built as `FormWindowHost` builds it) showed every icon,
   so no test caught it. It is a plain `Grid` now. Use `Grid` for small fixed
   sets; keep the lazy stacks for the long lists inside a `ScrollView`.
+- **A row of tabs cannot shrink below its icons and buttons.** With enough
+  tabs the strip's minimum width passed the window's, and SwiftUI widened the
+  whole content instead: the sidebar slid off the left edge and every title
+  was squeezed to nothing. `TabBarView` lays the tabs out plainly while they
+  fit and in a horizontal `ScrollView` once they do not (`ViewThatFits`). The
+  strip also needs `layoutPriority(1)`: beside a `Spacer` an `HStack` offers
+  each flexible child half the room, and the strip scrolled with space to spare.
 - **A menu shortcut matches by character, Shift included.** "Bigger" is
   ⌘+, and ⌘= alone — the key people press — matched nothing, since `+` takes
   Shift on most layouts. `AppDelegate.plusForEquals` rewrites ⌘= as ⌘+ in a

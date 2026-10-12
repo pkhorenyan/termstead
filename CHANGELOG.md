@@ -7,11 +7,22 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Tabs can be dragged along the strip to put them in another order, and the
+  middle mouse button closes one.
+
 ### Changed
 
 - A tab shows its session's icon where the status dot was, in its group's
   color as in the sidebar; a closed tab fades instead of turning red, since red
   and green are group colors too. A quick connection gets the shell icon.
+
+### Fixed
+
+- With more tabs than fit, the strip pushed the sidebar off the window's left
+  edge and squeezed every title out. It scrolls now, with a mouse wheel too,
+  and keeps the tab in front in view; a long title is shortened in the middle.
 
 ## [0.1.1] - 2026-10-12
 

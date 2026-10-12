@@ -7,15 +7,42 @@ struct TabBarView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeStore.self) private var themeStore
 
+    /// The tab being dragged along the strip.
+    @State private var drag: TabDrag?
+    /// Each tab's width, which decides when a dragged tab has passed one.
+    @State private var widths: [UUID: CGFloat] = [:]
+
+    private struct TabDrag {
+        var id: UUID
+        /// The pointer's travel since the press.
+        var travel: CGFloat = 0
+        /// How far the tab's slot has moved as it passed its neighbours.
+        var shift: CGFloat = 0
+        /// Where the tab is drawn, measured from its slot.
+        var offset: CGFloat { travel - shift }
+    }
+
     var body: some View {
         // Walked once for the whole strip rather than once per tab.
         let index = sessionStore.sessionIndex
 
         return HStack(spacing: 0) {
-            ForEach(connectionStore.connections) { tab in
-                tabView(tab, index: index)
-                    .overlay(alignment: .trailing) { Divider1(theme.border, vertical: true) }
+            // Laid out in a plain row while the tabs fit, and scrolled once
+            // they do not. A row alone cannot shrink below its tabs' icons and
+            // buttons, so many tabs widened the window's content and pushed
+            // the sidebar off its left edge.
+            ViewThatFits(in: .horizontal) {
+                tabRow(index)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) { tabRow(index) }
+                        .scrollIndicators(.never)
+                        .onAppear { reveal(connectionStore.activeID, in: proxy) }
+                        .onChange(of: connectionStore.activeID) { _, id in reveal(id, in: proxy) }
+                }
             }
+            // First claim on the width; otherwise the spacer below is offered
+            // half of it, and the strip starts scrolling with room to spare.
+            .layoutPriority(1)
 
             Button {
                 // A new tab to somewhere new. Another shell on a session already
@@ -41,6 +68,51 @@ struct TabBarView: View {
         // chrome. The strip above the tabs is painted by this view's own
         // background, applied in `MainView`, which still bleeds and is meant to.
         .clipped()
+    }
+
+    private func tabRow(_ index: SessionStore.SessionIndex) -> some View {
+        HStack(spacing: 0) {
+            ForEach(connectionStore.connections) { tab in
+                let isDragged = drag?.id == tab.id
+                tabView(tab, index: index)
+                    .overlay(alignment: .trailing) { Divider1(theme.border, vertical: true) }
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { widths[tab.id] = $0 }
+                    .offset(x: isDragged ? drag?.offset ?? 0 : 0)
+                    .zIndex(isDragged ? 1 : 0)
+                    // The dragged tab follows the pointer exactly: when it
+                    // takes a neighbour's slot, its slot and its offset change
+                    // together and must not animate apart. The neighbours slide.
+                    .transaction { if isDragged { $0.animation = nil } }
+            }
+        }
+    }
+
+    private func reveal(_ id: UUID?, in proxy: ScrollViewProxy) {
+        guard let id else { return }
+        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+    }
+
+    private func dragTab(_ id: UUID, travel: CGFloat) {
+        var state = drag.flatMap { $0.id == id ? $0 : nil } ?? TabDrag(id: id)
+        state.travel = travel
+        let tabs = connectionStore.connections
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let slot = TabReorder.slot(from: from, offset: state.offset,
+                                   widths: tabs.map { widths[$0.id] ?? 0 })
+        guard slot.index != from else {
+            drag = state
+            return
+        }
+        state.shift += slot.shift
+        withAnimation(.easeOut(duration: 0.15)) {
+            connectionStore.move(id, to: slot.index)
+            drag = state
+        }
+    }
+
+    private func endDrag() {
+        // Settles into its slot from wherever the pointer left it.
+        withAnimation(.easeOut(duration: 0.15)) { drag = nil }
     }
 
     private func tabView(_ tab: Connection, index: SessionStore.SessionIndex) -> some View {
@@ -77,6 +149,12 @@ struct TabBarView: View {
                     Text(tab.title)
                         .font(SBFont.ui(12.5))
                         .foregroundStyle(titleColor.color)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        // Capped, so one long address does not take the strip;
+                        // fixed, so a short title is not stretched to the cap.
+                        .frame(maxWidth: Metrics.tabTitleMaxWidth, alignment: .leading)
+                        .fixedSize()
                 }
                 .padding(.leading, 10)
                 .padding(.trailing, 6)
@@ -84,6 +162,16 @@ struct TabBarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .overlay {
+                TabInteraction(
+                    onSelect: { connectionStore.activeID = tab.id },
+                    onMiddleClick: {
+                        appState.requestClose(tab.id, in: connectionStore,
+                                              confirm: themeStore.confirmClosingConnection)
+                    },
+                    onDrag: { dragTab(tab.id, travel: $0) },
+                    onDragEnd: endDrag)
+            }
 
             Button {
                 appState.requestClose(tab.id, in: connectionStore,
