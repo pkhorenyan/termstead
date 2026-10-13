@@ -156,6 +156,17 @@ struct TermsteadApp: App {
             }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(connectionStore.active == nil || formIsOpen)
+            Divider()
+            // ⇧⌘[ and ⇧⌘], as in Safari, Terminal and Xcode. Declared as the
+            // characters those keys type, "{" and "}" with ⌘, the way Terminal
+            // does: a menu matches by character, and "[" with ⇧⌘ never sees
+            // the "}" the keyboard sends (see `TabKeysTests`).
+            Button("Show Previous Tab") { connectionStore.showTab(offset: -1) }
+                .keyboardShortcut("{", modifiers: .command)
+                .disabled(connectionStore.connections.count < 2 || formIsOpen)
+            Button("Show Next Tab") { connectionStore.showTab(offset: 1) }
+                .keyboardShortcut("}", modifiers: .command)
+                .disabled(connectionStore.connections.count < 2 || formIsOpen)
         }
         if DevelopmentLaunch.isActive {
             CommandMenu("Debug") {

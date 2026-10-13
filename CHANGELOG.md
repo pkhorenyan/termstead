@@ -12,6 +12,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A context menu on each tab: Reconnect, Duplicate Tab, Session Settings…,
   Close Tab, Close Other Tabs and Close Tabs to the Right. Closing several
   live tabs asks once.
+- ⇧⌘] and ⇧⌘[ show the next and the previous tab (Session ▸ Show Next Tab /
+  Show Previous Tab), wrapping round at the ends.
 - Settings ▸ Terminal ▸ Window ▸ Reopen tabs at launch: the tabs open when
   Termstead quits connect again the next time it starts, in the same order
   and with the same one in front. Off unless turned on.

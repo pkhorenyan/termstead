@@ -651,6 +651,10 @@ These have each cost real time. They are not hypothetical.
   ⌘+, and ⌘= alone — the key people press — matched nothing, since `+` takes
   Shift on most layouts. `AppDelegate.plusForEquals` rewrites ⌘= as ⌘+ in a
   local event monitor, so the menu item still decides whether it is enabled.
+  The same rule the other way round: ⇧⌘] and ⇧⌘[ type "}" and "{", so "Show
+  Next/Previous Tab" are declared as ⌘} and ⌘{, as Terminal's are —
+  `.keyboardShortcut("]", modifiers: [.command, .shift])` never fired
+  (`TabKeysTests` checks against the real menu items).
 - **A find match is a selection.** SwiftTerm shows it through the selection
   service, so `selectionChanged` fires with no mouse button down and
   copy-on-select would copy every match. `SSHTerminalView.find` sets

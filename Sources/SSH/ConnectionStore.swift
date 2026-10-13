@@ -94,6 +94,15 @@ final class ConnectionStore {
         }
     }
 
+    /// Brings forward the tab `offset` places along from the one in front,
+    /// wrapping round at either end as Safari's tabs do.
+    func showTab(offset: Int) {
+        guard connections.count > 1, let front = active,
+              let index = connections.firstIndex(where: { $0.id == front.id }) else { return }
+        let count = connections.count
+        activeID = connections[((index + offset) % count + count) % count].id
+    }
+
     /// Moves a tab along the strip, to the slot it is dragged to.
     func move(_ id: UUID, to index: Int) {
         guard let from = connections.firstIndex(where: { $0.id == id }),
