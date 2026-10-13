@@ -105,6 +105,10 @@ extension SessionStore {
 final class SessionStorage {
     /// `nil` when nothing is written back.
     let url: URL?
+    /// The user's own `sessions.json`, not a sample, a test run or an
+    /// `-sb-store` file. Anything kept beside the tree outside it — the tabs
+    /// to reopen — belongs to this one only.
+    var isTheUsersOwn: Bool { url == SessionPersistence.defaultURL }
     let initialSnapshot: SessionSnapshot
     let startsWithSample: Bool
     /// Set when the saved file could not be read, for the one-time alert.

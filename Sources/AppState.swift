@@ -44,6 +44,11 @@ final class AppState {
     var route: Route?
     /// A tab waiting for "Close the connection?" to be answered.
     var pendingClose: UUID?
+    /// Several tabs to close at once ("Close Other Tabs"), waiting on the
+    /// same confirmation as one.
+    var pendingCloseGroup: [UUID]?
+    /// The tabs from the last quit have been dealt with for this launch.
+    @ObservationIgnored var didReopenTabs = false
     /// The Appearance window is up, and app-modal.
     var isAppearanceOpen = false
     /// Something modal is up; menu commands that would reach past it are off.
@@ -187,6 +192,16 @@ final class AppState {
             pendingClose = id
         } else {
             connections.close(id)
+        }
+    }
+
+    /// One question for the lot, asked only if any of them is still live.
+    func requestClose(_ ids: [UUID], in connections: ConnectionStore, confirm: Bool) {
+        guard !ids.isEmpty else { return }
+        if ids.contains(where: { connections.needsCloseConfirmation($0, setting: confirm) }) {
+            pendingCloseGroup = ids
+        } else {
+            ids.forEach(connections.close)
         }
     }
 }

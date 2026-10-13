@@ -50,6 +50,21 @@ final class TabInteractionView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// The tab's context menu is SwiftUI's, under this layer, so a right-click
+    /// or a Control-click goes on to it — as the sidebar's rows do it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard hit != nil, let event = NSApp.currentEvent else { return hit }
+        switch event.type {
+        case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
+            return nil
+        case .leftMouseDown, .leftMouseUp:
+            return event.modifierFlags.contains(.control) ? nil : hit
+        default:
+            return hit
+        }
+    }
+
     /// Where the pointer is along the strip. In a scrolling strip it is
     /// measured in the scrolled content, so the tab stays under the pointer
     /// while the strip moves beneath it; this view itself moves with the tab.

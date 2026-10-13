@@ -108,6 +108,17 @@ struct MainView: View {
         } message: {
             Text("Its ssh session ends, and anything running in it that is not under tmux or nohup stops.")
         }
+        .alert(groupCloseTitle,
+               isPresented: Binding(get: { appState.pendingCloseGroup != nil },
+                                    set: { if !$0 { appState.pendingCloseGroup = nil } })) {
+            Button("Close", role: .destructive) {
+                appState.pendingCloseGroup?.forEach(connectionStore.close)
+                appState.pendingCloseGroup = nil
+            }
+            Button("Cancel", role: .cancel) { appState.pendingCloseGroup = nil }
+        } message: {
+            Text("Their ssh sessions end, and anything running in them that is not under tmux or nohup stops.")
+        }
         .alert("Saved sessions could not be read",
                isPresented: Binding(get: { storage.loadProblem != nil },
                                     set: { if !$0 { storage.loadProblem = nil } })) {
@@ -137,6 +148,13 @@ struct MainView: View {
                 }
             }
             if defaults.string(forKey: "sb-sidebar") == "files" { appState.sidebarTab = .files }
+            // The tabs open at the last quit, once per launch and only into an
+            // empty strip — the window can appear again later in the run.
+            if storage.isTheUsersOwn, themeStore.reopenTabsAtLaunch, !appState.didReopenTabs,
+               connectionStore.connections.isEmpty, let memory = TabMemory.load(from: defaults) {
+                memory.reopen(in: connectionStore, sessions: sessionStore)
+            }
+            appState.didReopenTabs = true
             // `-sb-color-picker YES` opens the custom color dialog over the window.
             if defaults.bool(forKey: "sb-color-picker") {
                 DispatchQueue.main.async {
@@ -154,6 +172,11 @@ struct MainView: View {
                                 sessionStore: sessionStore,
                                 connectionStore: connectionStore)
         )
+    }
+
+    private var groupCloseTitle: String {
+        let count = appState.pendingCloseGroup?.count ?? 0
+        return count == 1 ? "Close 1 tab?" : "Close \(count) tabs?"
     }
 
     private var closeTitle: String {

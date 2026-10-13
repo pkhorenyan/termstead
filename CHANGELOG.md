@@ -7,10 +7,21 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A context menu on each tab: Reconnect, Duplicate Tab, Session Settings…,
+  Close Tab, Close Other Tabs and Close Tabs to the Right. Closing several
+  live tabs asks once.
+- Settings ▸ Terminal ▸ Window ▸ Reopen tabs at launch: the tabs open when
+  Termstead quits connect again the next time it starts, in the same order
+  and with the same one in front. Off unless turned on.
+
 ### Changed
 
 - A dragged tab stops at the ends of the strip instead of sliding past the
   first slot or over the "+" button.
+- A closed tab's icon is struck through, the way macOS marks something
+  switched off, rather than only fading — which read as a color gone wrong.
 
 ### Fixed
 

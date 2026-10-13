@@ -32,6 +32,7 @@ struct TermsteadApp: App {
                 .onAppear {
                     appDelegate.connectionStore = connectionStore
                     appDelegate.themeStore = themeStore
+                    appDelegate.remembersTabs = storage.isTheUsersOwn
                 }
                 .environment(themeStore)
                 .environment(sessionStore)
@@ -215,6 +216,9 @@ enum Metrics {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var connectionStore: ConnectionStore?
     weak var themeStore: ThemeStore?
+    /// This launch works on the user's own sessions, so its tabs are theirs
+    /// to reopen; see `TabMemory`.
+    var remembersTabs = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -245,6 +249,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 timestamp: event.timestamp, windowNumber: event.windowNumber,
                                 context: nil, characters: "+", charactersIgnoringModifiers: "+",
                                 isARepeat: event.isARepeat, keyCode: event.keyCode)
+    }
+
+    /// Written on the way out, quit or update alike, so the list is the one the
+    /// user last saw. With the option off nothing is kept, and turning it on
+    /// later does not bring back an old set of tabs.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard remembersTabs, let connectionStore, let themeStore else { return }
+        if themeStore.reopenTabsAtLaunch {
+            TabMemory(connectionStore).save(to: .standard)
+        } else {
+            UserDefaults.standard.removeObject(forKey: TabMemory.key)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

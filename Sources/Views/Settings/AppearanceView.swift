@@ -215,6 +215,11 @@ struct AppearanceView: View {
                                 caption: "The sidebar turns to the server's files once a new connection is in.") {
                         settingSwitch($themeStore.showFilesAfterLogin, label: "Open SFTP after login")
                     }
+                    divider
+                    settingsRow("Reopen tabs at launch",
+                                caption: "The tabs open when Termstead quits connect again the next time it starts.") {
+                        settingSwitch($themeStore.reopenTabsAtLaunch, label: "Reopen tabs at launch")
+                    }
                 }
             }
             section("History") {

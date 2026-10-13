@@ -87,6 +87,45 @@ struct TabBarView: View {
         }
     }
 
+    @ViewBuilder
+    private func menu(for tab: Connection) -> some View {
+        let tabs = connectionStore.connections
+        let saved = tab.sessionID.flatMap { sessionStore.session($0) }
+        if !tab.state.isRunning {
+            Button("Reconnect") { tab.restart() }
+        }
+        Button("Duplicate Tab") { duplicate(tab) }
+            // A session deleted since the tab opened has nothing to copy.
+            .disabled(tab.sessionID != nil && saved == nil)
+        if let saved {
+            Button("Session Settings…") { appState.route = .sessionSettings(id: saved.id) }
+        }
+        Divider()
+        Button("Close Tab") {
+            appState.requestClose(tab.id, in: connectionStore, confirm: themeStore.confirmClosingConnection)
+        }
+        Button("Close Other Tabs") {
+            connectionStore.activeID = tab.id
+            appState.requestClose(tabs.filter { $0.id != tab.id }.map(\.id), in: connectionStore,
+                                  confirm: themeStore.confirmClosingConnection)
+        }
+        .disabled(tabs.count < 2)
+        Button("Close Tabs to the Right") {
+            let right = tabs.drop { $0.id != tab.id }.dropFirst().map(\.id)
+            appState.requestClose(Array(right), in: connectionStore, confirm: themeStore.confirmClosingConnection)
+        }
+        .disabled(tabs.last?.id == tab.id)
+    }
+
+    /// Another tab to the same place: the session as saved, or the same address.
+    private func duplicate(_ tab: Connection) {
+        if let id = tab.sessionID {
+            connectionStore.connect(sessionID: id, in: sessionStore, newTab: true)
+        } else {
+            connectionStore.connect(address: tab.address)
+        }
+    }
+
     private func shownOffset(of tab: Connection) -> CGFloat {
         guard let drag else { return 0 }
         let tabs = connectionStore.connections
@@ -136,7 +175,8 @@ struct TabBarView: View {
         let isLive = tab.state.isRunning
         // Colour belongs to the group here, as in the sidebar: red and green
         // are group colours too, so a red or green icon for closed and live
-        // read as a group. A closed tab fades instead.
+        // read as a group. A closed tab is struck through and greyed instead;
+        // fading alone was read as a colour gone wrong.
         let iconColor = isLive ? GroupColor.rgb(for: colorID, on: theme) ?? theme.textSecondary : theme.textMuted
         let titleColor = isLive ? (isActive ? theme.text : theme.textSecondary) : theme.textMuted
 
@@ -148,10 +188,10 @@ struct TabBarView: View {
                     Image(systemName: icon.symbolName)
                         .font(.system(size: 12))
                         .foregroundStyle(iconColor.color)
-                        .opacity(isLive ? 1 : 0.6)
                         // SF Symbols differ in width; a fixed box keeps the
                         // titles from shifting when an icon changes.
-                        .frame(width: 15)
+                        .frame(width: 15, height: 15)
+                        .modifier(StruckThrough(isOn: !isLive, color: iconColor.color))
                         .accessibilityLabel(isLive ? "Connected" : "Disconnected")
                     Text(tab.title)
                         .font(SBFont.ui(12.5))
@@ -197,6 +237,41 @@ struct TabBarView: View {
         .background(isActive ? theme.terminal.color : Color.clear)
         .overlay(alignment: .top) {
             Rectangle().fill(topLine).frame(height: isActive ? 3 : 2)
+        }
+        .contextMenu { menu(for: tab) }
+    }
+}
+
+/// A line through a closed tab's icon, the way macOS marks something switched
+/// off (`wifi.slash`, `mic.slash`). The icon is cut where the line crosses, so
+/// it reads on any background without knowing which.
+private struct StruckThrough: ViewModifier {
+    var isOn: Bool
+    var color: Color
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content
+                .mask {
+                    ZStack {
+                        Rectangle()
+                        Slash().stroke(style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                            .blendMode(.destinationOut)
+                    }
+                    .compositingGroup()
+                }
+                .overlay { Slash().stroke(color, style: StrokeStyle(lineWidth: 1.4, lineCap: .round)) }
+        } else {
+            content
+        }
+    }
+
+    private struct Slash: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX + 1.5, y: rect.minY + 1.5))
+            path.addLine(to: CGPoint(x: rect.maxX - 1.5, y: rect.maxY - 1.5))
+            return path
         }
     }
 }

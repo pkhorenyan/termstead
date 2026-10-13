@@ -36,4 +36,13 @@ struct ThemeDefaultTests {
         defaults.set("NO", forKey: "files.showAfterLogin")
         #expect(!ThemeStore(defaults: defaults).showFilesAfterLogin)
     }
+
+    @Test func tabsAreReopenedOnlyWhenAskedFor() throws {
+        let suite = "termstead-theme-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(!ThemeStore(defaults: defaults).reopenTabsAtLaunch)
+        defaults.set(true, forKey: "window.reopenTabs")
+        #expect(ThemeStore(defaults: defaults).reopenTabsAtLaunch)
+    }
 }

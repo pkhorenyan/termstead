@@ -23,6 +23,7 @@ final class ThemeStore {
         static let scrollback = "terminal.scrollback"
         static let sidebarSide = "window.sidebarSide"
         static let showFilesAfterLogin = "files.showAfterLogin"
+        static let reopenTabs = "window.reopenTabs"
     }
 
     /// Which edge of the window the sidebar (Sessions and SFTP) sits on.
@@ -135,6 +136,13 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(showFilesAfterLogin, forKey: Key.showFilesAfterLogin) }
     }
 
+    /// The tabs open at quit connect again at the next launch (`TabMemory`).
+    /// Off unless turned on: a launch that dials every server, with whatever
+    /// prompts that brings, should be asked for.
+    var reopenTabsAtLaunch: Bool {
+        didSet { UserDefaults.standard.set(reopenTabsAtLaunch, forKey: Key.reopenTabs) }
+    }
+
     /// Closing a tab, or quitting, with a live ssh session asks first.
     var confirmClosingConnection: Bool {
         didSet { UserDefaults.standard.set(confirmClosingConnection, forKey: Key.confirmClosingConnection) }
@@ -171,6 +179,7 @@ final class ThemeStore {
         scrollbackLines = Self.scrollbackChoices.contains(storedScrollback) ? storedScrollback : 10_000
         sidebarSide = defaults.string(forKey: Key.sidebarSide).flatMap(SidebarSide.init) ?? .left
         showFilesAfterLogin = Self.bool(defaults, Key.showFilesAfterLogin, default: true)
+        reopenTabsAtLaunch = Self.bool(defaults, Key.reopenTabs, default: false)
         systemIsDark = Self.readSystemIsDark()
 
         appearanceObservation = DistributedNotificationCenter.default.addObserver(
@@ -335,6 +344,7 @@ extension ThemeStore {
         var scrollbackLines: Int
         var sidebarSide: SidebarSide
         var showFilesAfterLogin: Bool
+        var reopenTabsAtLaunch: Bool
     }
 
     var snapshot: Snapshot {
@@ -345,7 +355,7 @@ extension ThemeStore {
                  bell: bell, optionAsMeta: optionAsMeta,
                  confirmClosingConnection: confirmClosingConnection, highlighting: highlighting,
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
-                 showFilesAfterLogin: showFilesAfterLogin)
+                 showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch)
     }
 
     func restore(_ snapshot: Snapshot) {
@@ -365,5 +375,6 @@ extension ThemeStore {
         scrollbackLines = snapshot.scrollbackLines
         sidebarSide = snapshot.sidebarSide
         showFilesAfterLogin = snapshot.showFilesAfterLogin
+        reopenTabsAtLaunch = snapshot.reopenTabsAtLaunch
     }
 }

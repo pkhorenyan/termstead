@@ -81,7 +81,10 @@ Arguments live in the volatile domain and never persist.
 `-sb-sample YES` and a test run. `-sb-store <path>` points at another file, and
 wins over a route's sample tree, so a route can open a form on it. See
 `SessionStorage.forThisLaunch`. Anything that launches the app for testing must
-use one of these.
+use one of these. For the same reason "Reopen tabs at launch" neither saves
+nor restores tabs in such a launch (`SessionStorage.isTheUsersOwn`): its
+tabs belong to another tree, and would replace the user's list. Try that
+option in a launch without flags.
 
 **The Debug menu** (Load Sample Data, Add Test Lab Sessions, Clear All
 Sessions — the last without asking) exists only in Debug builds or when any
@@ -220,7 +223,7 @@ scripts/release.sh 0.2.0
 | `Sources/AppUpdater.swift` | Sparkle: the daily check and "Check for Updates…" |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
-| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
+| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs), `TabMemory` (the tabs to reopen at launch), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
