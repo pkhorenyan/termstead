@@ -28,8 +28,10 @@
   take on, an icon per session, pinned favorites at the top, search, drag and
   drop to reorder.
 - **Tabs you can arrange.** Each carries its session's icon in its group's
-  color; drag tabs into any order, and when there are more than fit, the strip
-  scrolls with the mouse wheel.
+  color; drag tabs into any order, step through them with ⇧⌘[ and ⇧⌘], and
+  right-click one to reconnect, duplicate or close the rest. When there are
+  more than fit, the strip scrolls with the mouse wheel — and if you like,
+  the tabs open at quit connect again the next time Termstead starts.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh
@@ -98,12 +100,14 @@ against the project's signing key before it is installed.
 | Session settings | ⌘I |
 | Quick connect by address | ⌘K |
 | New tab / Close tab | ⌘T / ⌘W |
+| Previous / next tab | ⇧⌘[ / ⇧⌘] |
 | Find / Next / Previous | ⌘F / ⌘G / ⇧⌘G |
 | Text size in the tab: bigger / smaller / default | ⌘+ / ⌘− / ⌘0 |
 | Settings | ⌘, |
 
 Double-click a session to connect. A closed tab keeps its output — press Return
-to reconnect. Drag a tab to move it; the middle mouse button closes it.
+to reconnect, or choose Reconnect from the tab's menu. Drag a tab to move it;
+the middle mouse button closes it.
 
 ## Build from source
 
