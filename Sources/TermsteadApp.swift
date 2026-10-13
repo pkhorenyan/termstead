@@ -134,6 +134,12 @@ struct TermsteadApp: App {
                 default: button
                 }
             }
+            // ⌥⌘I, as iTerm2's "Broadcast Input to All Panes".
+            Button(connectionStore.isBroadcasting ? "Stop Broadcasting Input" : "Broadcast Input") {
+                connectionStore.toggleBroadcast()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .disabled(!connectionStore.canBroadcast || formIsOpen)
             // ⌘] and ⌘[, as iTerm2 moves between its split panes.
             Button("Next Pane") { connectionStore.focusPane(offset: 1) }
                 .keyboardShortcut("]", modifiers: .command)

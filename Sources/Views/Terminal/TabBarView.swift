@@ -74,6 +74,10 @@ struct TabBarView: View {
             .accessibilityLabel("New tab")
 
             Spacer(minLength: 0)
+
+            if connectionStore.isBroadcasting && connectionStore.canBroadcast {
+                broadcastToggle
+            }
         }
         // A click on the strip's empty part focuses the pane.
         .background {
@@ -96,6 +100,24 @@ struct TabBarView: View {
         // chrome. The strip above the tabs is painted by this view's own
         // background, applied in `MainView`, which still bleeds and is meant to.
         .clipped()
+    }
+
+    /// Leaves this pane out of broadcast input, or brings it back.
+    private var broadcastToggle: some View {
+        let isIn = !connectionStore.broadcastExcluded.contains(pane)
+        return Button { connectionStore.toggleBroadcast(pane: pane) } label: {
+            Image(systemName: isIn ? "antenna.radiowaves.left.and.right"
+                                   : "antenna.radiowaves.left.and.right.slash")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle((isIn ? theme.ansiYellow : theme.textFaint).color)
+                .frame(width: 34)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isIn ? "This pane takes broadcast input. Click to leave it out."
+                   : "This pane is left out of broadcast input. Click to include it.")
+        .accessibilityLabel(isIn ? "Leave this pane out of broadcast input" : "Include this pane in broadcast input")
     }
 
     private func tabRow(_ index: SessionStore.SessionIndex) -> some View {

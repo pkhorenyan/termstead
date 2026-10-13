@@ -41,6 +41,16 @@ struct StatusBarView: View {
 
                 unsavedNote
 
+                if connectionStore.isBroadcasting && connectionStore.canBroadcast {
+                    let panes = (0..<connectionStore.layout.paneCount)
+                        .filter { connectionStore.receivesBroadcast(pane: $0) }.count
+                    Label("Input to \(panes) panes", systemImage: "antenna.radiowaves.left.and.right")
+                        .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+                        .foregroundStyle(theme.ansiYellow.color)
+                        .fixedSize()
+                        .layoutPriority(2)
+                }
+
                 if themeStore.showServerLoad, let load = tab.serverLoad {
                     ServerLoadView(load: load, theme: theme)
                         // Offered room before the address, which truncates.

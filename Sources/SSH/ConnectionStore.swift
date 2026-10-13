@@ -111,6 +111,53 @@ final class ConnectionStore {
         focus(pane: ((focusedPane + offset) % count + count) % count)
     }
 
+    // MARK: - Broadcast input
+
+    /// Typing goes to every visible pane's tab in front, not only the focused
+    /// one (⌥⌘I, the button beside the layouts). Split layouts only.
+    private(set) var isBroadcasting = false
+    /// Panes left out of it: they keep their own input.
+    private(set) var broadcastExcluded: Set<Int> = []
+
+    var canBroadcast: Bool { layout.paneCount > 1 }
+
+    func toggleBroadcast() {
+        isBroadcasting = canBroadcast && !isBroadcasting
+        paneLog.debug("broadcast input \(self.isBroadcasting ? "on" : "off", privacy: .public)")
+    }
+
+    func toggleBroadcast(pane: Int) {
+        if broadcastExcluded.contains(pane) {
+            broadcastExcluded.remove(pane)
+        } else {
+            broadcastExcluded.insert(pane)
+        }
+    }
+
+    /// The pane takes broadcast input: on, split, not left out, and with a
+    /// tab in front.
+    func receivesBroadcast(pane: Int) -> Bool {
+        isBroadcasting && canBroadcast && !broadcastExcluded.contains(pane) && active(in: pane) != nil
+    }
+
+    /// Where input typed into `source` goes besides `source` itself: the
+    /// other included panes' tabs in front, still connected. Nothing when the
+    /// source's own pane is left out, or the source is not in front there.
+    func broadcastTargets(from source: Connection) -> [Connection] {
+        guard receivesBroadcast(pane: source.pane), active(in: source.pane) === source else { return [] }
+        return (0..<layout.paneCount).compactMap { pane in
+            guard pane != source.pane, receivesBroadcast(pane: pane),
+                  let front = active(in: pane), front.state.isRunning else { return nil }
+            return front
+        }
+    }
+
+    func broadcast(_ data: ArraySlice<UInt8>, from source: Connection) {
+        for target in broadcastTargets(from: source) {
+            target.terminalView.receiveBroadcast(data)
+        }
+    }
+
     /// Switches the layout. Nothing is closed: tabs of a pane that goes move
     /// to the pane covering the same corner (`PaneLayout.pane`). A new pane
     /// starts empty and takes the focus, so the next session opens there.
@@ -128,6 +175,9 @@ final class ConnectionStore {
         }
         layout = new
         activeByPane = fronts
+        // Pane numbers mean other panes now; one pane has nothing to broadcast to.
+        broadcastExcluded = []
+        if new.paneCount < 2 { isBroadcasting = false }
         let mapped = PaneLayout.pane(wasFocused, from: old, to: new)
         if new.paneCount > old.paneCount {
             focusedPane = (0..<new.paneCount).first { tabs(in: $0).isEmpty } ?? mapped
@@ -302,6 +352,10 @@ final class ConnectionStore {
         connection.onLogin = { [weak self, weak connection] in
             guard let self, let connection else { return }
             self.onLogin?(connection)
+        }
+        connection.onInput = { [weak self, weak connection] data in
+            guard let self, let connection else { return }
+            self.broadcast(data, from: connection)
         }
         connection.pane = focusedPane
         connections.append(connection)

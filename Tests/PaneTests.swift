@@ -157,6 +157,47 @@ struct PaneTests {
         #expect(store.connections.map(\.watchesLoad) == [true, false])
     }
 
+    // MARK: - Broadcast input
+
+    @Test func broadcastReachesTheOtherVisiblePanesFrontTabs() {
+        let store = ConnectionStore()
+        store.toggleBroadcast()
+        #expect(!store.isBroadcasting, "one pane has nothing to broadcast to")
+        store.setLayout(.grid)
+        for pane in 0..<4 {
+            store.focus(pane: pane)
+            store.add(tab("p\(pane)a"))
+            store.add(tab("p\(pane)b"))
+        }
+        // Each pane's first tab in front, except pane 3's second.
+        for pane in 0..<3 { store.activeID = store.tabs(in: pane)[0].id }
+        let source = store.tabs(in: 0)[0]
+        #expect(store.broadcastTargets(from: source).isEmpty, "off until asked for")
+
+        store.toggleBroadcast()
+        #expect(store.broadcastTargets(from: source).map(\.title) == ["p1a", "p2a", "p3b"])
+        #expect(store.broadcastTargets(from: store.tabs(in: 0)[1]).isEmpty, "a tab not in front sends nowhere")
+
+        store.toggleBroadcast(pane: 2)
+        #expect(store.broadcastTargets(from: source).map(\.title) == ["p1a", "p3b"])
+        #expect(store.broadcastTargets(from: store.tabs(in: 2)[0]).isEmpty, "a pane left out keeps its own input")
+
+        store.tabs(in: 1)[0].fail("gone")
+        #expect(store.broadcastTargets(from: source).map(\.title) == ["p3b"], "a closed tab is skipped")
+    }
+
+    @Test func oneLayoutOrAnotherEndsOrResetsBroadcast() {
+        let store = ConnectionStore()
+        store.setLayout(.sideBySide)
+        store.toggleBroadcast()
+        store.toggleBroadcast(pane: 1)
+        store.setLayout(.grid)
+        #expect(store.isBroadcasting)
+        #expect(store.broadcastExcluded.isEmpty, "pane numbers mean other panes now")
+        store.setLayout(.single)
+        #expect(!store.isBroadcasting)
+    }
+
     // MARK: - Reopening
 
     @Test func theTabListRemembersPanesAndWhatIsInFront() throws {
@@ -344,5 +385,60 @@ struct PaneWindowTests {
         #expect(store.focusedPane == 1)
         #expect(window.firstResponder === b)
     }
-}
 
+    /// Typed into the left pane, with `cat` running in both: the right
+    /// pane's terminal shows it too. Not the left terminal's own reply to a
+    /// cursor-position request, nor a mouse report, nor anything once the
+    /// right pane is left out. (Typing is sent the way SwiftTerm sends a
+    /// keystroke, with a key event in progress: a window in a test is never
+    /// key, so a real key event would not reach it.)
+    @Test func typingIsBroadcastButRepliesAndMouseReportsAreNot() async throws {
+        let (window, store, _) = try await window(.sideBySide, tabs: [["left"], ["right"]])
+        defer { store.closeAll(); window.close() }
+        for pane in 0..<2 {
+            store.active(in: pane)!.terminalView.startProcess(executable: "/bin/cat", args: [],
+                                                              environment: nil, execName: "cat")
+        }
+        let left = try #require(store.active(in: 0)?.terminalView)
+        let right = try #require(store.active(in: 1)?.terminalView)
+        store.toggleBroadcast()
+        try await settle()
+
+        func screen(_ view: SSHTerminalView) -> String {
+            String(decoding: view.getTerminal().getBufferAsData(), as: UTF8.self)
+        }
+        func type(_ text: String, during type: NSEvent.EventType) {
+            let event = type == .keyDown
+                ? NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                   windowNumber: window.windowNumber, context: nil, characters: "x",
+                                   charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7)
+                : NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                     clickCount: 1, pressure: 1)
+            left.eventInProgress = { event }
+            left.send(txt: text)
+            left.eventInProgress = { nil }
+        }
+
+        type("hello", during: .keyDown)
+        try await settle()
+        #expect(screen(left).contains("hello"))
+        #expect(screen(right).contains("hello"), "the right pane did not get the typing")
+
+        // ESC [ 6 n asks the left terminal where its cursor is; it answers
+        // ESC [ row ; col R, which cat echoes back as text there.
+        left.feed(text: "\u{1b}[6n")
+        try await settle()
+        #expect(!screen(right).contains("R"), "the left terminal's reply reached the right pane")
+
+        type("MOUSE", during: .leftMouseDown)
+        try await settle()
+        #expect(screen(left).contains("MOUSE") && !screen(right).contains("MOUSE"))
+
+        store.toggleBroadcast(pane: 1)
+        type("SOLO", during: .keyDown)
+        try await settle()
+        #expect(screen(left).contains("SOLO") && !screen(right).contains("SOLO"),
+                "a pane left out still got the typing")
+    }
+}

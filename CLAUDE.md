@@ -724,6 +724,17 @@ These have each cost real time. They are not hypothetical.
   panes no click could focus. So `mount` never re-takes a view it lost,
   and a container entering the window reclaims its own; the panes that
   stay have the last word (`PaneWindowTests`).
+- **Broadcast input must not carry the terminal's own replies.** A
+  program asking the terminal something (cursor position, colours, focus
+  in and out) is answered through the same `send(source: TerminalView, …)`
+  that typing goes through. `SSHTerminalView` overrides the other entry,
+  `send(source: Terminal, …)`, to mark those replies, and also leaves out
+  what is sent during a mouse event (mouse reports in vim, htop, the wheel
+  on the alternate screen); a paste is marked explicitly, since a
+  right-click paste happens during one. Other panes get the bytes through
+  `receiveBroadcast`, straight to their process, so they are never
+  broadcast again. The bytes are the source terminal's: an arrow key in
+  application-cursor mode there arrives in that form everywhere.
 - **Dropping a tab on another pane uses SwiftUI's global space.** Strips
   and tabs report `frame(in: .global)` to `AppState.paneStrips` /
   `tabFrames` (not observed), and `TabInteractionView` converts the pointer

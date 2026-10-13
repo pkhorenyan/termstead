@@ -33,16 +33,22 @@ struct TitlebarActions: View {
     /// The pane layout buttons, beside the gear. Absent in a window without panes.
     var layout: PaneLayout?
     var onLayout: (PaneLayout) -> Void = { _ in }
+    /// Broadcast input: on, and whether the layout allows it (split only).
+    var broadcasting = false
+    var canBroadcast = false
+    var onBroadcast: () -> Void = {}
     var onOpenAppearance: () -> Void
 
-    /// Wide enough for the layout buttons and the gear.
+    /// Wide enough for the broadcast and layout buttons and the gear.
     static func width(withLayouts: Bool) -> CGFloat {
-        withLayouts ? 38 + CGFloat(PaneLayout.allCases.count) * 26 + 10 : 38
+        withLayouts ? 38 + CGFloat(PaneLayout.allCases.count + 1) * 26 + 18 : 38
     }
 
     var body: some View {
         HStack(spacing: 0) {
             if let layout {
+                broadcastButton
+                    .padding(.trailing, 8)
                 HStack(spacing: 0) {
                     ForEach(PaneLayout.allCases, id: \.self) { candidate in
                         layoutButton(candidate, isOn: candidate == layout)
@@ -52,6 +58,29 @@ struct TitlebarActions: View {
             }
             gear
         }
+    }
+
+    /// Yellow while on: typing goes to several servers at once.
+    private var broadcastButton: some View {
+        Button(action: onBroadcast) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle((broadcasting ? theme.ansiYellow : canBroadcast ? theme.textMuted : theme.textFaint).color)
+                .frame(width: 24, height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(broadcasting ? theme.ansiYellow.color.opacity(0.18) : Color.clear)
+                )
+                .frame(width: 26, height: Metrics.toolbarHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canBroadcast)
+        .help(canBroadcast ? (broadcasting ? "Stop broadcasting input (⌥⌘I)"
+                                           : "Broadcast input to every visible pane (⌥⌘I)")
+                           : "Split the window to broadcast input to several panes")
+        .accessibilityLabel("Broadcast input")
+        .accessibilityAddTraits(broadcasting ? .isSelected : [])
     }
 
     private func layoutButton(_ candidate: PaneLayout, isOn: Bool) -> some View {

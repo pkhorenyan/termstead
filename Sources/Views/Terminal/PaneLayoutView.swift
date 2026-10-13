@@ -179,7 +179,13 @@ struct PaneView: View {
                 .frame(height: Metrics.tabBarHeight)
                 .background(theme.sidebar.color)
                 .overlay(alignment: .bottom) {
-                    if isSplit && isFocused {
+                    if connectionStore.receivesBroadcast(pane: pane) {
+                        // Every pane typing will reach, focused or not: the
+                        // warning colour, as this is easy to forget is on.
+                        Rectangle()
+                            .fill(theme.ansiYellow.color.opacity(0.85))
+                            .frame(height: 2)
+                    } else if isSplit && isFocused {
                         Rectangle()
                             .fill(theme.accent.color.opacity(Self.focusLineOpacity))
                             .frame(height: 2)

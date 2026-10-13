@@ -91,7 +91,10 @@ struct MainView: View {
                                    openWindow(id: TermsteadApp.appearanceWindowID)
                                },
                                paneLayout: connectionStore.layout,
-                               onPaneLayout: { connectionStore.setLayout($0) })
+                               onPaneLayout: { connectionStore.setLayout($0) },
+                               broadcasting: connectionStore.isBroadcasting,
+                               canBroadcast: connectionStore.canBroadcast,
+                               onBroadcast: { connectionStore.toggleBroadcast() })
         )
         .alert(appState.importReport?.title ?? "",
                isPresented: Binding(get: { appState.importReport != nil },

@@ -84,7 +84,11 @@ final class Connection: Identifiable {
             // A `cd` takes effect on Return; the Files tab may want to follow.
             self?.browser?.terminalMayHaveMoved()
         }
+        terminalView.onUserInput = { [weak self] data in self?.onInput?(data) }
     }
+
+    /// Typed or pasted into this tab — see `ConnectionStore.broadcast`.
+    @ObservationIgnored var onInput: ((ArraySlice<UInt8>) -> Void)?
 
     /// Starts ssh with `plan`, or restarts it after it exited.
     func start(_ plan: SSHLaunchPlan) {
@@ -527,7 +531,7 @@ final class SSHTerminalView: LocalProcessTerminalView {
               let text = NSPasteboard.general.string(forType: .string),
               Self.needsPasteConfirmation(for: text),
               let window else {
-            super.paste(sender)
+            pasteWithoutAsking(sender)
             return
         }
         let lines = text.split(whereSeparator: \.isNewline)
@@ -550,6 +554,8 @@ final class SSHTerminalView: LocalProcessTerminalView {
     }
 
     private func pasteWithoutAsking(_ sender: Any) {
+        isPasting = true
+        defer { isPasting = false }
         super.paste(sender)
     }
 
@@ -598,14 +604,55 @@ final class SSHTerminalView: LocalProcessTerminalView {
 
     /// Return was sent to a live shell — see `FileBrowser.terminalMayHaveMoved`.
     var onReturnWhileRunning: (() -> Void)?
+    /// What the user typed or pasted, for broadcast input
+    /// (`ConnectionStore.broadcast`). Never the terminal's own replies.
+    var onUserInput: ((ArraySlice<UInt8>) -> Void)?
+
+    /// The terminal answering the program — a cursor position, colours,
+    /// focus in and out — comes through `send(source: TerminalView, …)`
+    /// like typing does. Those answers belong to this terminal's state
+    /// alone, so they are marked here and never broadcast.
+    private var isReplying = false
+    private var isPasting = false
+    /// The event being handled; replaceable so a test can hand it one.
+    var eventInProgress: () -> NSEvent? = { NSApp.currentEvent }
+
+    override func send(source: Terminal, data: ArraySlice<UInt8>) {
+        isReplying = true
+        defer { isReplying = false }
+        super.send(source: source, data: data)
+    }
 
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
         if process.running {
             super.send(source: source, data: data)
             if data.contains(13) { onReturnWhileRunning?() }
+            if isUserInput { onUserInput?(data) }
         } else {
             onInputWhileStopped?(data)
         }
+    }
+
+    /// Typed or pasted: not a reply, and not a mouse report — a click or the
+    /// wheel in vim or htop is sent too, and means nothing to another pane.
+    private var isUserInput: Bool {
+        if isReplying { return false }
+        if isPasting { return true }
+        switch eventInProgress()?.type {
+        case .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
+             .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel:
+            return false
+        default:
+            return true
+        }
+    }
+
+    /// Input broadcast from another pane: straight to the program, as if typed
+    /// here, without being broadcast again.
+    func receiveBroadcast(_ data: ArraySlice<UInt8>) {
+        guard process.running else { return }
+        process.send(data: data)
+        if data.contains(13) { onReturnWhileRunning?() }
     }
 }
 

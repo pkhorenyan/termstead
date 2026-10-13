@@ -21,6 +21,9 @@ struct WindowConfigurator: NSViewRepresentable {
     /// Set by the main window too: the pane layout buttons beside the gear.
     var paneLayout: PaneLayout?
     var onPaneLayout: (PaneLayout) -> Void = { _ in }
+    var broadcasting = false
+    var canBroadcast = false
+    var onBroadcast: () -> Void = {}
 
     func makeNSView(context: Context) -> NSView {
         let view = ProbeView()
@@ -103,7 +106,8 @@ struct WindowConfigurator: NSViewRepresentable {
     private func installActions(on window: NSWindow, action: @escaping () -> Void) {
         let identifier = NSUserInterfaceItemIdentifier("sb.titlebar.actions")
         let content = TitlebarActions(theme: theme, layout: paneLayout, onLayout: onPaneLayout,
-                                      onOpenAppearance: action)
+                                      broadcasting: broadcasting, canBroadcast: canBroadcast,
+                                      onBroadcast: onBroadcast, onOpenAppearance: action)
 
         if let existing = window.titlebarAccessoryViewControllers
             .first(where: { $0.identifier == identifier }) {

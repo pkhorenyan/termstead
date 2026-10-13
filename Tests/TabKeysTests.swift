@@ -94,6 +94,9 @@ struct TabKeysTests {
         #expect(try item("Previous Pane").keyEquivalent == "[")
         _ = try item("Single Pane")
         _ = try item("Four Panes")
+        let broadcast = try item("Broadcast Input")
+        #expect(broadcast.keyEquivalent.lowercased() == "i")
+        #expect(broadcast.keyEquivalentModifierMask.intersection(mask) == [.command, .option])
     }
 }
 

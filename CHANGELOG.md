@@ -19,6 +19,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the SFTP panel, Find and the menus follow the focused one. Going back to
   fewer panes closes nothing, and Reopen tabs at launch brings the layout
   back too.
+- Broadcast input (⌥⌘I, or the antenna beside the layout buttons): what is
+  typed or pasted in one pane goes to every visible pane's tab in front.
+  The antenna on a pane's tab strip leaves that pane out, or brings it
+  back. Every pane that takes the input has a yellow line under its tabs,
+  and the status bar says how many there are. Closed tabs, empty panes,
+  mouse clicks in programs such as vim, and the terminal's own replies to
+  the program are never sent on; going back to one pane turns it off.
 
 - Server load in the status bar: CPU, memory, disk and network of the
   server in front, every three seconds, with the load average and uptime
