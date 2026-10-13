@@ -50,6 +50,7 @@ final class SessionStore {
         set {
             selection = newValue.map { .session($0, inPinned: false) }
             selectedItems = newValue.map { [SidebarDragItem(kind: .session, id: $0)] } ?? []
+            rangeEnd = nil
         }
     }
 
@@ -73,12 +74,18 @@ final class SessionStore {
     func select(session id: String, inPinned: Bool = false) {
         selection = .session(id, inPinned: inPinned)
         selectedItems = inPinned ? [] : [SidebarDragItem(kind: .session, id: id)]
+        rangeEnd = nil
     }
 
     func select(group id: String) {
         selection = .group(id)
         selectedItems = [SidebarDragItem(kind: .group, id: id)]
+        rangeEnd = nil
     }
+
+    /// The moving end of a range made with ⇧-click or ⇧↑/⇧↓; `selection`
+    /// is the end that stays put.
+    @ObservationIgnored private var rangeEnd: SidebarDragItem?
 
     /// How a click on a tree row changes the selection.
     enum SelectionGesture {
@@ -98,6 +105,7 @@ final class SessionStore {
             item.kind == .session ? select(session: item.id) : select(group: item.id)
 
         case .toggle:
+            rangeEnd = nil
             if selectedItems.contains(item) {
                 selectedItems.remove(item)
                 if selection.map(Self.item(for:)) == item {
@@ -120,6 +128,94 @@ final class SessionStore {
             }
             // The anchor stays where it is, so ⇧-clicking again re-ranges from it.
             selectedItems = Set(shown[min(from, to)...max(from, to)])
+            rangeEnd = item
+        }
+    }
+
+    /// An arrow key over the sidebar.
+    enum TreeStep {
+        case up, down
+        /// Opens a closed group, or moves into an open one.
+        case right
+        /// Closes an open group, or moves out to the parent.
+        case left
+    }
+
+    /// Moves the selection the way the arrow keys do in Finder's list and in
+    /// an outline view. `pinned` and `rows` are what the sidebar lists, top to
+    /// bottom; ↑ and ↓ run through the Pinned strip into the tree. While a
+    /// search holds every group open, `canFold` is false and ← and → only move.
+    ///
+    /// - Returns: the row the keyboard is now on, to scroll into view.
+    @discardableResult
+    func step(_ step: TreeStep, extending: Bool = false, pinned: [String], rows: [SidebarRow],
+              canFold: Bool) -> SidebarSelection? {
+        switch step {
+        case .up, .down:
+            let delta = step == .down ? 1 : -1
+            if extending, let end = extend(by: delta, along: rows.map(\.item)) {
+                return Self.selection(for: end)
+            }
+            let places = pinned.map { SidebarSelection.session($0, inPinned: true) }
+                + rows.map { Self.selection(for: $0.item) }
+            guard !places.isEmpty else { return nil }
+            // From the loose end of a range, so ↓ after ⇧↓ carries on below it.
+            let origin = [rangeEnd.map(Self.selection(for:)), selection].compactMap { $0 }
+                .compactMap(places.firstIndex(of:)).first
+            let target = origin.map { min(max($0 + delta, 0), places.count - 1) }
+                ?? (delta > 0 ? 0 : places.count - 1)
+            choose(places[target])
+            return places[target]
+
+        case .right:
+            guard case .group(let id)? = selection,
+                  let index = rows.firstIndex(where: { $0.item == SidebarDragItem(kind: .group, id: id) })
+            else { return selection }
+            if canFold, collapsedGroupIDs.contains(id) {
+                collapsedGroupIDs.remove(id)
+            } else if rows.indices.contains(index + 1), rows[index + 1].parentGroupID == id {
+                choose(Self.selection(for: rows[index + 1].item))
+            }
+            return selection
+
+        case .left:
+            guard let current = selection.flatMap(Self.item(for:)),
+                  let row = rows.first(where: { $0.item == current })
+            else { return selection }
+            if canFold, current.kind == .group, !collapsedGroupIDs.contains(current.id) {
+                collapsedGroupIDs.insert(current.id)
+            } else if let parent = row.parentGroupID {
+                select(group: parent)
+            }
+            return selection
+        }
+    }
+
+    /// ⇧↑ / ⇧↓: moves the range's loose end. `nil` when there is no anchor in
+    /// the tree to extend from — a Pinned row, or nothing.
+    private func extend(by delta: Int, along shown: [SidebarDragItem]) -> SidebarDragItem? {
+        guard let anchor = selection.flatMap(Self.item(for:)),
+              let from = shown.firstIndex(of: anchor) else { return nil }
+        let end = rangeEnd.flatMap(shown.firstIndex(of:)) ?? from
+        let next = min(max(end + delta, 0), shown.count - 1)
+        selectedItems = Set(shown[min(from, next)...max(from, next)])
+        rangeEnd = shown[next]
+        return shown[next]
+    }
+
+    private func choose(_ place: SidebarSelection) {
+        switch place {
+        case .session(let id, let inPinned): select(session: id, inPinned: inPinned)
+        case .group(let id): select(group: id)
+        }
+    }
+
+    /// What Return opens: every selected session, in the order listed — or
+    /// the one Pinned row.
+    func sessionsToOpen(along rows: [SidebarRow]) -> [String] {
+        if case .session(let id, true)? = selection { return [id] }
+        return rows.compactMap { row in
+            row.item.kind == .session && selectedItems.contains(row.item) ? row.item.id : nil
         }
     }
 

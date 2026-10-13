@@ -52,10 +52,11 @@ struct RowInteraction: NSViewRepresentable {
     var performDrop: ([SidebarDragItem], DropEdge) -> Bool
     /// Called when a drag hovers over this collapsed group long enough.
     var onSpringOpen: (() -> Void)?
-    /// Delete / Forward Delete while the sidebar has the keyboard. Setting it
-    /// lets a click on the row take keyboard focus, as a click in Finder's list
-    /// does — so ⌫ still reaches the terminal or a text field when they have it.
-    var onDeleteKey: (() -> Void)?
+    /// Where a click on the row sends the keyboard, as a click in Finder's
+    /// list does — so ⌫ and the arrows act on the tree, and still reach the
+    /// terminal or a text field when they have it. Rows without one — the root
+    /// drop zone — never take it.
+    var keyboard: TreeKeyboardFocus?
     /// A right-click (or ⌃-click) on the row, just before SwiftUI shows its
     /// context menu — so the row it applies to is highlighted, as in Finder.
     var onContextClick: (() -> Void)?
@@ -85,7 +86,7 @@ struct RowInteraction: NSViewRepresentable {
         view.canDrop = canDrop
         view.performDrop = performDrop
         view.onSpringOpen = onSpringOpen
-        view.onDeleteKey = onDeleteKey
+        view.keyboard = keyboard
         view.onContextClick = onContextClick
     }
 }
@@ -110,7 +111,7 @@ final class RowInteractionView: NSView {
     var canDrop: ([SidebarDragItem], DropEdge) -> Bool = { _, _ in false }
     var performDrop: ([SidebarDragItem], DropEdge) -> Bool = { _, _ in false }
     var onSpringOpen: (() -> Void)?
-    var onDeleteKey: (() -> Void)?
+    var keyboard: TreeKeyboardFocus?
     var onContextClick: (() -> Void)?
     /// The event being hit-tested for; replaceable so a test can hand it one.
     var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
@@ -175,21 +176,8 @@ final class RowInteractionView: NSView {
 
     // MARK: - Clicks
 
-    override var acceptsFirstResponder: Bool { onDeleteKey != nil }
-
-    /// ⌫ and ⌦, alone or with ⌘ as in Finder.
-    override func keyDown(with event: NSEvent) {
-        let isDelete = event.keyCode == 51 || event.keyCode == 117
-        let others = event.modifierFlags.intersection([.option, .control, .shift])
-        if isDelete, others.isEmpty, let onDeleteKey {
-            onDeleteKey()
-        } else {
-            super.keyDown(with: event)
-        }
-    }
-
     override func mouseDown(with event: NSEvent) {
-        if onDeleteKey != nil { window?.makeFirstResponder(self) }
+        keyboard?.take()
         mouseDownAt = event.locationInWindow
         draggingStarted = false
         pendingClick = false

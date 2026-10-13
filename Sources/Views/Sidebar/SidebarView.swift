@@ -16,6 +16,10 @@ struct SidebarView: View {
     /// The row whose name is being edited in place, and the text so far.
     @State private var renaming: SidebarDragItem?
     @State private var renameText = ""
+    /// The tree's keyboard, which a click on any row hands it.
+    @State private var keyboard = TreeKeyboardFocus()
+    /// A row the keyboard moved to, waiting to be scrolled into view.
+    @State private var reveal: String?
 
     var body: some View {
         @Bindable var appState = appState
@@ -142,6 +146,7 @@ struct SidebarView: View {
                 .font(SBFont.ui(12.5))
                 .foregroundStyle(theme.text.color)
                 .onExitCommand { search = "" }
+                .onKeyPress(.downArrow) { enterList() ? .handled : .ignored }
 
             if !search.isEmpty {
                 Button { search = "" } label: {
@@ -180,13 +185,50 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var tree: some View {
-        // Walked once per render: `rows` and `pinned` used to be separate
-        // computed properties, so each read re-flattened the whole tree.
+    /// What the Sessions tab lists, top to bottom.
+    private struct Listing {
+        var pinned: [SessionRowData]
+        var rows: [SidebarRow]
+        /// The sessions a search lets through; `nil` with no search.
+        var matches: Set<String>?
+
+        /// The id a row is drawn under, to scroll to it.
+        func rowID(of place: SidebarSelection) -> String? {
+            switch place {
+            case .session(let id, true): pinned.contains { $0.id == id } ? id : nil
+            case .session(let id, false): rows.first { $0.item == SidebarDragItem(kind: .session, id: id) }?.id
+            case .group(let id): rows.first { $0.item == SidebarDragItem(kind: .group, id: id) }?.id
+            }
+        }
+    }
+
+    /// Walked once per render: `rows` and `pinned` used to be separate
+    /// computed properties, so each read re-flattened the whole tree.
+    private func listing() -> Listing {
         let flattened = sessionStore.flattened(matching: search)
         let matches = sessionStore.matchingSessionIDs(search)
         let pinned = sessionStore.pinnedRows(using: flattened.index)
             .filter { matches?.contains($0.id) ?? true }
+        return Listing(pinned: pinned, rows: flattened.rows, matches: matches)
+    }
+
+    private var tree: some View {
+        let listing = listing()
+        return ScrollViewReader { proxy in
+            list(listing)
+                .background(TreeKeyboard(focus: keyboard) { handle($0) })
+                .onChange(of: reveal) {
+                    guard let reveal else { return }
+                    proxy.scrollTo(reveal)
+                    self.reveal = nil
+                }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func list(_ listing: Listing) -> some View {
+        let pinned = listing.pinned
+        let matches = listing.matches
 
         // With the indicator hidden the list scrolled but gave no sign that it
         // was longer than the window, or where in it you were. It is the
@@ -206,7 +248,8 @@ struct SidebarView: View {
                                 onConnectInNewTab: { connect(row.id, newTab: true, inPinned: true) },
                                 onOpenSettings: { appState.route = .sessionSettings(id: row.id) },
                                 onUnpin: { sessionStore.togglePin(row.id) },
-                                onDelete: { pendingDeletion = [SidebarDragItem(kind: .session, id: row.id)] }
+                                onDelete: { pendingDeletion = [SidebarDragItem(kind: .session, id: row.id)] },
+                                keyboard: keyboard
                             )
                         }
                     }
@@ -223,9 +266,9 @@ struct SidebarView: View {
                 // Lazy so a long host list does not lay out every row that is
                 // scrolled out of sight.
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    let shown = flattened.rows.map(Self.dragItem(for:))
+                    let shown = listing.rows.map(\.item)
                     let targets = moveTargets
-                    ForEach(flattened.rows) { row in
+                    ForEach(listing.rows) { row in
                         rowView(row, shown: shown, targets: targets)
                     }
                 }
@@ -238,12 +281,61 @@ struct SidebarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
-        .frame(maxHeight: .infinity)
+    }
+
+    /// The list is read when the key arrives, not when the view was drawn:
+    /// a key can come before the redraw that follows the one before it.
+    private func handle(_ key: TreeKey) {
+        let listing = listing()
+        switch key {
+        case .delete:
+            deleteSelection()
+        case .step(let step, let extending):
+            let place = sessionStore.step(step, extending: extending, pinned: listing.pinned.map(\.id),
+                                          rows: listing.rows, canFold: listing.matches == nil)
+            reveal = place.flatMap(listing.rowID(of:))
+        case .open:
+            open(listing)
+        case .leave:
+            guard let terminal = connectionStore.active?.terminalView else { return }
+            terminal.window?.makeFirstResponder(terminal)
+        }
+    }
+
+    /// Return connects every selected session, the anchor's tab in front, or
+    /// opens and closes a lone group.
+    private func open(_ listing: Listing) {
+        let ids = sessionStore.sessionsToOpen(along: listing.rows)
+        guard !ids.isEmpty else {
+            if case .group(let id)? = sessionStore.selection, listing.matches == nil {
+                sessionStore.toggleCollapsed(id)
+            }
+            return
+        }
+        for id in ids { connectionStore.connect(sessionID: id, in: sessionStore) }
+        // The same tab `connect` brings forward for a session already open.
+        if case .session(let anchor, _)? = sessionStore.selection,
+           let tab = connectionStore.connections.first(where: { $0.sessionID == anchor && $0.state.isRunning }) {
+            connectionStore.activeID = tab.id
+        }
+    }
+
+    /// ↓ in the search field: the keyboard moves to the first session listed,
+    /// so that Return connects it.
+    private func enterList() -> Bool {
+        let listing = listing()
+        let first = listing.pinned.first.map { SidebarSelection.session($0.id, inPinned: true) }
+            ?? listing.rows.first { $0.item.kind == .session }.map { .session($0.item.id, inPinned: false) }
+        guard case .session(let id, let inPinned)? = first else { return false }
+        sessionStore.select(session: id, inPinned: inPinned)
+        reveal = first.flatMap(listing.rowID(of:))
+        keyboard.take()
+        return true
     }
 
     @ViewBuilder
     private func rowView(_ row: SidebarRow, shown: [SidebarDragItem], targets: [MoveTarget]) -> some View {
-        let actions = actions(for: Self.dragItem(for: row), shown: shown, targets: targets)
+        let actions = actions(for: row.item, shown: shown, targets: targets)
         switch row {
         case .topGroup(let data):
             TopGroupHeaderView(
@@ -281,14 +373,6 @@ struct SidebarView: View {
         }
     }
 
-    private static func dragItem(for row: SidebarRow) -> SidebarDragItem {
-        switch row {
-        case .topGroup(let data): SidebarDragItem(kind: .group, id: data.id)
-        case .group(let data): SidebarDragItem(kind: .group, id: data.id)
-        case .session(let data): SidebarDragItem(kind: .session, id: data.id)
-        }
-    }
-
     /// The top level, then every group, indented by depth, for Move To.
     private var moveTargets: [MoveTarget] {
         [MoveTarget(groupID: nil, title: "Top Level")]
@@ -319,7 +403,7 @@ struct SidebarView: View {
                 sessionStore.drop(sessionStore.dragPayload(startingAt: item), to: .into(groupID))
             },
             onDelete: { pendingDeletion = sessionStore.dragPayload(startingAt: item) },
-            onDeleteKey: { deleteSelection() },
+            keyboard: keyboard,
             isRenaming: renaming == item,
             renameText: $renameText,
             onStartRename: { startRename(item) },

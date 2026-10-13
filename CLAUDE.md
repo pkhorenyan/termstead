@@ -230,7 +230,7 @@ scripts/release.sh 0.2.0
 | `Tests/` | `TermsteadTests` |
 | `TestLab/` | Docker SSH servers for manual and automated testing (`lab.sh`), and the screenshot kit in `screenshots/` |
 | `Sources/Theme/` | `Theme` tokens, the six themes, `RGB`, `ThemeStore`, `SBFont` |
-| `Sources/Views/Sidebar/` | The tree: rows, the AppKit mouse layer, the resize handle, and `SidebarTabRail` (Sessions / SFTP down the left edge) |
+| `Sources/Views/Sidebar/` | The tree: rows, the AppKit mouse layer, the tree's keyboard (`TreeKeyboard`), the resize handle, and `SidebarTabRail` (Sessions / SFTP down the left edge) |
 | `Sources/Views/Terminal/` | Tab bar and its mouse layer (`TabInteraction`: select, drag to reorder with edge scrolling, middle-click; `TabStripScrolling`: the wheel), find bar and `TerminalPane` (mounts the active connection's SwiftTerm view, applies the theme) |
 | `Sources/Views/Sheets/` | Session and group forms plus their controls, and the color picker. They are *windows* now, not sheets; the names are historical |
 | `Sources/Views/Files/` | `FilesPanel`, the sidebar's Files tab |
@@ -549,9 +549,16 @@ These have each cost real time. They are not hypothetical.
   is internal. Copy-on-select hooks `selectionChanged(source:)`, reads
   `selectionActive`/`getSelection()`, and polls the mouse button to copy once
   on release.
-- **Clicking a sidebar row takes the keyboard** (`RowInteraction.onDeleteKey`
-  makes the layer a first responder), so ⌫ can delete the selection. Rows
-  without it — the root drop zone — never take focus.
+- **Clicking a sidebar row hands the keyboard to the tree**, not to the row:
+  `RowInteraction.keyboard` makes `TreeKeyView` — one view behind the list —
+  the first responder, and it takes ⌫, the arrows, Return and Esc. A row is
+  the wrong owner: the rows sit in a `LazyVStack`, and folding a group or a
+  long scroll takes the row out of the window, the keyboard with it. The
+  steps themselves are `SessionStore.step`, and the list is read when the key
+  arrives, not from the last render. Rows without `keyboard` — the root drop
+  zone — never take focus. A key event made in a test needs its characters
+  as well as its key code: SwiftUI's `onKeyPress` (↓ in the search field)
+  goes by the character.
 - **SwiftTerm's `Attribute` has no public initialiser.** Keyword highlighting
   (`HighlightPainter`) gets coloured attributes by feeding an SGR sequence to a
   private scratch `Terminal` and reading the cell back; it recolours only cells

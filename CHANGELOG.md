@@ -7,6 +7,15 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The session tree works from the keyboard once a row is clicked, as
+  Finder's list does: ↑ and ↓ move through the Pinned strip and the tree
+  (⇧ extends the selection), → opens a group or goes into it, ← closes it
+  or goes up, Return connects every selected session or opens and closes a
+  group, and Esc hands the keyboard back to the terminal. ↓ in the search
+  field goes to the first session found.
+
 ### Fixed
 
 - Reopen tabs at launch reopened nothing: Termstead declared sudden

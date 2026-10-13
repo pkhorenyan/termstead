@@ -15,6 +15,24 @@ enum SidebarRow: Identifiable, Hashable, Sendable {
         case .session(let row): "session:\(row.id)"
         }
     }
+
+    /// The row as the selection and drags name it.
+    var item: SidebarDragItem {
+        switch self {
+        case .topGroup(let row): SidebarDragItem(kind: .group, id: row.id)
+        case .group(let row): SidebarDragItem(kind: .group, id: row.id)
+        case .session(let row): SidebarDragItem(kind: .session, id: row.id)
+        }
+    }
+
+    /// The group the row sits in; `nil` for a top-level header.
+    var parentGroupID: String? {
+        switch self {
+        case .topGroup: nil
+        case .group(let row): row.parentGroupID
+        case .session(let row): row.groupID
+        }
+    }
 }
 
 struct TopGroupRow: Identifiable, Hashable, Sendable {

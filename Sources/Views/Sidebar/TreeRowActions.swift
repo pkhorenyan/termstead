@@ -20,8 +20,8 @@ struct TreeRowActions {
     var onMove: (String?) -> Void
     /// Asks to delete this row — or the selection it is part of.
     var onDelete: () -> Void
-    /// ⌫ with the sidebar focused: asks to delete whatever is selected.
-    var onDeleteKey: () -> Void
+    /// Where a click on the row sends the keyboard.
+    var keyboard: TreeKeyboardFocus
     /// This row's name is being edited in place.
     var isRenaming: Bool
     var renameText: Binding<String>

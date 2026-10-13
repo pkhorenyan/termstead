@@ -114,7 +114,7 @@ struct TopGroupHeaderView: View {
                     canDrop: { items, edge in actions.canDrop(items, row.dropTarget(for: edge)) },
                     performDrop: { items, edge in actions.onDrop(items, row.dropTarget(for: edge)) },
                     onSpringOpen: isCollapsed ? onToggleCollapse : nil,
-                    onDeleteKey: actions.onDeleteKey,
+                    keyboard: actions.keyboard,
                     // A row already in the selection keeps it, so the menu
                     // acts on all of it; any other row becomes the selection.
                     onContextClick: actions.isSelected ? nil : { actions.onSelect([]) }
@@ -199,7 +199,7 @@ struct GroupRowView: View {
                     canDrop: { items, edge in actions.canDrop(items, row.dropTarget(for: edge)) },
                     performDrop: { items, edge in actions.onDrop(items, row.dropTarget(for: edge)) },
                     onSpringOpen: row.isCollapsed ? onToggleCollapse : nil,
-                    onDeleteKey: actions.onDeleteKey,
+                    keyboard: actions.keyboard,
                     // A row already in the selection keeps it, so the menu
                     // acts on all of it; any other row becomes the selection.
                     onContextClick: actions.isSelected ? nil : { actions.onSelect([]) }
@@ -309,7 +309,7 @@ struct SessionRowView: View {
                     onDoubleClick: onConnect,
                     canDrop: { items, edge in actions.canDrop(items, row.dropTarget(for: edge)) },
                     performDrop: { items, edge in actions.onDrop(items, row.dropTarget(for: edge)) },
-                    onDeleteKey: actions.onDeleteKey,
+                    keyboard: actions.keyboard,
                     // A row already in the selection keeps it, so the menu
                     // acts on all of it; any other row becomes the selection.
                     onContextClick: actions.isSelected ? nil : { actions.onSelect([]) }
@@ -341,6 +341,7 @@ struct PinnedRowView: View {
     var onOpenSettings: () -> Void
     var onUnpin: () -> Void
     var onDelete: () -> Void
+    var keyboard: TreeKeyboardFocus?
 
     private var tint: RGB? { row.color(on: theme) }
 
@@ -391,7 +392,7 @@ struct PinnedRowView: View {
                 onDoubleClick: onConnect,
                 canDrop: { _, _ in false },
                 performDrop: { _, _ in false },
-                onDeleteKey: onDelete,
+                keyboard: keyboard,
                 onContextClick: isSelected ? nil : onSelect
             )
         }

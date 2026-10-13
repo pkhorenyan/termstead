@@ -26,7 +26,8 @@
 
 - **Sessions in a tree.** Groups and subgroups, colors that the sessions inside
   take on, an icon per session, pinned favorites at the top, search, drag and
-  drop to reorder.
+  drop to reorder — and the keyboard, as in Finder: arrows to move, Return to
+  connect.
 - **Tabs you can arrange.** Each carries its session's icon in its group's
   color; drag tabs into any order, step through them with ⇧⌘[ and ⇧⌘], and
   right-click one to reconnect, duplicate or close the rest. When there are
@@ -108,6 +109,19 @@ against the project's signing key before it is installed.
 Double-click a session to connect. A closed tab keeps its output — press Return
 to reconnect, or choose Reconnect from the tab's menu. Drag a tab to move it;
 the middle mouse button closes it.
+
+Once you click in the session tree, the keyboard moves through it:
+
+| | |
+|---|---|
+| Move up / down; extend the selection | ↑ / ↓; ⇧↑ / ⇧↓ |
+| Open a group, or go into it / close it, or go up | → / ← |
+| Connect every selected session; open or close a group | Return |
+| Delete the selection | ⌫ |
+| Back to the terminal | Esc |
+
+↓ in the search field goes to the first session found, so typing a few letters
+and Return is enough to connect.
 
 ## Build from source
 

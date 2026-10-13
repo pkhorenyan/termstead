@@ -11,26 +11,27 @@ struct KeyAndMenuTests {
     }
 
     @Test func deleteAndForwardDeleteAskToDelete() {
-        let row = RowInteractionView()
-        var asked = 0
-        row.onDeleteKey = { asked += 1 }
-        #expect(row.acceptsFirstResponder)
-        row.keyDown(with: key(51, "\u{7F}"))
-        row.keyDown(with: key(117, "\u{F728}"))
-        row.keyDown(with: key(51, "\u{7F}", modifiers: .command))
-        #expect(asked == 3)
+        let tree = TreeKeyView()
+        var keys: [TreeKey] = []
+        tree.onKey = { keys.append($0) }
+        #expect(tree.acceptsFirstResponder)
+        tree.keyDown(with: key(51, "\u{7F}"))
+        tree.keyDown(with: key(117, "\u{F728}"))
+        tree.keyDown(with: key(51, "\u{7F}", modifiers: .command))
+        #expect(keys == [.delete, .delete, .delete])
     }
 
     @Test func otherKeysDoNot() {
-        let row = RowInteractionView()
-        var asked = 0
-        row.onDeleteKey = { asked += 1 }
-        row.keyDown(with: key(0, "a"))
-        row.keyDown(with: key(51, "\u{7F}", modifiers: .option))
-        #expect(asked == 0)
+        let tree = TreeKeyView()
+        var keys: [TreeKey] = []
+        tree.onKey = { keys.append($0) }
+        tree.keyDown(with: key(0, "a"))
+        tree.keyDown(with: key(51, "\u{7F}", modifiers: .option))
+        #expect(keys.isEmpty)
     }
 
-    @Test func aRowWithoutDeletionNeverTakesTheKeyboard() {
+    /// The keyboard belongs to the tree's own view, which outlives the rows.
+    @Test func aRowNeverTakesTheKeyboardItself() {
         #expect(!RowInteractionView().acceptsFirstResponder)
     }
 
