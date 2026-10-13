@@ -14,8 +14,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Each pane has its own tab strip, with everything a strip has; the
   dividers can be dragged, and a double-click evens them out. A tab moves
   to another pane by dragging it onto that pane's strip, or with Move to
-  Pane in its menu. The focused pane is framed in the accent colour and
-  the others are dimmed. ⌘] and ⌘[ move between panes, and the status bar,
+  Pane in its menu. The other panes are dimmed, and a quiet accent line
+  sits under the focused pane's tabs. ⌘] and ⌘[ move between panes, and the status bar,
   the SFTP panel, Find and the menus follow the focused one. Going back to
   fewer panes closes nothing, and Reopen tabs at launch brings the layout
   back too.

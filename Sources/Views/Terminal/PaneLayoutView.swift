@@ -161,33 +161,43 @@ struct PaneView: View {
     var pane: Int
 
     private var isFocused: Bool { connectionStore.focusedPane == pane }
+    private var isSplit: Bool { connectionStore.layout.paneCount > 1 }
     /// Split, and not the pane in focus: drawn back, the way iTerm2 dims its
     /// inactive split panes. A quieter tab line and a hollow cursor alone
-    /// did not tell the panes apart (Pavel could not see which was focused).
-    private var isDimmed: Bool { connectionStore.layout.paneCount > 1 && !isFocused }
+    /// did not tell the panes apart. An accent frame round the focused pane
+    /// did, but glared, and its top edge was clipped by the window's.
+    private var isDimmed: Bool { isSplit && !isFocused }
 
-    /// How far an unfocused pane's terminal is pulled towards its background.
-    static let dimming = 0.32
+    /// How far an unfocused pane's content is pulled towards its background.
+    static let dimming = 0.4
+    /// The focused pane's line under its tabs: there, but quiet.
+    static let focusLineOpacity = 0.6
 
     var body: some View {
-        content
-            // The focused pane, framed in the accent colour. Over the panes,
-            // never in the way of a click.
-            .overlay {
-                if connectionStore.layout.paneCount > 1 && isFocused {
-                    Rectangle()
-                        .strokeBorder(theme.accent.color, lineWidth: 2)
-                        .allowsHitTesting(false)
-                }
-            }
-    }
-
-    private var content: some View {
         VStack(spacing: 0) {
             TabBarView(pane: pane)
                 .frame(height: Metrics.tabBarHeight)
                 .background(theme.sidebar.color)
-                .overlay(alignment: .bottom) { Divider1(theme.border) }
+                .overlay(alignment: .bottom) {
+                    if isSplit && isFocused {
+                        Rectangle()
+                            .fill(theme.accent.color.opacity(Self.focusLineOpacity))
+                            .frame(height: 2)
+                    } else {
+                        Divider1(theme.border)
+                    }
+                }
+            paneContent
+                .overlay {
+                    if isDimmed {
+                        theme.terminal.color.opacity(Self.dimming).allowsHitTesting(false)
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var paneContent: some View {
 
             if let connection = connectionStore.active(in: pane) {
                 TerminalPane(connection: connection, theme: theme,
@@ -205,11 +215,6 @@ struct PaneView: View {
                              takesFocus: isFocused,
                              onFocus: { connectionStore.focus(pane: pane) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay {
-                        if isDimmed {
-                            theme.terminal.color.opacity(Self.dimming).allowsHitTesting(false)
-                        }
-                    }
                     .overlay(alignment: .topTrailing) {
                         if appState.isFindOpen && isFocused {
                             // Clear of the scroll bar on the right.
@@ -221,7 +226,6 @@ struct PaneView: View {
             } else {
                 EmptyPaneView(pane: pane)
             }
-        }
     }
 }
 
