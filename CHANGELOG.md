@@ -33,6 +33,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the tab's own connection, through any jump hosts, in one channel that
   stays open. Settings ▸ Terminal ▸ Window ▸ Show server load turns it off.
 
+### Changed
+
+- The terminal font's ligatures are off unless turned on in Settings ▸
+  Appearance ▸ Ligatures: `->`, `!=` and `=>` read as typed, and fast
+  output is cheaper to redraw. Until now they were always on.
+
 ### Fixed
 
 - ⌘W closes the tab in front, as Session ▸ Close Tab says. It used to close

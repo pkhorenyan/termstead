@@ -41,3 +41,13 @@ its own color. Termstead draws a find match as a solid fill, which in a dark
 theme sits under light text, so the fill needs a text color of its own. `nil`,
 the default, keeps the upstream behaviour; when set, the glyphs of selected
 cells (box drawing and block elements included) take it.
+
+## FontSet: bold and italic keep the base font's features
+
+`FontSet` derives the bold, italic and bold-italic fonts with
+`NSFontManager.convert(_:toHaveTrait:)`, which drops the base font's feature
+settings. Termstead turns ligatures off through those settings (Settings ▸
+Appearance ▸ Ligatures), and bold or italic text still drew them.
+`FontSet.withFeatures(of:_:)` carries the base font's `.featureSettings` over to
+each derived font.
+

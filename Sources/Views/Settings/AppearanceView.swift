@@ -354,6 +354,11 @@ struct AppearanceView: View {
                 }
             }
             divider
+            settingsRow("Ligatures",
+                        caption: "Draws pairs such as -> and != as one sign. Off, fast output redraws more cheaply.") {
+                settingSwitch($themeStore.fontLigatures, label: "Ligatures")
+            }
+            divider
             settingsRow("Cursor") {
                 segmented(ThemeStore.CursorShape.allCases, selection: $themeStore.cursorShape,
                           label: \.label, title: "Cursor shape")

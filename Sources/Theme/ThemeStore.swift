@@ -11,6 +11,7 @@ final class ThemeStore {
         static let followSystem = "appearance.followSystem"
         static let fontSize = "appearance.terminalFontSize"
         static let fontFamily = "appearance.terminalFontFamily"
+        static let ligatures = "appearance.fontLigatures"
         static let copyOnSelect = "terminal.copyOnSelect"
         static let cursorShape = "terminal.cursorShape"
         static let cursorBlinks = "terminal.cursorBlinks"
@@ -75,6 +76,13 @@ final class ThemeStore {
     }
 
     /// The terminal's font family, by the name the font menu shows.
+    /// The font's ligatures (`->`, `!=` drawn as one sign). Off unless turned
+    /// on, as in iTerm2: shaping them is most of the cost of redrawing fast
+    /// output (see CLAUDE.md, Performance).
+    var fontLigatures: Bool {
+        didSet { UserDefaults.standard.set(fontLigatures, forKey: Key.ligatures) }
+    }
+
     var terminalFontFamily: String {
         didSet { UserDefaults.standard.set(terminalFontFamily, forKey: Key.fontFamily) }
     }
@@ -188,6 +196,7 @@ final class ThemeStore {
         showFilesAfterLogin = Self.bool(defaults, Key.showFilesAfterLogin, default: true)
         reopenTabsAtLaunch = Self.bool(defaults, Key.reopenTabs, default: false)
         showServerLoad = Self.bool(defaults, Key.showServerLoad, default: true)
+        fontLigatures = Self.bool(defaults, Key.ligatures, default: false)
         systemIsDark = Self.readSystemIsDark()
 
         appearanceObservation = DistributedNotificationCenter.default.addObserver(
@@ -289,9 +298,21 @@ extension ThemeStore {
     /// The terminal's font at a tab's own size; `nil` is the chosen one.
     func terminalFont(size: Int?) -> NSFont {
         let points = CGFloat(size ?? terminalFontSize)
-        return Self.font(family: terminalFontFamily, size: points)
+        let font = Self.font(family: terminalFontFamily, size: points)
             ?? Self.font(family: Self.bundledFontFamily, size: points)
             ?? .monospacedSystemFont(ofSize: points, weight: .regular)
+        return fontLigatures ? font : Self.withoutLigatures(font)
+    }
+
+    /// Common ligatures and contextual alternates off — JetBrains Mono keeps
+    /// its code ligatures in the latter.
+    static func withoutLigatures(_ font: NSFont) -> NSFont {
+        let settings: [[NSFontDescriptor.FeatureKey: Int]] = [
+            [.typeIdentifier: kLigaturesType, .selectorIdentifier: kCommonLigaturesOffSelector],
+            [.typeIdentifier: kContextualAlternatesType, .selectorIdentifier: kContextualAlternatesOffSelector],
+        ]
+        let descriptor = font.fontDescriptor.addingAttributes([.featureSettings: settings])
+        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 
     /// `nil` when the family is not installed (any more).
@@ -354,6 +375,7 @@ extension ThemeStore {
         var showFilesAfterLogin: Bool
         var reopenTabsAtLaunch: Bool
         var showServerLoad: Bool
+        var fontLigatures: Bool
     }
 
     var snapshot: Snapshot {
@@ -365,7 +387,7 @@ extension ThemeStore {
                  confirmClosingConnection: confirmClosingConnection, highlighting: highlighting,
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
                  showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch,
-                 showServerLoad: showServerLoad)
+                 showServerLoad: showServerLoad, fontLigatures: fontLigatures)
     }
 
     func restore(_ snapshot: Snapshot) {
@@ -387,5 +409,6 @@ extension ThemeStore {
         showFilesAfterLogin = snapshot.showFilesAfterLogin
         reopenTabsAtLaunch = snapshot.reopenTabsAtLaunch
         showServerLoad = snapshot.showServerLoad
+        fontLigatures = snapshot.fontLigatures
     }
 }

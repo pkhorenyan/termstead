@@ -223,7 +223,9 @@ struct TerminalPane: NSViewRepresentable {
 @MainActor
 enum TerminalStyle {
     static func apply(theme: Theme, font: NSFont, to view: SSHTerminalView) {
-        let key = "\(theme.id)|\(font.fontName)|\(font.pointSize)"
+        // The feature settings too: turning ligatures off keeps the name and size.
+        let features = font.fontDescriptor.object(forKey: .featureSettings) == nil ? "liga" : "noliga"
+        let key = "\(theme.id)|\(font.fontName)|\(font.pointSize)|\(features)"
         guard view.appliedStyle != key else { return }
         view.appliedStyle = key
 

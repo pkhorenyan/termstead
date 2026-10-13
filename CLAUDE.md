@@ -442,8 +442,9 @@ row. Two things tried: redrawing unfocused panes at 20 fps (a
 `displayInterval` patch to SwiftTerm) changed nothing measurable and was
 dropped; turning off the font's ligatures (`liga`/`calt`) cut
 `CTLineCreateWithAttributedString` samples by 77% and the main thread's
-busy share from 87% to 78%, but changes how the font looks and was not
-kept. SwiftTerm 1.12's Metal renderer is the larger lever (see Build).
+busy share from 87% to 78%. That became Settings ▸ Appearance ▸
+Ligatures, off by default (`ThemeStore.withoutLigatures`; SwiftTerm's
+bold and italic fonts needed a patch to keep the setting). SwiftTerm 1.12's Metal renderer is the larger lever (see Build).
 
 `SessionStore.flattened` is walked once per render and read for both the rows
 and the pinned strip; the lighter `sessionIndex` (no rows, and no read of

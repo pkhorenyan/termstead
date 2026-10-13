@@ -52,9 +52,18 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         
         public init(font baseFont: NSFont, fontSize: CGFloat? = nil) {
             self.normal = baseFont
-            self.bold = NSFontManager.shared.convert(baseFont, toHaveTrait: [.boldFontMask])
-            self.italic = NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask])
-            self.boldItalic = NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask, .boldFontMask])
+            self.bold = Self.withFeatures(of: baseFont, NSFontManager.shared.convert(baseFont, toHaveTrait: [.boldFontMask]))
+            self.italic = Self.withFeatures(of: baseFont, NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask]))
+            self.boldItalic = Self.withFeatures(of: baseFont, NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask, .boldFontMask]))
+        }
+
+        /// Termstead patch: `NSFontManager.convert` drops the base font's
+        /// feature settings (ligatures off, say), so bold and italic text
+        /// would not follow them. They are carried over.
+        static func withFeatures(of base: NSFont, _ font: NSFont) -> NSFont {
+            guard let features = base.fontDescriptor.object(forKey: .featureSettings) else { return font }
+            let descriptor = font.fontDescriptor.addingAttributes([.featureSettings: features])
+            return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
         }
 
         // Expected by the shared rendering code
