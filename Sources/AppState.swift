@@ -49,6 +49,14 @@ final class AppState {
     var pendingCloseGroup: [UUID]?
     /// The tabs from the last quit have been dealt with for this launch.
     @ObservationIgnored var didReopenTabs = false
+
+    /// Where each pane's tab strip, and each tab, sits in the window
+    /// (SwiftUI's global space: top-left origin), for dragging a tab from one
+    /// pane to another. Not observed: only a drag reads them.
+    @ObservationIgnored var paneStrips: [Int: CGRect] = [:]
+    @ObservationIgnored var tabFrames: [UUID: CGRect] = [:]
+    /// The pane whose strip a dragged tab is over, highlighted until it drops.
+    var dropPane: Int?
     /// The Appearance window is up, and app-modal.
     var isAppearanceOpen = false
     /// Something modal is up; menu commands that would reach past it are off.

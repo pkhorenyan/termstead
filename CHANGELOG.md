@@ -9,6 +9,16 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Panes: the terminal area splits into two panes side by side (⌘D), two
+  stacked (⇧⌘D) or four, from buttons beside the gear or the View menu.
+  Each pane has its own tab strip, with everything a strip has; the
+  dividers can be dragged, and a double-click evens them out. A tab moves
+  to another pane by dragging it onto that pane's strip, or with Move to
+  Pane in its menu. ⌘] and ⌘[ move between panes, and the status bar,
+  the SFTP panel, Find and the menus follow the focused one. Going back to
+  fewer panes closes nothing, and Reopen tabs at launch brings the layout
+  back too.
+
 - Server load in the status bar: CPU, memory, disk and network of the
   server in front, every three seconds, with the load average and uptime
   in its tooltip. Figures past 90% turn yellow. It reads Linux's /proc over

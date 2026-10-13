@@ -69,7 +69,7 @@ straight on a screen: `newSession`, `newGroup`, `sessionSettings` (with
 `-sb-session <name>`), `groupSettings` (with `-sb-group <id>`), `quickConnect`,
 `empty`, `appearance`.
 `-sb-color-picker YES` opens the custom color dialog over the main window.
-`-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-sidebar files`
+`-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-layout sideBySide|stacked|grid` splits the window first and then deals those tabs out to the panes in turn, `-sb-sidebar files`
 shows the Files tab, and `-sb-ssh-prefix <file>` puts that file's ssh options
 ahead of the generated config (trust settings for a throwaway local sshd; start
 one with `Subsystem sftp /usr/libexec/sftp-server` to look at the Files tab).
@@ -231,7 +231,7 @@ scripts/release.sh 0.2.0
 | `TestLab/` | Docker SSH servers for manual and automated testing (`lab.sh`), and the screenshot kit in `screenshots/` |
 | `Sources/Theme/` | `Theme` tokens, the six themes, `RGB`, `ThemeStore`, `SBFont` |
 | `Sources/Views/Sidebar/` | The tree: rows, the AppKit mouse layer, the tree's keyboard (`TreeKeyboard`), the resize handle, and `SidebarTabRail` (Sessions / SFTP down the left edge) |
-| `Sources/Views/Terminal/` | Tab bar and its mouse layer (`TabInteraction`: select, drag to reorder with edge scrolling, middle-click; `TabStripScrolling`: the wheel), find bar and `TerminalPane` (mounts the active connection's SwiftTerm view, applies the theme) |
+| `Sources/Views/Terminal/` | `PaneLayoutView` (the panes, `PaneSplit` dividers, `PaneView`, `EmptyPaneView`), tab bar and its mouse layer (`TabInteraction`: select, drag to reorder with edge scrolling or onto another pane, middle-click; `TabStripScrolling`: the wheel), find bar and `TerminalPane` (mounts a pane's active SwiftTerm view, applies the theme) |
 | `Sources/Views/Sheets/` | Session and group forms plus their controls, and the color picker. They are *windows* now, not sheets; the names are historical |
 | `Sources/Views/Files/` | `FilesPanel`, the sidebar's Files tab |
 | `Sources/Views/Settings/` | The Settings window: appearance and terminal behaviour |
@@ -239,6 +239,15 @@ scripts/release.sh 0.2.0
 | `Sources/Components/` | Reusable controls, `ThemeSwatch`, `PromptGlyph`, `FlowRow` |
 | `Resources/` | `Info.plist`, bundled fonts and their licences, asset catalogue |
 | `docs/images/` | The README's screenshots |
+
+**Panes are one `ConnectionStore`.** Each `Connection` carries its `pane`;
+`layout`, `focusedPane` and each pane's tab in front live in the store, and
+`active` / `activeID` are the *focused* pane's. Everything that acts on "the
+tab in front" — menus, status bar, SFTP, sidebar, forms — therefore works
+unchanged; only the strips and terminals ask per pane (`tabs(in:)`,
+`active(in:)`). Setting `activeID` focuses that tab's pane. A layout with
+fewer panes moves tabs to the pane covering the same corner
+(`PaneLayout.pane(_:from:to:)`) and closes nothing.
 
 `SessionStore` is the centre of gravity: the tree, the flattening that turns it
 into sidebar rows, and every mutation. Views hold no tree logic — rows arrive
@@ -670,6 +679,24 @@ These have each cost real time. They are not hypothetical.
   Next/Previous Tab" are declared as ⌘} and ⌘{, as Terminal's are —
   `.keyboardShortcut("]", modifiers: [.command, .shift])` never fired
   (`TabKeysTests` checks against the real menu items).
+- **Only the focused pane's terminal may take the keyboard.**
+  `TerminalPane.Container.mount` used to make every mounted terminal first
+  responder; with four panes they took turns. It now does so only with
+  `takesFocus`, again when the focus comes to the pane, and once more from
+  `viewDidMoveToWindow` — SwiftUI can mount before the view is in a window,
+  and the request was lost (it failed one test run in the full suite).
+  The other way round, a click into a terminal focuses its pane through
+  KVO on the window's `firstResponder`: SwiftTerm's `becomeFirstResponder`
+  is `public`, not `open`.
+- **A terminal view moves between containers.** It belongs to its
+  `Connection`, so a tab moved to another pane is added to that pane's
+  container, which takes it out of the old one. The old container must
+  then neither remove it nor size it in `layout` (`holdsMounted`), or the
+  two fight over one view.
+- **Dropping a tab on another pane uses SwiftUI's global space.** Strips
+  and tabs report `frame(in: .global)` to `AppState.paneStrips` /
+  `tabFrames` (not observed), and `TabInteractionView` converts the pointer
+  to the same top-left space through the window's content view.
 - **SwiftUI drops a command's shortcut when a stock item has it.** File ▸
   Close kept ⌘W and Session ▸ Close Tab showed none, so ⌘W closed the main
   window and left the app windowless — no warning anywhere. The stock group

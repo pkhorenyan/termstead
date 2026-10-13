@@ -69,6 +69,9 @@ struct TermsteadApp: App {
     /// switched off while one is up.
     private var formIsOpen: Bool { appState.isModalOpen }
 
+    /// Next and previous tab go round the focused pane's tabs only.
+    private var focusedTabCount: Int { connectionStore.tabs(in: connectionStore.focusedPane).count }
+
     @CommandsBuilder
     private var commands: some Commands {
         CommandGroup(after: .appInfo) {
@@ -120,6 +123,25 @@ struct TermsteadApp: App {
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(connectionStore.active?.fontSize == nil || formIsOpen)
             Divider()
+            // ⌘D and ⇧⌘D as in iTerm2; the same four layouts as the buttons
+            // beside the gear.
+            ForEach(PaneLayout.allCases, id: \.self) { layout in
+                let button = Button(layout.title) { connectionStore.setLayout(layout) }
+                    .disabled(formIsOpen || connectionStore.layout == layout)
+                switch layout {
+                case .sideBySide: button.keyboardShortcut("d", modifiers: .command)
+                case .stacked: button.keyboardShortcut("d", modifiers: [.command, .shift])
+                default: button
+                }
+            }
+            // ⌘] and ⌘[, as iTerm2 moves between its split panes.
+            Button("Next Pane") { connectionStore.focusPane(offset: 1) }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(connectionStore.layout == .single || formIsOpen)
+            Button("Previous Pane") { connectionStore.focusPane(offset: -1) }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(connectionStore.layout == .single || formIsOpen)
+            Divider()
         }
         // No help book, so no "Termstead Help": the stock item only says help
         // isn't available. The Help menu keeps macOS's own menu search.
@@ -168,10 +190,10 @@ struct TermsteadApp: App {
             // the "}" the keyboard sends (see `TabKeysTests`).
             Button("Show Previous Tab") { connectionStore.showTab(offset: -1) }
                 .keyboardShortcut("{", modifiers: .command)
-                .disabled(connectionStore.connections.count < 2 || formIsOpen)
+                .disabled(focusedTabCount < 2 || formIsOpen)
             Button("Show Next Tab") { connectionStore.showTab(offset: 1) }
                 .keyboardShortcut("}", modifiers: .command)
-                .disabled(connectionStore.connections.count < 2 || formIsOpen)
+                .disabled(focusedTabCount < 2 || formIsOpen)
         }
         if DevelopmentLaunch.isActive {
             CommandMenu("Debug") {

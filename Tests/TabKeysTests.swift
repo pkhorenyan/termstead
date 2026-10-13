@@ -78,4 +78,22 @@ struct TabKeysTests {
         #expect(!window.performKeyEquivalent(with: commandW([.command, .shift])))
         #expect(cancelled == 1)
     }
+
+    /// The panes' commands, as SwiftUI builds them into the View menu.
+    @Test func thePaneCommandsAreInTheMenu() throws {
+        let items = (NSApp.mainMenu?.items ?? []).compactMap { $0.submenu }.flatMap { $0.items }
+        func item(_ title: String) throws -> NSMenuItem { try #require(items.first { $0.title == title }, "\(title)") }
+        let mask: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
+        let vertical = try item("Split Vertically")
+        #expect(vertical.keyEquivalent.lowercased() == "d")
+        #expect(vertical.keyEquivalentModifierMask.intersection(mask) == .command)
+        let horizontal = try item("Split Horizontally")
+        #expect(horizontal.keyEquivalent.lowercased() == "d")
+        #expect(horizontal.keyEquivalentModifierMask.intersection(mask) == [.command, .shift])
+        #expect(try item("Next Pane").keyEquivalent == "]")
+        #expect(try item("Previous Pane").keyEquivalent == "[")
+        _ = try item("Single Pane")
+        _ = try item("Four Panes")
+    }
 }
+

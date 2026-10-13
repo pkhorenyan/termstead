@@ -36,7 +36,8 @@ struct MainView: View {
     /// blank terminal said nothing.
     @ViewBuilder
     private var mainColumn: some View {
-        if connectionStore.connections.isEmpty {
+        // Split, the panes show even when empty: each says how to fill it.
+        if connectionStore.connections.isEmpty && connectionStore.layout == .single {
             EmptyStateView()
         } else {
             terminalColumn
@@ -88,7 +89,9 @@ struct MainView: View {
                                frameAutosaveName: "MainWindow",
                                onOpenAppearance: {
                                    openWindow(id: TermsteadApp.appearanceWindowID)
-                               })
+                               },
+                               paneLayout: connectionStore.layout,
+                               onPaneLayout: { connectionStore.setLayout($0) })
         )
         .alert(appState.importReport?.title ?? "",
                isPresented: Binding(get: { appState.importReport != nil },
@@ -142,9 +145,18 @@ struct MainView: View {
             // `-sb-sidebar files` shows the Files tab, so both can be looked
             // at without clicking.
             let defaults = UserDefaults.standard
+            // `-sb-layout sideBySide|stacked|grid` splits the window, and
+            // `-sb-connect` then deals its tabs out to the panes in turn.
+            if let raw = defaults.string(forKey: "sb-layout"), let layout = PaneLayout(rawValue: raw) {
+                connectionStore.setLayout(layout)
+            }
             if let names = defaults.string(forKey: "sb-connect") {
                 let ids = names.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                for id in ids { connectionStore.connect(sessionID: id, in: sessionStore) }
+                let panes = connectionStore.layout.paneCount
+                for (index, id) in ids.enumerated() {
+                    if panes > 1 { connectionStore.focus(pane: index % panes) }
+                    connectionStore.connect(sessionID: id, in: sessionStore)
+                }
                 if let first = ids.first,
                    let tab = connectionStore.connections.first(where: { $0.sessionID == first }) {
                     connectionStore.activeID = tab.id
@@ -187,38 +199,11 @@ struct MainView: View {
         return title.map { "Close the connection to \($0)?" } ?? "Close the connection?"
     }
 
+    /// The panes, each with its own tabs (`PaneLayoutView`). Find follows the
+    /// focused pane's tab in front.
     private var terminalColumn: some View {
-        VStack(spacing: 0) {
-            TabBarView()
-                .frame(height: Metrics.tabBarHeight)
-                .background(theme.sidebar.color)
-                .overlay(alignment: .bottom) { Divider1(theme.border) }
-
-            if let connection = connectionStore.active {
-                TerminalPane(connection: connection, theme: theme,
-                             font: themeStore.terminalFont(size: connection.fontSize),
-                             copyOnSelect: themeStore.copyOnSelect,
-                             cursorShape: themeStore.cursorShape,
-                             cursorBlinks: themeStore.cursorBlinks,
-                             rightClickPastes: themeStore.rightClickPastes,
-                             confirmMultilinePaste: themeStore.confirmMultilinePaste,
-                             bell: themeStore.bell,
-                             optionAsMeta: themeStore.optionAsMeta,
-                             highlighting: themeStore.highlighting,
-                             scrollbackLines: themeStore.scrollbackLines,
-                             onStopConfirmingPaste: { themeStore.confirmMultilinePaste = false })
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .topTrailing) {
-                        if appState.isFindOpen {
-                            // Clear of the scroll bar on the right.
-                            FindBar(theme: theme, terminal: connection.terminalView)
-                                .padding(.top, 8)
-                                .padding(.trailing, 20)
-                        }
-                    }
-                    .onChange(of: connection.id) { appState.activeTerminalChanged() }
-            }
-        }
+        PaneLayoutView()
+            .onChange(of: connectionStore.active?.id) { appState.activeTerminalChanged() }
     }
 }
 

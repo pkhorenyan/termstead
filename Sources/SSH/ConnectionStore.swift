@@ -1,13 +1,71 @@
 import Foundation
 import Observation
 
-/// The open tabs and which one is in front. Runtime only: nothing here is saved.
+/// How the terminal area is divided. Panes are numbered along the rows:
+/// left then right, top then bottom.
+enum PaneLayout: String, Codable, CaseIterable, Sendable {
+    case single, sideBySide, stacked, grid
+
+    var paneCount: Int {
+        switch self {
+        case .single: 1
+        case .sideBySide, .stacked: 2
+        case .grid: 4
+        }
+    }
+
+    /// For "Move to Pane", in this layout's terms.
+    func name(ofPane pane: Int) -> String {
+        switch self {
+        case .single: "Main"
+        case .sideBySide: pane == 0 ? "Left" : "Right"
+        case .stacked: pane == 0 ? "Top" : "Bottom"
+        case .grid: ["Top Left", "Top Right", "Bottom Left", "Bottom Right"][min(pane, 3)]
+        }
+    }
+
+    private var columns: Int { self == .sideBySide || self == .grid ? 2 : 1 }
+    private var rows: Int { self == .stacked || self == .grid ? 2 : 1 }
+
+    /// Where a tab in `pane` goes when `source` becomes `target`: to the pane
+    /// that covers the same corner of the window, so nothing is closed and
+    /// the left column stays on the left.
+    static func pane(_ pane: Int, from source: PaneLayout, to target: PaneLayout) -> Int {
+        let column = min(pane % source.columns, target.columns - 1)
+        let row = min(pane / source.columns, target.rows - 1)
+        return row * target.columns + column
+    }
+}
+
+/// The open tabs, the panes they are in, and which is in front. Runtime only:
+/// nothing here is saved — see `TabMemory`.
+///
+/// One store for every pane, each tab carrying its pane's number. Whatever
+/// acts on "the tab in front" — the menus, the status bar, the SFTP panel,
+/// the sidebar — means the focused pane's, so `active` and `activeID` are
+/// that pane's and none of it needed to know there are panes.
 @MainActor
 @Observable
 final class ConnectionStore {
     private(set) var connections: [Connection] = []
+    private(set) var layout: PaneLayout = .single
+    private(set) var focusedPane = 0
+    /// The tab chosen last in each pane.
+    private var activeByPane: [Int: UUID] = [:]
+
+    /// The focused pane's tab in front. Setting it brings that tab forward in
+    /// its own pane and focuses the pane.
     var activeID: UUID? {
-        didSet { updateLoadWatches() }
+        get { activeByPane[focusedPane] }
+        set {
+            if let id = newValue, let tab = connections.first(where: { $0.id == id }) {
+                activeByPane[tab.pane] = id
+                focusedPane = tab.pane
+            } else {
+                activeByPane[focusedPane] = nil
+            }
+            updateLoadWatches()
+        }
     }
     /// Settings ▸ "Show server load". Only the tab in front is watched: the
     /// status bar shows no other, and each watch is a process here and a
@@ -23,8 +81,56 @@ final class ConnectionStore {
         }
     }
 
-    var active: Connection? {
-        connections.first { $0.id == activeID } ?? connections.first
+    var active: Connection? { active(in: focusedPane) }
+
+    /// A pane's tabs, in the order its strip shows them.
+    func tabs(in pane: Int) -> [Connection] {
+        connections.filter { $0.pane == pane }
+    }
+
+    /// The pane's tab in front: the one chosen there last, else its first.
+    func active(in pane: Int) -> Connection? {
+        let tabs = tabs(in: pane)
+        return tabs.first { $0.id == activeByPane[pane] } ?? tabs.first
+    }
+
+    /// A click in the pane, its terminal taking the keyboard, or ⌘] / ⌘[.
+    func focus(pane: Int) {
+        guard (0..<layout.paneCount).contains(pane), pane != focusedPane else { return }
+        focusedPane = pane
+        updateLoadWatches()
+    }
+
+    /// ⌘] and ⌘[: the next or previous pane, round the ends.
+    func focusPane(offset: Int) {
+        let count = layout.paneCount
+        focus(pane: ((focusedPane + offset) % count + count) % count)
+    }
+
+    /// Switches the layout. Nothing is closed: tabs of a pane that goes move
+    /// to the pane covering the same corner (`PaneLayout.pane`). A new pane
+    /// starts empty and takes the focus, so the next session opens there.
+    func setLayout(_ new: PaneLayout) {
+        guard new != layout else { return }
+        let old = layout
+        let wasFocused = focusedPane
+        var fronts: [Int: UUID] = [:]
+        // The focused pane's tab last, so it wins where panes merge.
+        for pane in (0..<old.paneCount).filter({ $0 != wasFocused }) + [wasFocused] {
+            if let front = active(in: pane) { fronts[PaneLayout.pane(pane, from: old, to: new)] = front.id }
+        }
+        for connection in connections {
+            connection.pane = PaneLayout.pane(connection.pane, from: old, to: new)
+        }
+        layout = new
+        activeByPane = fronts
+        let mapped = PaneLayout.pane(wasFocused, from: old, to: new)
+        if new.paneCount > old.paneCount {
+            focusedPane = (0..<new.paneCount).first { tabs(in: $0).isEmpty } ?? mapped
+        } else {
+            focusedPane = mapped
+        }
+        updateLoadWatches()
     }
 
     func isLive(_ sessionID: String) -> Bool {
@@ -62,15 +168,16 @@ final class ConnectionStore {
     }
 
     /// "Save & reconnect": the session's tabs are closed and one fresh tab takes
-    /// the first one's place, running with the settings just saved.
+    /// the first one's place — in its pane — running with the settings just saved.
     func reconnect(sessionID: String, in store: SessionStore) {
         let old = connections.filter { $0.sessionID == sessionID }
-        let position = old.first.flatMap { first in connections.firstIndex { $0.id == first.id } }
+        let first = old.first
+        let position = first.flatMap { first in tabs(in: first.pane).firstIndex { $0.id == first.id } }
         for connection in old { close(connection.id) }
+        if let first { focusedPane = first.pane }
         connect(sessionID: sessionID, in: store, newTab: true)
-        if let position, let fresh = connections.last, position < connections.count - 1 {
-            connections.removeLast()
-            connections.insert(fresh, at: position)
+        if let position, let fresh = connections.last {
+            move(fresh.id, to: position)
         }
     }
 
@@ -101,28 +208,67 @@ final class ConnectionStore {
 
     func close(_ id: UUID) {
         guard let index = connections.firstIndex(where: { $0.id == id }) else { return }
-        connections[index].close()
-        connections.remove(at: index)
-        if activeID == id {
-            // The neighbour on the right, as browsers do, else the one on the left.
-            activeID = connections.indices.contains(index) ? connections[index].id : connections.last?.id
-        }
+        let closing = connections[index]
+        closing.close()
+        detach(closing)
+        updateLoadWatches()
     }
 
-    /// Brings forward the tab `offset` places along from the one in front,
-    /// wrapping round at either end as Safari's tabs do.
+    /// Takes a tab out of the list. If it was in front in its pane, its
+    /// neighbour there comes forward: the one on the right, as browsers do,
+    /// else the one on the left.
+    private func detach(_ tab: Connection) {
+        let siblings = tabs(in: tab.pane)
+        let position = siblings.firstIndex { $0.id == tab.id } ?? 0
+        let wasInFront = active(in: tab.pane)?.id == tab.id
+        connections.removeAll { $0.id == tab.id }
+        guard wasInFront else { return }
+        let rest = tabs(in: tab.pane)
+        activeByPane[tab.pane] = rest.indices.contains(position) ? rest[position].id : rest.last?.id
+    }
+
+    /// Brings forward the tab `offset` places along from the one in front, in
+    /// the focused pane, wrapping round at either end as Safari's tabs do.
     func showTab(offset: Int) {
-        guard connections.count > 1, let front = active,
-              let index = connections.firstIndex(where: { $0.id == front.id }) else { return }
-        let count = connections.count
-        activeID = connections[((index + offset) % count + count) % count].id
+        let tabs = tabs(in: focusedPane)
+        guard tabs.count > 1, let front = active,
+              let index = tabs.firstIndex(where: { $0.id == front.id }) else { return }
+        let count = tabs.count
+        activeID = tabs[((index + offset) % count + count) % count].id
     }
 
-    /// Moves a tab along the strip, to the slot it is dragged to.
+    /// Moves a tab along its pane's strip, to the slot it is dragged to.
+    /// `index` counts that pane's tabs only.
     func move(_ id: UUID, to index: Int) {
-        guard let from = connections.firstIndex(where: { $0.id == id }),
-              connections.indices.contains(index), from != index else { return }
-        connections.insert(connections.remove(at: from), at: index)
+        guard let moving = connections.first(where: { $0.id == id }) else { return }
+        let siblings = tabs(in: moving.pane)
+        guard let from = siblings.firstIndex(where: { $0.id == id }),
+              siblings.indices.contains(index), from != index else { return }
+        let target = siblings[index].id
+        connections.removeAll { $0.id == id }
+        guard let at = connections.firstIndex(where: { $0.id == target }) else { return }
+        connections.insert(moving, at: from < index ? at + 1 : at)
+    }
+
+    /// Moves a tab into another pane, before that pane's tab at `index` or
+    /// last, and brings it forward there: the pane takes the focus.
+    func move(_ id: UUID, toPane pane: Int, at index: Int? = nil) {
+        guard (0..<layout.paneCount).contains(pane),
+              let moving = connections.first(where: { $0.id == id }) else { return }
+        guard moving.pane != pane else {
+            if let index { move(id, to: min(index, tabs(in: pane).count - 1)) }
+            return
+        }
+        detach(moving)
+        moving.pane = pane
+        let target = tabs(in: pane)
+        if let index, target.indices.contains(index),
+           let at = connections.firstIndex(where: { $0.id == target[index].id }) {
+            connections.insert(moving, at: at)
+        } else {
+            connections.append(moving)
+        }
+        activeID = id
     }
 
     /// A tab with ssh still running ends a session someone may be using; an
@@ -141,7 +287,8 @@ final class ConnectionStore {
     func closeAll() {
         for connection in connections { connection.close() }
         connections.removeAll()
-        activeID = nil
+        activeByPane = [:]
+        updateLoadWatches()
     }
 
     /// Told when a tab's ssh has logged in to its server.
@@ -152,6 +299,7 @@ final class ConnectionStore {
             guard let self, let connection else { return }
             self.onLogin?(connection)
         }
+        connection.pane = focusedPane
         connections.append(connection)
         activeID = connection.id
     }

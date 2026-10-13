@@ -30,9 +30,50 @@ struct TitlebarName: View {
 /// single settings affordance.
 struct TitlebarActions: View {
     var theme: Theme
+    /// The pane layout buttons, beside the gear. Absent in a window without panes.
+    var layout: PaneLayout?
+    var onLayout: (PaneLayout) -> Void = { _ in }
     var onOpenAppearance: () -> Void
 
+    /// Wide enough for the layout buttons and the gear.
+    static func width(withLayouts: Bool) -> CGFloat {
+        withLayouts ? 38 + CGFloat(PaneLayout.allCases.count) * 26 + 10 : 38
+    }
+
     var body: some View {
+        HStack(spacing: 0) {
+            if let layout {
+                HStack(spacing: 0) {
+                    ForEach(PaneLayout.allCases, id: \.self) { candidate in
+                        layoutButton(candidate, isOn: candidate == layout)
+                    }
+                }
+                .padding(.trailing, 10)
+            }
+            gear
+        }
+    }
+
+    private func layoutButton(_ candidate: PaneLayout, isOn: Bool) -> some View {
+        Button { onLayout(candidate) } label: {
+            Image(systemName: candidate.symbol)
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundStyle((isOn ? theme.text : theme.textMuted).color)
+                .frame(width: 24, height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isOn ? theme.selected.color : Color.clear)
+                )
+                .frame(width: 26, height: Metrics.toolbarHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(candidate.help)
+        .accessibilityLabel(candidate.title)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private var gear: some View {
         Button(action: onOpenAppearance) {
             Image(systemName: "gearshape")
                 .font(.system(size: 13, weight: .medium))
@@ -43,5 +84,35 @@ struct TitlebarActions: View {
         .buttonStyle(.plain)
         .padding(.trailing, 8)
         .accessibilityLabel("Appearance")
+    }
+}
+
+extension PaneLayout {
+    var symbol: String {
+        switch self {
+        case .single: "rectangle"
+        case .sideBySide: "rectangle.split.2x1"
+        case .stacked: "rectangle.split.1x2"
+        case .grid: "rectangle.split.2x2"
+        }
+    }
+
+    /// The View menu's names.
+    var title: String {
+        switch self {
+        case .single: "Single Pane"
+        case .sideBySide: "Split Vertically"
+        case .stacked: "Split Horizontally"
+        case .grid: "Four Panes"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .single: "One pane"
+        case .sideBySide: "Two panes side by side (⌘D)"
+        case .stacked: "Two panes, one above the other (⇧⌘D)"
+        case .grid: "Four panes"
+        }
     }
 }

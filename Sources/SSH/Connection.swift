@@ -35,6 +35,8 @@ final class Connection: Identifiable {
     /// This tab's own text size, from ⌘+ / ⌘−. `nil` follows Settings, so a
     /// tab that was never zoomed picks up a size changed there.
     var fontSize: Int?
+    /// The pane the tab is in — see `ConnectionStore.layout`.
+    var pane = 0
     /// The server's CPU, memory, disk and network for the status bar. Kept
     /// while the tab is in the background, so it shows at once on return;
     /// cleared when ssh ends.

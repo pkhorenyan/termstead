@@ -18,6 +18,9 @@ struct WindowConfigurator: NSViewRepresentable {
     var frameAutosaveName: String?
     /// Set by the main window: adds the gear at the trailing end.
     var onOpenAppearance: (() -> Void)?
+    /// Set by the main window too: the pane layout buttons beside the gear.
+    var paneLayout: PaneLayout?
+    var onPaneLayout: (PaneLayout) -> Void = { _ in }
 
     func makeNSView(context: Context) -> NSView {
         let view = ProbeView()
@@ -99,7 +102,8 @@ struct WindowConfigurator: NSViewRepresentable {
     /// `installAppName`: re-running it only re-themes what is already there.
     private func installActions(on window: NSWindow, action: @escaping () -> Void) {
         let identifier = NSUserInterfaceItemIdentifier("sb.titlebar.actions")
-        let content = TitlebarActions(theme: theme, onOpenAppearance: action)
+        let content = TitlebarActions(theme: theme, layout: paneLayout, onLayout: onPaneLayout,
+                                      onOpenAppearance: action)
 
         if let existing = window.titlebarAccessoryViewControllers
             .first(where: { $0.identifier == identifier }) {
@@ -111,7 +115,8 @@ struct WindowConfigurator: NSViewRepresentable {
         controller.identifier = identifier
         controller.layoutAttribute = .trailing
         let host = NSHostingView(rootView: content)
-        host.frame = NSRect(x: 0, y: 0, width: 38, height: toolbarHeight)
+        host.frame = NSRect(x: 0, y: 0, width: TitlebarActions.width(withLayouts: paneLayout != nil),
+                            height: toolbarHeight)
         controller.view = host
         window.addTitlebarAccessoryViewController(controller)
     }

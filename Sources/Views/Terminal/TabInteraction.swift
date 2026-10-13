@@ -15,6 +15,9 @@ struct TabInteraction: NSViewRepresentable {
     var onMiddleClick: () -> Void
     /// The pointer's horizontal travel since the press, once it is a drag.
     var onDrag: (CGFloat) -> Void
+    /// Where the pointer is in the window during a drag, in SwiftUI's global
+    /// space (top-left origin) — for dropping the tab on another pane.
+    var onDragPointer: (CGPoint) -> Void = { _ in }
     var onDragEnd: () -> Void
 
     func makeNSView(context: Context) -> TabInteractionView { TabInteractionView() }
@@ -23,6 +26,7 @@ struct TabInteraction: NSViewRepresentable {
         view.onSelect = onSelect
         view.onMiddleClick = onMiddleClick
         view.onDrag = onDrag
+        view.onDragPointer = onDragPointer
         view.onDragEnd = onDragEnd
     }
 }
@@ -31,6 +35,7 @@ final class TabInteractionView: NSView {
     var onSelect: () -> Void = {}
     var onMiddleClick: () -> Void = {}
     var onDrag: (CGFloat) -> Void = { _ in }
+    var onDragPointer: (CGPoint) -> Void = { _ in }
     var onDragEnd: () -> Void = {}
 
     /// How far the pointer moves before a press becomes a drag, so a click
@@ -100,6 +105,15 @@ final class TabInteractionView: NSView {
         guard isDragging || abs(travel) >= Self.dragThreshold else { return }
         isDragging = true
         onDrag(travel)
+        if let point = globalPoint(pointer) { onDragPointer(point) }
+    }
+
+    /// A window point as SwiftUI's global space has it: from the content
+    /// view's top-left corner.
+    private func globalPoint(_ windowPoint: NSPoint) -> CGPoint? {
+        guard let content = window?.contentView else { return nil }
+        let local = content.convert(windowPoint, from: nil)
+        return CGPoint(x: local.x, y: content.isFlipped ? local.y : content.bounds.height - local.y)
     }
 
     /// Scrolls the strip while a dragged tab is held near either end — the

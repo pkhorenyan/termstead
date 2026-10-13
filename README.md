@@ -33,6 +33,9 @@
   right-click one to reconnect, duplicate or close the rest. When there are
   more than fit, the strip scrolls with the mouse wheel — and if you like,
   the tabs open at quit connect again the next time Termstead starts.
+- **Split the window.** Two panes side by side or stacked, or four, from the
+  buttons beside the gear. Each pane has its own tabs; drag a tab onto
+  another pane's strip to move it there.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
 - **Server load at a glance.** The status bar shows the CPU, memory, disk and
@@ -104,6 +107,8 @@ against the project's signing key before it is installed.
 | Quick connect by address | ⌘K |
 | New tab / Close tab | ⌘T / ⌘W |
 | Previous / next tab | ⇧⌘[ / ⇧⌘] |
+| Split vertically / horizontally | ⌘D / ⇧⌘D |
+| Previous / next pane | ⌘[ / ⌘] |
 | Find / Next / Previous | ⌘F / ⌘G / ⇧⌘G |
 | Text size in the tab: bigger / smaller / default | ⌘+ / ⌘− / ⌘0 |
 | Settings | ⌘, |

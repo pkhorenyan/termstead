@@ -22,6 +22,13 @@ struct TerminalPane: NSViewRepresentable {
     var highlighting: KeywordHighlighter.Mode
     var scrollbackLines: Int
     var onStopConfirmingPaste: () -> Void
+    /// This pane has the focus: its terminal takes the keyboard when it is
+    /// mounted or the focus comes to the pane. The other panes' terminals
+    /// leave it where it is.
+    var takesFocus = true
+    /// The terminal took the keyboard — a click into it — so its pane is
+    /// the focused one now.
+    var onFocus: () -> Void = {}
 
     /// Space between the canvas edge and the first column, as in the mockup's
     /// transcript.
@@ -45,7 +52,11 @@ struct TerminalPane: NSViewRepresentable {
         terminal.highlightMode = highlighting
         terminal.scrollbackLines = scrollbackLines
         terminal.onStopConfirmingPaste = onStopConfirmingPaste
+        container.onFocus = onFocus
+        let gainsFocus = takesFocus && !container.takesFocus
+        container.takesFocus = takesFocus
         container.mount(terminal)
+        if gainsFocus { container.focusTerminal() }
     }
 
     final class Container: NSView {
@@ -53,6 +64,9 @@ struct TerminalPane: NSViewRepresentable {
         private weak var mounted: NSView?
         /// Sits over the terminal's scroll bar; see `ScrollerShield`.
         private let shield = ScrollerShield()
+        var takesFocus = false
+        var onFocus: () -> Void = {}
+        private var focusObservation: NSKeyValueObservation?
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -62,17 +76,46 @@ struct TerminalPane: NSViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError("not used") }
 
+        /// A tab's terminal view outlives any one pane: moved to another pane
+        /// it is added there, which takes it out of here, and this container
+        /// must then leave it alone — removing it, or sizing it in `layout`,
+        /// would pull it out of, or fight, the pane it now belongs to.
+        private var holdsMounted: Bool { mounted?.superview === self }
+
         func mount(_ view: NSView) {
-            guard mounted !== view else { return }
-            mounted?.removeFromSuperview()
+            guard mounted !== view || !holdsMounted else { return }
+            if holdsMounted { mounted?.removeFromSuperview() }
             addSubview(view, positioned: .below, relativeTo: shield)
             mounted = view
             shield.scroller = view.subviews.compactMap { $0 as? NSScroller }.first
             needsLayout = true
-            // A tab brought to the front takes the keyboard, the way Terminal's do.
-            DispatchQueue.main.async { [weak view] in
-                guard let view, let window = view.window else { return }
+            // A tab brought to the front takes the keyboard, the way Terminal's
+            // do — in the focused pane only, or the panes would take turns.
+            if takesFocus { focusTerminal() }
+        }
+
+        func focusTerminal() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.holdsMounted, let view = self.mounted, let window = view.window,
+                      window.firstResponder !== view else { return }
                 window.makeFirstResponder(view)
+            }
+        }
+
+        /// A click into the terminal gives its pane the focus. SwiftTerm's
+        /// `becomeFirstResponder` is `public`, not `open`, so the window is
+        /// watched instead of the view.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // SwiftUI may mount the terminal before this view is in a window,
+            // and the keyboard asked for then was never given.
+            if takesFocus, window != nil { focusTerminal() }
+            focusObservation = window?.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.holdsMounted, let view = self.mounted,
+                          window.firstResponder === view else { return }
+                    self.onFocus()
+                }
             }
         }
 
@@ -87,7 +130,7 @@ struct TerminalPane: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            guard let mounted else { return }
+            guard holdsMounted, let mounted else { return }
             let target = NSRect(x: inset.left, y: inset.bottom,
                                 width: max(0, bounds.width - inset.left - inset.right),
                                 height: max(0, bounds.height - inset.top - inset.bottom))

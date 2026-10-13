@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// One pane's tabs. With a single pane, the window's.
 struct TabBarView: View {
     @Environment(\.theme) private var theme
     @Environment(SessionStore.self) private var sessionStore
@@ -7,10 +8,21 @@ struct TabBarView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeStore.self) private var themeStore
 
+    var pane = 0
+
     /// The tab being dragged along the strip.
     @State private var drag: TabDrag?
     /// Each tab's width, which decides when a dragged tab has passed one.
     @State private var widths: [UUID: CGFloat] = [:]
+    /// Where the pointer last was during a drag, for a drop on another pane.
+    @State private var dragPoint: CGPoint?
+
+    private var tabs: [Connection] { connectionStore.tabs(in: pane) }
+    /// Several panes, this one not focused: its tab in front is drawn quieter,
+    /// so the focused pane is the one that stands out.
+    private var isQuiet: Bool {
+        connectionStore.layout.paneCount > 1 && connectionStore.focusedPane != pane
+    }
 
     private struct TabDrag {
         var id: UUID
@@ -36,8 +48,8 @@ struct TabBarView: View {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal) { tabRow(index).background(TabStripScrolling()) }
                         .scrollIndicators(.never)
-                        .onAppear { reveal(connectionStore.activeID, in: proxy) }
-                        .onChange(of: connectionStore.activeID) { _, id in reveal(id, in: proxy) }
+                        .onAppear { reveal(connectionStore.active(in: pane)?.id, in: proxy) }
+                        .onChange(of: connectionStore.active(in: pane)?.id) { _, id in reveal(id, in: proxy) }
                 }
             }
             // First claim on the width, ahead of the spacer below, so the
@@ -45,8 +57,10 @@ struct TabBarView: View {
             .layoutPriority(1)
 
             Button {
-                // A new tab to somewhere new. Another shell on a session already
-                // open is "Open in New Tab" in the sidebar's context menu.
+                // A new tab to somewhere new, in this pane. Another shell on a
+                // session already open is "Open in New Tab" in the sidebar's
+                // context menu.
+                connectionStore.focus(pane: pane)
                 appState.route = .quickConnect
             } label: {
                 Image(systemName: "plus")
@@ -61,6 +75,20 @@ struct TabBarView: View {
 
             Spacer(minLength: 0)
         }
+        // A click on the strip's empty part focuses the pane.
+        .background {
+            Color.clear.contentShape(Rectangle())
+                .onTapGesture { connectionStore.focus(pane: pane) }
+        }
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { appState.paneStrips[pane] = $0 }
+        .overlay {
+            if appState.dropPane == pane {
+                Rectangle()
+                    .fill(theme.accent.color.opacity(0.14))
+                    .overlay(Rectangle().strokeBorder(theme.accent.color, lineWidth: 2))
+                    .allowsHitTesting(false)
+            }
+        }
         // The active tab is painted in the terminal colour so it reads as
         // continuous with the transcript below. Without this clip that fill
         // escapes upwards into the safe area under the titlebar — SwiftUI
@@ -72,11 +100,14 @@ struct TabBarView: View {
 
     private func tabRow(_ index: SessionStore.SessionIndex) -> some View {
         HStack(spacing: 0) {
-            ForEach(connectionStore.connections) { tab in
+            ForEach(tabs) { tab in
                 let isDragged = drag?.id == tab.id
                 tabView(tab, index: index)
                     .overlay(alignment: .trailing) { Divider1(theme.border, vertical: true) }
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { widths[tab.id] = $0 }
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                        widths[tab.id] = frame.width
+                        appState.tabFrames[tab.id] = frame
+                    }
                     .offset(x: isDragged ? shownOffset(of: tab) : 0)
                     .zIndex(isDragged ? 1 : 0)
                     // The dragged tab follows the pointer exactly: when it
@@ -89,7 +120,8 @@ struct TabBarView: View {
 
     @ViewBuilder
     private func menu(for tab: Connection) -> some View {
-        let tabs = connectionStore.connections
+        let tabs = tabs
+        let layout = connectionStore.layout
         let saved = tab.sessionID.flatMap { sessionStore.session($0) }
         if !tab.state.isRunning {
             Button("Reconnect") { tab.restart() }
@@ -99,6 +131,14 @@ struct TabBarView: View {
             .disabled(tab.sessionID != nil && saved == nil)
         if let saved {
             Button("Session Settings…") { appState.route = .sessionSettings(id: saved.id) }
+        }
+        if layout.paneCount > 1 {
+            Menu("Move to Pane") {
+                ForEach(0..<layout.paneCount, id: \.self) { target in
+                    Button(layout.name(ofPane: target)) { connectionStore.move(tab.id, toPane: target) }
+                        .disabled(target == pane)
+                }
+            }
         }
         Divider()
         Button("Close Tab") {
@@ -117,8 +157,10 @@ struct TabBarView: View {
         .disabled(tabs.last?.id == tab.id)
     }
 
-    /// Another tab to the same place: the session as saved, or the same address.
+    /// Another tab to the same place, in the same pane: the session as saved,
+    /// or the same address.
     private func duplicate(_ tab: Connection) {
+        connectionStore.focus(pane: pane)
         if let id = tab.sessionID {
             connectionStore.connect(sessionID: id, in: sessionStore, newTab: true)
         } else {
@@ -128,7 +170,7 @@ struct TabBarView: View {
 
     private func shownOffset(of tab: Connection) -> CGFloat {
         guard let drag else { return 0 }
-        let tabs = connectionStore.connections
+        let tabs = tabs
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return 0 }
         return TabReorder.clamped(drag.offset, at: index, widths: tabs.map { widths[$0.id] ?? 0 })
     }
@@ -141,8 +183,12 @@ struct TabBarView: View {
     private func dragTab(_ id: UUID, travel: CGFloat) {
         var state = drag.flatMap { $0.id == id ? $0 : nil } ?? TabDrag(id: id)
         state.travel = travel
-        let tabs = connectionStore.connections
-        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let tabs = tabs
+        // Over another pane's strip the tab is going there, not along this one.
+        guard appState.dropPane == nil, let from = tabs.firstIndex(where: { $0.id == id }) else {
+            drag = state
+            return
+        }
         let slot = TabReorder.slot(from: from, offset: state.offset,
                                    widths: tabs.map { widths[$0.id] ?? 0 })
         guard slot.index != from else {
@@ -156,19 +202,42 @@ struct TabBarView: View {
         }
     }
 
+    /// Notes which other pane's strip, if any, the dragged tab is over.
+    private func trackDrag(at point: CGPoint) {
+        dragPoint = point
+        let count = connectionStore.layout.paneCount
+        // A little slack above and below: a strip is only 36pt tall.
+        let target = appState.paneStrips.first { pane, frame in
+            pane != self.pane && pane < count && frame.insetBy(dx: 0, dy: -12).contains(point)
+        }?.key
+        if appState.dropPane != target { appState.dropPane = target }
+    }
+
     private func endDrag() {
+        if let target = appState.dropPane, let id = drag?.id, let point = dragPoint {
+            // Before the first tab whose middle is right of the pointer.
+            let index = connectionStore.tabs(in: target)
+                .filter { (appState.tabFrames[$0.id]?.midX ?? .infinity) < point.x }.count
+            appState.dropPane = nil
+            drag = nil
+            dragPoint = nil
+            connectionStore.move(id, toPane: target, at: index)
+            return
+        }
+        dragPoint = nil
         // Settles into its slot from wherever the pointer left it.
         withAnimation(.easeOut(duration: 0.15)) { drag = nil }
     }
 
     private func tabView(_ tab: Connection, index: SessionStore.SessionIndex) -> some View {
-        let isActive = connectionStore.active?.id == tab.id
+        let isActive = connectionStore.active(in: pane)?.id == tab.id
+        let isLoud = isActive && !isQuiet
         let colorID = tab.sessionID.flatMap { index.colorID[$0] }
         let groupColor = GroupColor.rgb(for: colorID)
         let topLine: Color = if let groupColor {
-            isActive ? groupColor.color : groupColor.halfStrength
+            isLoud ? groupColor.color : groupColor.halfStrength
         } else {
-            isActive ? theme.textMuted.color : .clear
+            isActive ? (isLoud ? theme.textMuted : theme.border).color : .clear
         }
         // A quick connection has no saved session, so no icon of its own.
         let icon = tab.sessionID.flatMap { sessionStore.session($0)?.icon } ?? .terminal
@@ -217,6 +286,7 @@ struct TabBarView: View {
                                               confirm: themeStore.confirmClosingConnection)
                     },
                     onDrag: { dragTab(tab.id, travel: $0) },
+                    onDragPointer: { trackDrag(at: $0) },
                     onDragEnd: endDrag)
             }
 
