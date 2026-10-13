@@ -264,7 +264,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Written on the way out, quit or update alike, so the list is the one the
     /// user last saw. With the option off nothing is kept, and turning it on
-    /// later does not bring back an old set of tabs.
+    /// later does not bring back an old set of tabs. Info.plist must not
+    /// declare sudden or automatic termination: with them the app was ended
+    /// straight after `applicationShouldTerminate`, and this never ran.
     func applicationWillTerminate(_ notification: Notification) {
         guard remembersTabs, let connectionStore, let themeStore else { return }
         if themeStore.reopenTabsAtLaunch {

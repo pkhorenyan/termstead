@@ -7,6 +7,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reopen tabs at launch reopened nothing: Termstead declared sudden
+  termination, so macOS ended it on Quit before the open tabs were written
+  down. It no longer does, and is not ended silently in the background
+  either, which would have dropped live ssh sessions.
+
 ## [0.3.0] - 2026-10-13
 
 ### Added

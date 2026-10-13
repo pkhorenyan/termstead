@@ -26,10 +26,6 @@
 	<string>© 2026 Pavel Khorenyan. GNU GPL v3 or later. Includes SwiftTerm and Sparkle (MIT) and the typefaces JetBrains Mono and IBM Plex Sans (SIL Open Font License 1.1). See Licenses/ inside this bundle.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>NSSupportsAutomaticTermination</key>
-	<true/>
-	<key>NSSupportsSuddenTermination</key>
-	<true/>
 	<key>ATSApplicationFontsPath</key>
 	<string>Fonts</string>
 	<key>SUFeedURL</key>

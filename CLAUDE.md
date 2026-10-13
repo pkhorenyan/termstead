@@ -647,6 +647,14 @@ These have each cost real time. They are not hypothetical.
   (only Shift or a sideways swipe moves it), and over SwiftUI's own parts of
   a tab the event never reaches a view of ours, so `TabStripScrolling` takes
   the wheel for the whole strip in a local event monitor.
+- **No sudden or automatic termination.** With `NSSupportsSuddenTermination`
+  in Info.plist, Quit ran `applicationShouldTerminate` and then ended the
+  process: `applicationWillTerminate` never came, so "Reopen tabs at launch"
+  saved nothing. Automatic termination would end a windowless Termstead in
+  the background, live ssh sessions and all. Both keys are gone, and
+  `TabMemoryTests` checks they stay gone. The unit tests never quit the app,
+  so only a real quit showed it (a marker file written from
+  `applicationWillTerminate`).
 - **A menu shortcut matches by character, Shift included.** "Bigger" is
   ⌘+, and ⌘= alone — the key people press — matched nothing, since `+` takes
   Shift on most layouts. `AppDelegate.plusForEquals` rewrites ⌘= as ⌘+ in a

@@ -24,6 +24,14 @@ struct TabMemoryTests {
         #expect(memory.active == 1)
     }
 
+    /// With sudden or automatic termination declared, quitting ended the app
+    /// right after `applicationShouldTerminate`: `applicationWillTerminate`,
+    /// which saves the tabs, never ran, and nothing was reopened.
+    @Test func theAppIsNotKilledWithoutBeingToldItIsQuitting() {
+        #expect(Bundle.main.object(forInfoDictionaryKey: "NSSupportsSuddenTermination") == nil)
+        #expect(Bundle.main.object(forInfoDictionaryKey: "NSSupportsAutomaticTermination") == nil)
+    }
+
     @Test func survivesARoundTripAndForgetsAnEmptyStrip() throws {
         let suite = "termstead-tabs-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
