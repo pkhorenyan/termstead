@@ -698,7 +698,13 @@ These have each cost real time. They are not hypothetical.
   `Connection`, so a tab moved to another pane is added to that pane's
   container, which takes it out of the old one. The old container must
   then neither remove it nor size it in `layout` (`holdsMounted`), or the
-  two fight over one view.
+  two fight over one view. Switching layouts is worse: SwiftUI mounts the
+  terminals in the new panes, then updates the old panes once more — with
+  the new state — before removing them, and those took the terminals back
+  (or the new panes' ones) and carried them out of the window: empty
+  panes no click could focus. So `mount` never re-takes a view it lost,
+  and a container entering the window reclaims its own; the panes that
+  stay have the last word (`PaneWindowTests`).
 - **Dropping a tab on another pane uses SwiftUI's global space.** Strips
   and tabs report `frame(in: .global)` to `AppState.paneStrips` /
   `tabFrames` (not observed), and `TabInteractionView` converts the pointer

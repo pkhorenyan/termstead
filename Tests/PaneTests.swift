@@ -299,6 +299,34 @@ struct PaneWindowTests {
         #expect(store.focusedPane == 3)
     }
 
+    /// SwiftUI mounts the new panes' terminals and then updates the old
+    /// panes once more before removing them. They used to take their
+    /// terminals back then and carry them out of the window: two empty
+    /// panes that no click could focus.
+    @Test func fewerPanesKeepEveryTerminalShowing() async throws {
+        let (window, store, _) = try await window(.grid, tabs: [["a"], ["b"], ["c"], ["d"]])
+        defer { window.close() }
+        store.setLayout(.sideBySide)
+        try await settle()
+        let shown = views(SSHTerminalView.self, in: window.contentView!)
+        #expect(shown.count == 2)
+        for pane in 0..<2 {
+            let terminal = try #require(store.active(in: pane)?.terminalView)
+            #expect(shown.contains { $0 === terminal }, "pane \(pane) shows nothing")
+        }
+        #expect(window.firstResponder === store.active?.terminalView)
+
+        // Two switches in one go: grid's empty lower panes become the
+        // bottom pane, so every tab ends up on top and the bottom is empty.
+        store.setLayout(.grid)
+        store.setLayout(.stacked)
+        try await settle()
+        let fronts = (0..<2).compactMap { store.active(in: $0)?.terminalView }
+        let nowShown = views(SSHTerminalView.self, in: window.contentView!)
+        #expect(fronts.count == 1 && store.tabs(in: 1).isEmpty)
+        #expect(nowShown.count == fronts.count && fronts.allSatisfy { f in nowShown.contains { $0 === f } })
+    }
+
     /// Through the application, as the mouse does it: SwiftTerm's mouseDown
     /// does not take the keyboard, so a click into another pane's terminal
     /// left both the focus and the keyboard where they were.

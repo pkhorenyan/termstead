@@ -83,8 +83,15 @@ struct TerminalPane: NSViewRepresentable {
         /// would pull it out of, or fight, the pane it now belongs to.
         private var holdsMounted: Bool { mounted?.superview === self }
 
+        /// Switching layouts, SwiftUI mounts the terminals in the new panes
+        /// and then updates the old ones once more — with the new state —
+        /// before removing them. The old panes took the terminals back, or
+        /// took the new panes' ones, and carried them out of the window.
+        /// So a view taken from here is never taken back on an update, and
+        /// a container entering the window reclaims its own (see
+        /// `viewDidMoveToWindow`): the panes that stay have the last word.
         func mount(_ view: NSView) {
-            guard mounted !== view || !holdsMounted else { return }
+            guard mounted !== view else { return }
             if holdsMounted { mounted?.removeFromSuperview() }
             addSubview(view, positioned: .below, relativeTo: shield)
             mounted = view
@@ -125,6 +132,11 @@ struct TerminalPane: NSViewRepresentable {
         /// watched instead of the view.
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if window != nil, let mounted, !holdsMounted {
+                addSubview(mounted, positioned: .below, relativeTo: shield)
+                shield.scroller = mounted.subviews.compactMap { $0 as? NSScroller }.first
+                needsLayout = true
+            }
             if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
             clickMonitor = nil
             if window != nil {
