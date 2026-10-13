@@ -16,6 +16,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   group, and Esc hands the keyboard back to the terminal. ↓ in the search
   field goes to the first session found.
 
+### Changed
+
+- The status bar shows the terminal's size alone, without
+  "UTF-8 · xterm-256color": every tab is the same on both counts.
+
 ### Fixed
 
 - Reopen tabs at launch reopened nothing: Termstead declared sudden

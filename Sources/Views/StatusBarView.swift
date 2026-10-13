@@ -39,8 +39,13 @@ struct StatusBarView: View {
 
                 unsavedNote
 
-                Text(tab.columns > 0 ? "UTF-8 · xterm-256color · \(tab.columns)×\(tab.rows)" : "UTF-8 · xterm-256color")
-                    .font(SBFont.mono(11.5))
+                // Only the size: "UTF-8 · xterm-256color" was the same on
+                // every tab, always, so it told nobody anything.
+                if tab.columns > 0 {
+                    Text("\(tab.columns)×\(tab.rows)")
+                        .font(SBFont.mono(11.5))
+                        .help("Terminal size: columns × rows")
+                }
             } else {
                 Text("No active connections")
                 Spacer(minLength: 0)
