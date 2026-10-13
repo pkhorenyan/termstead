@@ -124,6 +124,11 @@ struct TermsteadApp: App {
         // No help book, so no "Termstead Help": the stock item only says help
         // isn't available. The Help menu keeps macOS's own menu search.
         CommandGroup(replacing: .help) {}
+        // The stock File ▸ Close took ⌘W, and SwiftUI quietly dropped the
+        // shortcut from Close Tab: ⌘W closed the main window, leaving the app
+        // running with no window. Settings and the forms close on ⌘W by
+        // themselves (`FormWindow`, `AppearanceView`).
+        CommandGroup(replacing: .saveItem) {}
         CommandMenu("Session") {
             // No bare Return shortcut: the terminal needs that key.
             Button("Connect") { connectSelected() }

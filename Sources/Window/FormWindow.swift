@@ -216,9 +216,22 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
 
 /// Escape closes the form, as it did while these were sheets. A plain window is
 /// only sent `cancelOperation` when a text view is the first responder, so the
-/// key is caught here as well.
+/// key is caught here as well. So is ⌘W, which no menu item closes a window
+/// with any more: it is Close Tab.
 final class FormWindow: NSWindow {
     var onCancel: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard Self.isCommandW(event) else { return super.performKeyEquivalent(with: event) }
+        onCancel?()
+        return true
+    }
+
+    nonisolated static func isCommandW(_ event: NSEvent) -> Bool {
+        event.type == .keyDown
+            && event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "w"
+    }
 
     override func cancelOperation(_ sender: Any?) {
         modalLog.debug("escape reached the form: cancelOperation")

@@ -110,17 +110,27 @@ struct AppearanceView: View {
         .overlay(alignment: .bottom) { Divider1(theme.border) }
     }
 
+    private func cancel() {
+        modalLog.debug("settings: Cancel")
+        if let original { themeStore.restore(original) }
+        dismiss()
+    }
+
     private var footer: some View {
         HStack(spacing: 10) {
             Spacer(minLength: 0)
-            Button("Cancel") {
-                modalLog.debug("settings: Cancel")
-                if let original { themeStore.restore(original) }
-                dismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 36,
-                                              horizontalPadding: 16, fontSize: 13.5))
+            Button("Cancel") { cancel() }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(SecondaryButtonStyle(theme: theme, height: 36,
+                                                  horizontalPadding: 16, fontSize: 13.5))
+                // ⌘W as well, as closing a window: no menu item does that
+                // any more, since ⌘W is Close Tab.
+                .background {
+                    Button("Close") { cancel() }
+                        .keyboardShortcut("w", modifiers: .command)
+                        .opacity(0)
+                        .accessibilityHidden(true)
+                }
             Button("Save") {
                 didSave = true
                 dismiss()

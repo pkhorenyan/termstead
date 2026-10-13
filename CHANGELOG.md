@@ -7,6 +7,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- ⌘W closes the tab in front, as Session ▸ Close Tab says. It used to close
+  the main window instead and leave Termstead running with no window: the
+  stock File ▸ Close had the same shortcut and won. Settings and the forms
+  still close on ⌘W.
+
 ## [0.3.1] - 2026-10-13
 
 ### Added

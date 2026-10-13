@@ -670,6 +670,13 @@ These have each cost real time. They are not hypothetical.
   Next/Previous Tab" are declared as ⌘} and ⌘{, as Terminal's are —
   `.keyboardShortcut("]", modifiers: [.command, .shift])` never fired
   (`TabKeysTests` checks against the real menu items).
+- **SwiftUI drops a command's shortcut when a stock item has it.** File ▸
+  Close kept ⌘W and Session ▸ Close Tab showed none, so ⌘W closed the main
+  window and left the app windowless — no warning anywhere. The stock group
+  is replaced with nothing (`CommandGroup(replacing: .saveItem)`); the forms
+  (`FormWindow.performKeyEquivalent`) and Settings (a hidden ⌘W button
+  beside Cancel) close on ⌘W themselves. `TabKeysTests` checks the real menu
+  for one ⌘W item.
 - **A find match is a selection.** SwiftTerm shows it through the selection
   service, so `selectionChanged` fires with no mouse button down and
   copy-on-select would copy every match. `SSHTerminalView.find` sets
