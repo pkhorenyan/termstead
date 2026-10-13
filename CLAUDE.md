@@ -708,6 +708,11 @@ These have each cost real time. They are not hypothetical.
   test, not the bounds. Any other way the terminal takes the keyboard is
   caught by KVO on the window's `firstResponder`. A test that clicks must
   go through `NSApp.sendEvent`: local monitors never see `window.sendEvent`.
+  `log stream --level debug --predicate 'subsystem == "com.pavelkhorenyan.Termstead"
+  AND category == "panes"'` shows every click into a terminal (and whether
+  it was claimed), the keyboard moving, each change of focused pane, and
+  Find opening — which is how a report of Find opening in the wrong pane
+  was checked.
 - **A terminal view moves between containers.** It belongs to its
   `Connection`, so a tab moved to another pane is added to that pane's
   container, which takes it out of the old one. The old container must

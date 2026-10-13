@@ -7,6 +7,9 @@ import SwiftUI
 /// the only way to tell. `log stream --level debug --predicate
 /// 'subsystem == "com.pavelkhorenyan.Termstead"'` shows them.
 let modalLog = Logger(subsystem: "com.pavelkhorenyan.Termstead", category: "modal")
+/// Which pane has the focus and why: clicks into terminals, the keyboard
+/// moving, Find. `log stream --level debug --predicate 'category == "panes"'`.
+let paneLog = Logger(subsystem: "com.pavelkhorenyan.Termstead", category: "panes")
 
 /// Runs a window app-modal, like `NSAlert`: until it closes, the app's other
 /// windows take no clicks, no keys — and cannot be dragged either.

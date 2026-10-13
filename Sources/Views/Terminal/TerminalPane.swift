@@ -120,8 +120,9 @@ struct TerminalPane: NSViewRepresentable {
             // Only what lands on the terminal itself (or its scroll bar): the
             // find bar lies over it, and its field must keep its own clicks.
             let root = window.contentView?.superview ?? window.contentView
-            guard let root, let hit = root.hitTest(root.convert(event.locationInWindow, from: nil)),
-                  hit === view || hit.isDescendant(of: self) else { return }
+            let hit = root.flatMap { $0.hitTest($0.convert(event.locationInWindow, from: nil)) }
+            paneLog.debug("click in terminal \(ObjectIdentifier(view).hashValue % 10000, privacy: .public): hit \(hit.map { String(describing: type(of: $0)) } ?? "nil", privacy: .public), claims \(hit.map { $0 === view || $0.isDescendant(of: self) } ?? false, privacy: .public)")
+            guard let hit, hit === view || hit.isDescendant(of: self) else { return }
             onFocus()
             if window.firstResponder !== view { window.makeFirstResponder(view) }
         }
@@ -154,6 +155,7 @@ struct TerminalPane: NSViewRepresentable {
                 MainActor.assumeIsolated {
                     guard let self, self.holdsMounted, let view = self.mounted,
                           window.firstResponder === view else { return }
+                    paneLog.debug("terminal \(ObjectIdentifier(view).hashValue % 10000, privacy: .public) took the keyboard")
                     self.onFocus()
                 }
             }

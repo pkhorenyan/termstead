@@ -166,6 +166,7 @@ final class AppState {
     @ObservationIgnored private weak var searchedTerminal: SSHTerminalView?
 
     func openFind() {
+        paneLog.debug("find opened")
         isFindOpen = true
         findFocusToken &+= 1
     }

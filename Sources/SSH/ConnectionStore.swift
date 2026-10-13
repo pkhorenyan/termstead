@@ -59,6 +59,9 @@ final class ConnectionStore {
         get { activeByPane[focusedPane] }
         set {
             if let id = newValue, let tab = connections.first(where: { $0.id == id }) {
+                if tab.pane != focusedPane {
+                    paneLog.debug("focus pane \(self.focusedPane, privacy: .public) → \(tab.pane, privacy: .public) with tab \(tab.title, privacy: .public)")
+                }
                 activeByPane[tab.pane] = id
                 focusedPane = tab.pane
             } else {
@@ -97,6 +100,7 @@ final class ConnectionStore {
     /// A click in the pane, its terminal taking the keyboard, or ⌘] / ⌘[.
     func focus(pane: Int) {
         guard (0..<layout.paneCount).contains(pane), pane != focusedPane else { return }
+        paneLog.debug("focus pane \(self.focusedPane, privacy: .public) → \(pane, privacy: .public)")
         focusedPane = pane
         updateLoadWatches()
     }
