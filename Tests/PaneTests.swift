@@ -292,11 +292,29 @@ struct PaneWindowTests {
         try await settle()
         #expect(window.firstResponder === store.active(in: 2)?.terminalView)
 
-        // A click into another pane's terminal gives that pane the focus.
+        // Another pane's terminal taking the keyboard gives that pane the focus.
         let d = try #require(store.active(in: 3)?.terminalView)
         window.makeFirstResponder(d)
         try await settle()
         #expect(store.focusedPane == 3)
+    }
+
+    /// Through the application, as the mouse does it: SwiftTerm's mouseDown
+    /// does not take the keyboard, so a click into another pane's terminal
+    /// left both the focus and the keyboard where they were.
+    @Test func aClickIntoAnotherPanesTerminalFocusesIt() async throws {
+        let (window, store, _) = try await window(.sideBySide, tabs: [["a"], ["b"]])
+        defer { window.close() }
+        let b = try #require(store.active(in: 1)?.terminalView)
+        let point = b.convert(NSPoint(x: b.bounds.midX, y: b.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            NSApp.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                               windowNumber: window.windowNumber, context: nil,
+                                               eventNumber: 0, clickCount: 1, pressure: 1)!)
+        }
+        try await settle()
+        #expect(store.focusedPane == 1)
+        #expect(window.firstResponder === b)
     }
 }
 

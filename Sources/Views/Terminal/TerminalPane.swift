@@ -67,6 +67,7 @@ struct TerminalPane: NSViewRepresentable {
         var takesFocus = false
         var onFocus: () -> Void = {}
         private var focusObservation: NSKeyValueObservation?
+        private var clickMonitor: Any?
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -102,11 +103,38 @@ struct TerminalPane: NSViewRepresentable {
             }
         }
 
-        /// A click into the terminal gives its pane the focus. SwiftTerm's
-        /// `becomeFirstResponder` is `public`, not `open`, so the window is
+        /// A click into the terminal gives its pane the focus and the
+        /// terminal the keyboard. SwiftTerm's `mouseDown` takes neither, and
+        /// it is `public`, not `open`: a click into another pane's terminal
+        /// changed nothing. So the click is seen on its way in, here.
+        private func claim(_ event: NSEvent) {
+            guard let window, event.window === window, holdsMounted, let view = mounted,
+                  view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else { return }
+            // Only what lands on the terminal itself (or its scroll bar): the
+            // find bar lies over it, and its field must keep its own clicks.
+            let root = window.contentView?.superview ?? window.contentView
+            guard let root, let hit = root.hitTest(root.convert(event.locationInWindow, from: nil)),
+                  hit === view || hit.isDescendant(of: self) else { return }
+            onFocus()
+            if window.firstResponder !== view { window.makeFirstResponder(view) }
+        }
+
+        /// The terminal taking the keyboard any other way — the Tab key, a
+        /// form closing — focuses the pane too. SwiftTerm's
+        /// `becomeFirstResponder` is not `open` either, so the window is
         /// watched instead of the view.
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+            clickMonitor = nil
+            if window != nil {
+                clickMonitor = NSEvent.addLocalMonitorForEvents(
+                    matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+                ) { [weak self] event in
+                    MainActor.assumeIsolated { self?.claim(event) }
+                    return event
+                }
+            }
             // SwiftUI may mount the terminal before this view is in a window,
             // and the keyboard asked for then was never given.
             if takesFocus, window != nil { focusTerminal() }

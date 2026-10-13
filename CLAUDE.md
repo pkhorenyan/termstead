@@ -685,9 +685,15 @@ These have each cost real time. They are not hypothetical.
   `takesFocus`, again when the focus comes to the pane, and once more from
   `viewDidMoveToWindow` — SwiftUI can mount before the view is in a window,
   and the request was lost (it failed one test run in the full suite).
-  The other way round, a click into a terminal focuses its pane through
-  KVO on the window's `firstResponder`: SwiftTerm's `becomeFirstResponder`
-  is `public`, not `open`.
+  The other way round: SwiftTerm's `mouseDown` does not take the keyboard,
+  so a click into another pane's terminal changed nothing — not the focus,
+  not the keyboard. Each container sees clicks on their way in (a local
+  event monitor; `mouseDown` is `public`, not `open`) and, when the click
+  lands on its terminal, focuses the pane and makes the terminal first
+  responder. The find bar lies over the terminal, so the check is a hit
+  test, not the bounds. Any other way the terminal takes the keyboard is
+  caught by KVO on the window's `firstResponder`. A test that clicks must
+  go through `NSApp.sendEvent`: local monitors never see `window.sendEvent`.
 - **A terminal view moves between containers.** It belongs to its
   `Connection`, so a tab moved to another pane is added to that pane's
   container, which takes it out of the old one. The old container must
