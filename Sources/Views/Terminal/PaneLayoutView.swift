@@ -161,8 +161,28 @@ struct PaneView: View {
     var pane: Int
 
     private var isFocused: Bool { connectionStore.focusedPane == pane }
+    /// Split, and not the pane in focus: drawn back, the way iTerm2 dims its
+    /// inactive split panes. A quieter tab line and a hollow cursor alone
+    /// did not tell the panes apart (Pavel could not see which was focused).
+    private var isDimmed: Bool { connectionStore.layout.paneCount > 1 && !isFocused }
+
+    /// How far an unfocused pane's terminal is pulled towards its background.
+    static let dimming = 0.32
 
     var body: some View {
+        content
+            // The focused pane, framed in the accent colour. Over the panes,
+            // never in the way of a click.
+            .overlay {
+                if connectionStore.layout.paneCount > 1 && isFocused {
+                    Rectangle()
+                        .strokeBorder(theme.accent.color, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             TabBarView(pane: pane)
                 .frame(height: Metrics.tabBarHeight)
@@ -185,6 +205,11 @@ struct PaneView: View {
                              takesFocus: isFocused,
                              onFocus: { connectionStore.focus(pane: pane) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay {
+                        if isDimmed {
+                            theme.terminal.color.opacity(Self.dimming).allowsHitTesting(false)
+                        }
+                    }
                     .overlay(alignment: .topTrailing) {
                         if appState.isFindOpen && isFocused {
                             // Clear of the scroll bar on the right.
