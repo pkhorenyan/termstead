@@ -431,6 +431,20 @@ nothing and dominated everything. Keep a measuring workload state-neutral: a
 script that drags hosts around leaves the tree different on every run, so the
 traces are not comparable.
 
+**Panes cost little by themselves.** Measured 2026-10-13 on the Release
+build against the Docker lab, four tabs, app CPU over 10 s
+(`ps cputime`): idle 0.4–1.4% with one pane, 1.7–2.5% with four; a log of
+50 lines/s in every tab 36–43% with one pane, 35–47% with four; output
+without pause ~150–160% either way. The cost is SwiftTerm's: parsing
+every tab's output, visible or not, and redrawing the whole visible
+screen on each scroll, up to 60 times a second, building a `CTLine` per
+row. Two things tried: redrawing unfocused panes at 20 fps (a
+`displayInterval` patch to SwiftTerm) changed nothing measurable and was
+dropped; turning off the font's ligatures (`liga`/`calt`) cut
+`CTLineCreateWithAttributedString` samples by 77% and the main thread's
+busy share from 87% to 78%, but changes how the font looks and was not
+kept. SwiftTerm 1.12's Metal renderer is the larger lever (see Build).
+
 `SessionStore.flattened` is walked once per render and read for both the rows
 and the pinned strip; the lighter `sessionIndex` (no rows, and no read of
 `collapsedGroupIDs`) serves the tab strip and status bar, so expanding a group
