@@ -211,6 +211,31 @@ final class TestLabTests {
         }
     }
 
+    /// The status bar's figures from a real Linux server, two jumps deep,
+    /// over the terminal's own connection.
+    @Test func serverLoadThroughTwoJumps() async throws {
+        try await expectShell(on: "lab-db-2-jumps", reaching: "db") { connection in
+            connection.watchesLoad = true
+            try await self.wait { connection.serverLoad != nil }
+            let load = try #require(connection.serverLoad)
+            #expect(load.memoryTotal > 0 && load.memoryUsed <= load.memoryTotal)
+            #expect(load.diskPercent != nil)
+            #expect(load.loadAverage.count == 3)
+            #expect(load.uptime > 0)
+            // The share and the rates need the second block, one interval on.
+            try await self.wait(timeout: TimeInterval(ServerLoadScript.interval) * 3) {
+                connection.serverLoad?.cpu != nil
+            }
+            #expect(connection.serverLoad?.receiveRate != nil)
+            #expect(!connection.loadIsUnsupported)
+
+            connection.watchesLoad = false
+            let stopped = connection.serverLoad
+            try await Task.sleep(for: .seconds(ServerLoadScript.interval + 1))
+            #expect(connection.serverLoad == stopped, "the watch went on after it was stopped")
+        }
+    }
+
     private func wait(timeout: TimeInterval = 10, _ condition: () -> Bool,
                       sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = Date().addingTimeInterval(timeout)

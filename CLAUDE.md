@@ -223,7 +223,7 @@ scripts/release.sh 0.2.0
 | `Sources/AppUpdater.swift` | Sparkle: the daily check and "Check for Updates…" |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
-| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs), `TabMemory` (the tabs to reopen at launch), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
+| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
@@ -712,6 +712,16 @@ These have each cost real time. They are not hypothetical.
   prints every non-ASCII byte in a name as `\ooo` — and an app launched from
   Finder has no `LANG`. `SFTPClient` sets `LC_CTYPE=UTF-8`. Also, a failed
   `ls` inside a batch does not fail the batch: `list` reads stderr for it.
+- **Server load is one channel that stays open, not a poll.** Every new
+  channel over the connection master is a line in the server's auth log
+  ("Starting session: command …"); a command every three seconds would
+  write thousands a day per tab. `ServerLoadWatch` runs `ServerLoadScript`
+  — a `sh` loop printing /proc and `df` every `interval` seconds — and the
+  loop ends at its next `echo` once the channel closes. Only the tab in
+  front is watched (`ConnectionStore.watchesServerLoad`), and only after
+  login. A server without /proc answers `@unsupported` at once and is not
+  asked again. The loop's `sh` has no terminal, so "follow the terminal"
+  never mistakes it for the user's shell.
 - **"Follow the terminal" asks the server, not the screen.** Every channel
   over the connection master is a child of one `sshd` session process, so
   `SFTPClient.terminalDirectory` climbs from its own shell to that process and

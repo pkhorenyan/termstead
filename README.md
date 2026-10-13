@@ -35,6 +35,8 @@
   the tabs open at quit connect again the next time Termstead starts.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
+- **Server load at a glance.** The status bar shows the CPU, memory, disk and
+  network of the Linux server in front, read over the connection already open.
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh
   asks — and only for the host they were saved for.
 - **SFTP beside the terminal.** The SFTP tab browses the server over the

@@ -24,6 +24,7 @@ final class ThemeStore {
         static let sidebarSide = "window.sidebarSide"
         static let showFilesAfterLogin = "files.showAfterLogin"
         static let reopenTabs = "window.reopenTabs"
+        static let showServerLoad = "window.showServerLoad"
     }
 
     /// Which edge of the window the sidebar (Sessions and SFTP) sits on.
@@ -143,6 +144,12 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(reopenTabsAtLaunch, forKey: Key.reopenTabs) }
     }
 
+    /// The status bar shows the CPU, memory, disk and network of the server
+    /// in front (`ServerLoadWatch`). On unless turned off.
+    var showServerLoad: Bool {
+        didSet { UserDefaults.standard.set(showServerLoad, forKey: Key.showServerLoad) }
+    }
+
     /// Closing a tab, or quitting, with a live ssh session asks first.
     var confirmClosingConnection: Bool {
         didSet { UserDefaults.standard.set(confirmClosingConnection, forKey: Key.confirmClosingConnection) }
@@ -180,6 +187,7 @@ final class ThemeStore {
         sidebarSide = defaults.string(forKey: Key.sidebarSide).flatMap(SidebarSide.init) ?? .left
         showFilesAfterLogin = Self.bool(defaults, Key.showFilesAfterLogin, default: true)
         reopenTabsAtLaunch = Self.bool(defaults, Key.reopenTabs, default: false)
+        showServerLoad = Self.bool(defaults, Key.showServerLoad, default: true)
         systemIsDark = Self.readSystemIsDark()
 
         appearanceObservation = DistributedNotificationCenter.default.addObserver(
@@ -345,6 +353,7 @@ extension ThemeStore {
         var sidebarSide: SidebarSide
         var showFilesAfterLogin: Bool
         var reopenTabsAtLaunch: Bool
+        var showServerLoad: Bool
     }
 
     var snapshot: Snapshot {
@@ -355,7 +364,8 @@ extension ThemeStore {
                  bell: bell, optionAsMeta: optionAsMeta,
                  confirmClosingConnection: confirmClosingConnection, highlighting: highlighting,
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
-                 showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch)
+                 showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch,
+                 showServerLoad: showServerLoad)
     }
 
     func restore(_ snapshot: Snapshot) {
@@ -376,5 +386,6 @@ extension ThemeStore {
         sidebarSide = snapshot.sidebarSide
         showFilesAfterLogin = snapshot.showFilesAfterLogin
         reopenTabsAtLaunch = snapshot.reopenTabsAtLaunch
+        showServerLoad = snapshot.showServerLoad
     }
 }

@@ -6,7 +6,22 @@ import Observation
 @Observable
 final class ConnectionStore {
     private(set) var connections: [Connection] = []
-    var activeID: UUID?
+    var activeID: UUID? {
+        didSet { updateLoadWatches() }
+    }
+    /// Settings ▸ "Show server load". Only the tab in front is watched: the
+    /// status bar shows no other, and each watch is a process here and a
+    /// shell loop on the server.
+    var watchesServerLoad = false {
+        didSet { updateLoadWatches() }
+    }
+
+    private func updateLoadWatches() {
+        let front = active?.id
+        for connection in connections {
+            connection.watchesLoad = watchesServerLoad && connection.id == front
+        }
+    }
 
     var active: Connection? {
         connections.first { $0.id == activeID } ?? connections.first

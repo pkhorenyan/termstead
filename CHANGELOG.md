@@ -7,6 +7,14 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Server load in the status bar: CPU, memory, disk and network of the
+  server in front, every three seconds, with the load average and uptime
+  in its tooltip. Figures past 90% turn yellow. It reads Linux's /proc over
+  the tab's own connection, through any jump hosts, in one channel that
+  stays open. Settings ▸ Terminal ▸ Window ▸ Show server load turns it off.
+
 ### Fixed
 
 - ⌘W closes the tab in front, as Session ▸ Close Tab says. It used to close

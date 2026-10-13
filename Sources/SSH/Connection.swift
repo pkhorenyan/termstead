@@ -35,6 +35,20 @@ final class Connection: Identifiable {
     /// This tab's own text size, from ⌘+ / ⌘−. `nil` follows Settings, so a
     /// tab that was never zoomed picks up a size changed there.
     var fontSize: Int?
+    /// The server's CPU, memory, disk and network for the status bar. Kept
+    /// while the tab is in the background, so it shows at once on return;
+    /// cleared when ssh ends.
+    private(set) var serverLoad: ServerLoad?
+    /// Set for the tab in front while Settings asks for server load — see
+    /// `ConnectionStore.watchesServerLoad`. The watch itself runs only once
+    /// ssh has logged in.
+    var watchesLoad = false {
+        didSet { if watchesLoad != oldValue { updateLoadWatch() } }
+    }
+    /// The server has no /proc to read; asking again would not change that.
+    @ObservationIgnored private(set) var loadIsUnsupported = false
+    @ObservationIgnored private var loadWatch: ServerLoadWatch?
+    @ObservationIgnored private var isLoggedIn = false
 
     @ObservationIgnored let terminalView: SSHTerminalView
     @ObservationIgnored private var relay: ProcessRelay?
@@ -74,6 +88,9 @@ final class Connection: Identifiable {
     func start(_ plan: SSHLaunchPlan) {
         guard !didClose else { return }
         self.plan = plan
+        isLoggedIn = false
+        stopLoadWatch()
+        serverLoad = nil
         removeWorkDirectory()
 
         do {
@@ -134,6 +151,7 @@ final class Connection: Identifiable {
     /// Ends the process and cleans up; the tab is going away.
     func close() {
         didClose = true
+        stopLoadWatch()
         browser?.stop()
         exitWatch?.cancel()
         exitWatch = nil
@@ -194,7 +212,35 @@ final class Connection: Identifiable {
         guard loginWatch != nil else { return }
         loginWatch?.cancel()
         loginWatch = nil
+        isLoggedIn = true
         onLogin?()
+        updateLoadWatch()
+    }
+
+    /// Starts or stops reading the server's load to match `watchesLoad`. It
+    /// rides the connection master, so it needs ssh logged in.
+    private func updateLoadWatch() {
+        guard watchesLoad, isLoggedIn, state.isRunning, !loadIsUnsupported, let client = sftp else {
+            stopLoadWatch()
+            return
+        }
+        guard loadWatch == nil else { return }
+        let watch = ServerLoadWatch(
+            onLoad: { [weak self] load in
+                guard let self else { return }
+                serverLoad = load.filling(from: serverLoad)
+            },
+            onUnsupported: { [weak self] in
+                self?.loadIsUnsupported = true
+                self?.stopLoadWatch()
+            })
+        loadWatch = watch
+        watch.start(arguments: client.shellArguments(ServerLoadScript.text))
+    }
+
+    private func stopLoadWatch() {
+        loadWatch?.stop()
+        loadWatch = nil
     }
 
     /// The code a shell would report: the exit status, or 128 + the signal.
@@ -208,6 +254,9 @@ final class Connection: Identifiable {
         exitWatch?.cancel()
         exitWatch = nil
         state = .exited(code: exitCode)
+        isLoggedIn = false
+        stopLoadWatch()
+        serverLoad = nil
         removeWorkDirectory()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
         terminalView.feed(text: "\r\n\u{1b}[2mConnection closed\(detail). Press Return to reconnect.\u{1b}[0m\r\n")

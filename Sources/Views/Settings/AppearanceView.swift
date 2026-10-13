@@ -230,6 +230,11 @@ struct AppearanceView: View {
                                 caption: "The tabs open when Termstead quits connect again the next time it starts.") {
                         settingSwitch($themeStore.reopenTabsAtLaunch, label: "Reopen tabs at launch")
                     }
+                    divider
+                    settingsRow("Show server load",
+                                caption: "CPU, memory, disk and network of the server in front, in the status bar. Linux servers.") {
+                        settingSwitch($themeStore.showServerLoad, label: "Show server load")
+                    }
                 }
             }
             section("History") {

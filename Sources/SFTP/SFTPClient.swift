@@ -125,12 +125,16 @@ struct SFTPClient: Equatable, Sendable {
           [ "$pp" = "$p" ] && [ "$tty" != 0 ] && readlink $d/cwd && break
         done
         """
-        // `sh -c`, so a login shell such as fish never has to parse it.
         let output = try? await Self.execute(executable: SSHLaunch.executable,
-                                             arguments: sharedOptions + [alias, "--", "sh", "-c", Self.shellQuote(script)],
-                                             input: nil)
+                                             arguments: shellArguments(script), input: nil)
         let path = output?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return path.hasPrefix("/") ? path : nil
+    }
+
+    /// ssh's arguments for running `script` over the tab's connection.
+    /// `sh -c`, so a login shell such as fish never has to parse it.
+    func shellArguments(_ script: String) -> [String] {
+        sharedOptions + [alias, "--", "sh", "-c", Self.shellQuote(script)]
     }
 
     // MARK: - Running

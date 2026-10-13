@@ -276,6 +276,22 @@ final class ConnectionIntegrationTests {
         #expect(connection.fileBrowser.problem == nil)
     }
 
+    /// The load watch rides the terminal's connection. This server is the
+    /// Mac itself, which has no /proc: the watch says so and stops, and
+    /// the status bar shows nothing rather than zeros.
+    @Test func serverLoadOnAServerWithoutProcStops() async throws {
+        try #require(FileManager.default.isExecutableFile(atPath: "/usr/sbin/sshd"))
+        try await startServer()
+        let (connection, _, store, log) = try loggingIn(directSession())
+        defer { connection.close() }
+        _ = store
+
+        try await awaitCondition(timeout: 20) { log.logins == 1 }
+        connection.watchesLoad = true
+        try await awaitCondition(timeout: 10) { connection.loadIsUnsupported }
+        #expect(connection.serverLoad == nil)
+    }
+
     /// A server without SFTP — a switch, a router — keeps the session tree in
     /// the sidebar rather than turning to an error.
     @Test func aServerWithoutSFTPLeavesTheSidebarAlone() async throws {

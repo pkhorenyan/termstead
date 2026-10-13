@@ -126,6 +126,9 @@ struct MainView: View {
         } message: {
             Text(storage.loadProblem ?? "")
         }
+        .onChange(of: themeStore.showServerLoad, initial: true) {
+            connectionStore.watchesServerLoad = themeStore.showServerLoad
+        }
         .onAppear {
             connectionStore.onLogin = { [appState, themeStore, connectionStore] connection in
                 guard themeStore.showFilesAfterLogin else { return }
