@@ -6,6 +6,7 @@
 #
 #   TestLab/screenshots/shoot.sh stage   # needs ./lab.sh up; copies the scripts in
 #   TestLab/screenshots/shoot.sh open    # a separate copy of the Release build
+#   TestLab/screenshots/shoot.sh panes   # the same in four panes, broadcasting (fleet.sh)
 #   TestLab/screenshots/shoot.sh clean   # removes the staging from the containers
 #
 # Capture the window by id (see CLAUDE.md), downscale to 1600 px wide with
@@ -27,14 +28,24 @@ stage)
     put termstead-lab-app-1 staging.sh
     put termstead-lab-app-1 db.sh
     put termstead-lab-db-1 web02.sh
+    for c in direct app db; do put termstead-lab-$c-1 fleet.sh; done
     ;;
-open)
+open|panes)
+    mode=$1
     shift
     store=$(mktemp -t termstead-shots).json
     cp sessions.json "$store"
+    prefix=$PWD/prefix.conf
+    if [ "$mode" = panes ]; then
+        # Every server runs fleet.sh, named after its own demo script.
+        prefix=$(mktemp -t termstead-shots).conf
+        sed -E 's|RemoteCommand sh /tmp/demo/([a-z0-9]+)\.sh|RemoteCommand sh /tmp/demo/fleet.sh \1|' \
+            prefix.conf > "$prefix"
+        set -- -sb-layout grid -sb-broadcast YES "$@"
+    fi
     open -n "$APP" --args -sb-store "$store" \
         -sb-connect prod-web-01,prod-web-02,db-primary,staging-app \
-        -sb-ssh-prefix "$PWD/prefix.conf" \
+        -sb-ssh-prefix "$prefix" \
         -appearance.theme graphite -appearance.followSystem NO \
         -files.showAfterLogin NO "$@"
     ;;
@@ -43,7 +54,7 @@ clean)
     for c in app db; do docker exec termstead-lab-$c-1 rm -rf /tmp/demo || true; done
     ;;
 *)
-    echo "usage: $0 stage | open | clean" >&2
+    echo "usage: $0 stage | open | panes | clean" >&2
     exit 1
     ;;
 esac

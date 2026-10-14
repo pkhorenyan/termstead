@@ -36,7 +36,8 @@
 - **Split the window.** Two panes side by side or stacked, or four, from the
   buttons beside the gear. Each pane has its own tabs; drag a tab onto
   another pane's strip to move it there. Broadcast input types into every
-  visible pane at once, and any pane can be left out.
+  visible pane at once — a yellow line marks each pane that takes it, and
+  any pane can be left out.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
 - **Server load at a glance.** The status bar shows the CPU, memory, disk and
@@ -57,10 +58,12 @@
   up/down and MAC addresses too.
 - **Six themes** — Graphite, Midnight, Ember, High contrast, Daylight, Sepia —
   following macOS light and dark mode if you like, any monospaced font,
-  copy on select, Option as Meta.
+  with or without its ligatures, copy on select, Option as Meta.
 - **It is the real OpenSSH.** Each tab runs the system `ssh`, so your agent,
   `~/.ssh/config`, `known_hosts` and `ProxyJump` all work exactly as in
   Terminal.
+
+![Four servers in four panes, with broadcast input on](docs/images/panes.png)
 
 <p align="center">
   <img src="docs/images/sftp.png" alt="The SFTP tab next to a session" width="56%">

@@ -69,7 +69,7 @@ straight on a screen: `newSession`, `newGroup`, `sessionSettings` (with
 `-sb-session <name>`), `groupSettings` (with `-sb-group <id>`), `quickConnect`,
 `empty`, `appearance`.
 `-sb-color-picker YES` opens the custom color dialog over the main window.
-`-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-layout sideBySide|stacked|grid` splits the window first and then deals those tabs out to the panes in turn, `-sb-sidebar files`
+`-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-layout sideBySide|stacked|grid` splits the window first and then deals those tabs out to the panes in turn, `-sb-broadcast YES` turns broadcast input on over them, `-sb-sidebar files`
 shows the Files tab, and `-sb-ssh-prefix <file>` puts that file's ssh options
 ahead of the generated config (trust settings for a throwaway local sshd; start
 one with `Subsystem sftp /usr/libexec/sftp-server` to look at the Files tab).
@@ -158,13 +158,16 @@ Files tab: logs, a 20 MB file, odd names, symlinks, a read-only file and a
 folder that cannot be opened (`TestLab/entrypoint.sh`).
 
 **The README's screenshots** come from `TestLab/screenshots/shoot.sh`
-(`stage`, `open`, `clean`). It uses the sample sessions without the test lab,
-opens four tabs, and makes them look like real servers:
+(`stage`, `open`, `panes`, `clean`). It uses the sample sessions without the
+test lab, opens four tabs, and makes them look like real servers:
 - `prefix.conf` maps each sample address onto a lab container, `prod-web-02`
   through both jump hosts;
 - a demo script per server prints plausible output, then hands over to a shell
   with the matching prompt;
-- the Files tab follows `prod-web-01` into a staged web root.
+- the Files tab follows `prod-web-01` into a staged web root;
+- `panes` deals the four tabs out to a 2×2 layout with broadcast input on,
+  and every server runs `fleet.sh` instead: the same commands, as if typed
+  once.
 
 Nothing in them may show a real host, name or path. The sample host `nas`
 never gets a color.

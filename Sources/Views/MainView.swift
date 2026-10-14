@@ -165,6 +165,10 @@ struct MainView: View {
                     connectionStore.activeID = tab.id
                 }
             }
+            // `-sb-broadcast YES` turns broadcast input on over those panes.
+            if defaults.bool(forKey: "sb-broadcast"), !connectionStore.isBroadcasting {
+                connectionStore.toggleBroadcast()
+            }
             if defaults.string(forKey: "sb-sidebar") == "files" { appState.sidebarTab = .files }
             // The tabs open at the last quit, once per launch and only into an
             // empty strip — the window can appear again later in the run.
