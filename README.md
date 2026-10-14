@@ -5,7 +5,7 @@
 <h1 align="center">Termstead</h1>
 
 <p align="center">
-  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.3.1-2F6FB5" alt="Version 0.3.1"></a>
+  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.4.0-2F6FB5" alt="Version 0.4.0"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-2F6FB5?logo=apple&logoColor=white" alt="macOS 14 or later">
   <img src="https://img.shields.io/badge/universal-Apple%20Silicon%20%2B%20Intel-2F6FB5" alt="Universal: Apple Silicon and Intel">
   <img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
