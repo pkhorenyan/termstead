@@ -9,9 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Four more themes, from palettes many people already use in their editors
-  and terminals: Dracula, Nord and Catppuccin (Mocha), dark, and Solarized,
-  light. The theme picker in Settings shows ten in two rows.
+- Two more dark themes, from palettes many people already use in their
+  editors and terminals: Nord, a calm grey-blue, and Everforest, green-grey
+  with a sage accent.
 - The sidebar can be hidden, leaving the window to the terminals: View ▸
   Hide Sidebar (⌃⌘S), or the button beside the window's name. The choice is
   remembered.

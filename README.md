@@ -56,8 +56,8 @@
 - **Keyword highlighting** of errors, warnings, IP addresses and URLs in output
   the server did not color itself — or, for network gear, interface names,
   up/down and MAC addresses too.
-- **Ten themes** — Graphite, Midnight, Ember, High contrast, Dracula, Nord,
-  Catppuccin, Daylight, Sepia, Solarized —
+- **Eight themes** — Graphite, Midnight, Ember, High contrast, Nord,
+  Everforest, Daylight, Sepia —
   following macOS light and dark mode if you like, any monospaced font,
   with or without its ligatures, copy on select, Option as Meta.
 - **It is the real OpenSSH.** Each tab runs the system `ssh`, so your agent,

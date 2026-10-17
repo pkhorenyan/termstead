@@ -66,8 +66,7 @@ struct ThemePreviewCard: View {
                 }
                 .padding(.horizontal, 5)
                 .padding(.vertical, 6)
-                // Narrow: five cards share a row, and the prompt needs the room.
-                .frame(width: 38)
+                .frame(width: 0.3 * 216)
                 .background(candidate.sidebar.color)
                 .overlay(alignment: .trailing) { Divider1(candidate.border, vertical: true) }
 
