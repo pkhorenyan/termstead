@@ -206,7 +206,7 @@ cask "termstead" do
   homepage "$REPO"
 
   auto_updates true
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Termstead.app"
 

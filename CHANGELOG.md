@@ -7,6 +7,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The Homebrew cask declares its macOS requirement as `depends_on macos:
+  :sonoma`; Homebrew 5 warns about the old `">= :sonoma"` form.
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
