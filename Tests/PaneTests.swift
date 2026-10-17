@@ -325,6 +325,13 @@ struct PaneWindowTests {
         #expect(appState.dropPane == nil)
     }
 
+    /// The ghost stays inside the window, however far the pointer goes.
+    @Test func theCarriedTabStaysInTheWindow() {
+        #expect(TabGhostLayer.clamp(-300, half: 50, within: 900) == 50)
+        #expect(TabGhostLayer.clamp(5000, half: 50, within: 900) == 850)
+        #expect(TabGhostLayer.clamp(400, half: 50, within: 900) == 400)
+    }
+
     /// Off its strip a tab is carried: its ghost follows the pointer, held
     /// where it was grabbed, and back over the strip it is a strip drag again.
     @Test func aTabDraggedOffItsStripIsCarried() async throws {

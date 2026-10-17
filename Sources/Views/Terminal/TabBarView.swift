@@ -381,12 +381,22 @@ struct TabGhostLayer: View {
                let tab = connectionStore.connections.first(where: { $0.id == carried.id }) {
                 let origin = proxy.frame(in: .global).origin
                 let point = appState.carryPoint
-                ghost(tab, size: carried.size)
-                    .position(x: point.x - carried.grab.width + carried.size.width / 2 - origin.x,
-                              y: point.y - carried.grab.height + carried.size.height / 2 - origin.y)
+                let size = carried.size
+                // Held inside the window: past its edge the pointer goes on
+                // alone, and the ghost waits at the edge.
+                let x = point.x - carried.grab.width + size.width / 2 - origin.x
+                let y = point.y - carried.grab.height + size.height / 2 - origin.y
+                ghost(tab, size: size)
+                    .position(x: Self.clamp(x, half: size.width / 2, within: proxy.size.width),
+                              y: Self.clamp(y, half: size.height / 2, within: proxy.size.height))
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// A centre that keeps a box of `2 × half` inside `0...length`.
+    static func clamp(_ centre: CGFloat, half: CGFloat, within length: CGFloat) -> CGFloat {
+        min(max(centre, half), max(half, length - half))
     }
 
     private func ghost(_ tab: Connection, size: CGSize) -> some View {
