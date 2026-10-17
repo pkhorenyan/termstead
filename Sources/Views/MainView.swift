@@ -76,8 +76,6 @@ struct MainView: View {
                 .background(theme.chrome.color)
                 .overlay(alignment: .top) { Divider1(theme.border) }
         }
-        // A tab dragged off its strip follows the pointer over everything.
-        .overlay { TabGhostLayer() }
         // The safe-area inset is kept: the titlebar is a real one, and the
         // content belongs below it. This is the only background that reaches
         // the titlebar strip (see `.clipped()` above), so it sets the strip's
@@ -222,6 +220,9 @@ struct MainView: View {
     /// focused pane's tab in front.
     private var terminalColumn: some View {
         PaneLayoutView()
+            // A tab dragged off its strip follows the pointer, inside the
+            // panes only: not over the sidebar or the status bar.
+            .overlay { TabGhostLayer() }
             .onChange(of: connectionStore.active?.id) { appState.activeTerminalChanged() }
     }
 }

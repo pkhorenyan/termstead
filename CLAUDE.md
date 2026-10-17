@@ -602,7 +602,7 @@ These have each cost real time. They are not hypothetical.
   the real `com.pavelkhorenyan.Termstead` preferences. To see what a new user
   sees, quit the app and clear that domain after the tests, not before. A test
   that needs clean defaults takes a `UserDefaults(suiteName:)` of its own (see
-  `ThemeStore(defaults:)`).
+  `ThemeStore(defaults:)`, `AppState(defaults:)`).
 - **Waiting in a main-actor test must suspend, not spin.** SwiftTerm delivers
   output with `DispatchQueue.main`; a `RunLoop.run` inside the test's own job
   never lets those blocks run, and the screen stays empty.
@@ -747,8 +747,8 @@ These have each cost real time. They are not hypothetical.
   `tabFrames` (not observed), and `TabInteractionView` converts the pointer
   to the same top-left space through the window's content view.
   Off its own strip the tab is *carried*: `AppState.carriedTab` (set once)
-  and `carryPoint` (every move, read only by `TabGhostLayer` over the main
-  window) draw a copy under the pointer. The pointer is reported before the
+  and `carryPoint` (every move, read only by `TabGhostLayer` over the panes
+  area, held inside it) draw a copy under the pointer. The pointer is reported before the
   travel, so a tab leaving the strip never takes a slot on its way out. In
   a test window without `.fullSizeContentView` SwiftUI's global space sits a
   titlebar below the content view's: take test points from the frames

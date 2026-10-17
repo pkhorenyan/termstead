@@ -37,20 +37,20 @@ struct SidebarSideTests {
 
     /// ⌃⌘S hides the sidebar from the View menu, and the choice outlives
     /// the launch.
-    @Test func controlCommandSHidesTheSidebar() {
+    @Test func controlCommandSHidesTheSidebar() throws {
         let items = (NSApp.mainMenu?.items ?? []).compactMap { $0.submenu }.flatMap { $0.items }
         let item = items.first { $0.title == "Hide Sidebar" || $0.title == "Show Sidebar" }
         #expect(item?.keyEquivalent == "s")
         #expect(item?.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control])
                     == [.command, .control])
 
-        let key = AppState.sidebarHiddenKey
-        let saved = UserDefaults.standard.object(forKey: key)
-        defer { UserDefaults.standard.set(saved, forKey: key) }
-        let state = AppState()
+        let suite = "termstead-sidebar-hidden-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let state = AppState(defaults: defaults)
         state.isSidebarHidden = true
-        #expect(AppState().isSidebarHidden)
+        #expect(AppState(defaults: defaults).isSidebarHidden)
         state.isSidebarHidden = false
-        #expect(!AppState().isSidebarHidden)
+        #expect(!AppState(defaults: defaults).isSidebarHidden)
     }
 }

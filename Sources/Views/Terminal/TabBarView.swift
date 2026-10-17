@@ -382,7 +382,7 @@ struct TabGhostLayer: View {
                 let origin = proxy.frame(in: .global).origin
                 let point = appState.carryPoint
                 let size = carried.size
-                // Held inside the window: past its edge the pointer goes on
+                // Held inside the panes: past their edge the pointer goes on
                 // alone, and the ghost waits at the edge.
                 let x = point.x - carried.grab.width + size.width / 2 - origin.x
                 let y = point.y - carried.grab.height + size.height / 2 - origin.y

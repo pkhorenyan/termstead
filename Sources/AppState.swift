@@ -119,11 +119,21 @@ final class AppState {
     /// The sidebar can be put away (View ▸ Hide Sidebar, ⌃⌘S, or the button
     /// beside the window's name), leaving the whole window to the terminals.
     /// Remembered across launches.
-    var isSidebarHidden: Bool = UserDefaults.standard.bool(forKey: AppState.sidebarHiddenKey) {
-        didSet { UserDefaults.standard.set(isSidebarHidden, forKey: AppState.sidebarHiddenKey) }
+    var isSidebarHidden = false {
+        didSet { defaults.set(isSidebarHidden, forKey: AppState.sidebarHiddenKey) }
     }
 
     static let sidebarHiddenKey = "sidebar.hidden"
+
+    /// Where the remembered parts live. Tests pass a domain of their own:
+    /// they run inside the app, and the real one holds whatever was last
+    /// chosen — a hidden sidebar left a test window without one.
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        isSidebarHidden = defaults.bool(forKey: Self.sidebarHiddenKey)
+    }
 
     /// After a tab logs in the sidebar turns to its files, as MobaXterm's
     /// does — once the first folder has loaded, so it opens on folders, and

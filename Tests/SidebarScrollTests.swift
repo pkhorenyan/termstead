@@ -32,7 +32,7 @@ struct SidebarScrollTests {
             SidebarView()
                 .frame(width: 248, height: 360)
                 .environment(store)
-                .environment(AppState())
+                .environment(AppState(defaults: try #require(UserDefaults(suiteName: "termstead-scroll-\(UUID().uuidString)"))))
                 .environment(ConnectionStore())
                 .environment(\.theme, .graphite))
         window.orderFront(nil)
@@ -52,6 +52,10 @@ struct SidebarScrollTests {
         #expect(hit is RowInteractionView)
         let cgEvent = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
                                            wheelCount: 1, wheel1: -120, wheel2: 0, wheel3: 0))
+        // Over the row, not wherever the real pointer happens to be: an
+        // event made here is placed there, and over another window it went
+        // to that window's scroll view.
+        cgEvent.location = Self.screenPoint(of: row)
         let event = try #require(NSEvent(cgEvent: cgEvent))
         row.scrollWheel(with: event)
         for _ in 0..<15 { try await Task.sleep(for: .milliseconds(20)) }
@@ -64,6 +68,14 @@ struct SidebarScrollTests {
     @Test func theWheelScrollsTheSidebarInTheMainWindow() async throws {
         let store = SessionStore.sample()
         store.collapsedGroupIDs = []
+        // Longer than any screen: the window takes the size the real main
+        // window was last saved at (`FrameKeeper`), and in a tall one the
+        // sample tree fitted with nothing left to scroll.
+        let group = try #require(store.createGroup(name: "More", parentID: nil, colorID: nil))
+        for n in 1...40 {
+            store.createSession(Session(id: "more-\(n)", user: "u", host: "h\(n)", port: 22, icon: .server),
+                                parentID: group)
+        }
         let themeStore = ThemeStore()
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1100, height: 600),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -75,7 +87,7 @@ struct SidebarScrollTests {
                 .environment(store)
                 .environment(SessionStorage.forThisLaunch())
                 .environment(ConnectionStore())
-                .environment(AppState())
+                .environment(AppState(defaults: try #require(UserDefaults(suiteName: "termstead-scroll-\(UUID().uuidString)"))))
                 .environment(\.theme, .graphite))
         window.orderFront(nil)
         defer { window.close() }
@@ -86,6 +98,10 @@ struct SidebarScrollTests {
         let before = scroll.contentView.bounds.origin.y
         let cgEvent = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
                                            wheelCount: 1, wheel1: -120, wheel2: 0, wheel3: 0))
+        // Over the row, not wherever the real pointer happens to be: an
+        // event made here is placed there, and over another window it went
+        // to that window's scroll view.
+        cgEvent.location = Self.screenPoint(of: row)
         row.scrollWheel(with: try #require(NSEvent(cgEvent: cgEvent)))
         for _ in 0..<15 { try await Task.sleep(for: .milliseconds(20)) }
         #expect(scroll.contentView.bounds.origin.y != before, "the sidebar did not scroll in the main window")
@@ -132,5 +148,16 @@ struct ThinScrollerStyleTests {
         let (scroll, _) = scrollView(alwaysVisible: false)
         #expect(scroll.scrollerStyle == .overlay)
         #expect(scroll.verticalScroller is SlimScroller)
+    }
+}
+
+private extension SidebarScrollTests {
+    /// The middle of a view, in the top-left global space a CGEvent uses.
+    static func screenPoint(of view: NSView) -> CGPoint {
+        guard let window = view.window else { return .zero }
+        let inWindow = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        let onScreen = window.convertPoint(toScreen: inWindow)
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: onScreen.x, y: height - onScreen.y)
     }
 }
