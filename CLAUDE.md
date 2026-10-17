@@ -224,6 +224,7 @@ scripts/release.sh 0.2.0
 | `Sources/TermsteadApp.swift` | App entry, scenes, commands, `Metrics` |
 | `Sources/AppState.swift` | Route (which form is up), quick-connect text, `DevelopmentLaunch` |
 | `Sources/AppUpdater.swift` | Sparkle: the daily check and "Check for Updates…" |
+| `Sources/AboutPanel.swift` | The standard About panel, with links to the website and the source |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
 | `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |

@@ -9,6 +9,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- About Termstead links to the program's website and to its source on
+  GitHub.
 - A tab dragged off its strip, with the window split, follows the pointer
   anywhere over the panes, but not past their edges, while the tab
   itself waits, faded, in its slot.

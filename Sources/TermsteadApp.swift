@@ -74,6 +74,10 @@ struct TermsteadApp: App {
 
     @CommandsBuilder
     private var commands: some Commands {
+        // The stock item, with the website and the source added to the panel.
+        CommandGroup(replacing: .appInfo) {
+            Button("About Termstead") { AboutPanel.show() }
+        }
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { updater.checkForUpdates() }
                 .disabled(!updater.isActive || formIsOpen)
