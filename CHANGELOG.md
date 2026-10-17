@@ -9,9 +9,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Two more dark themes, from palettes many people already use in their
-  editors and terminals: Nord, a calm grey-blue, and Everforest, green-grey
-  with a sage accent.
+- Two more dark themes: Nord, the calm grey-blue palette many people know
+  from their editors, and Matrix, green phosphor on black.
 - The sidebar can be hidden, leaving the window to the terminals: View ▸
   Hide Sidebar (⌃⌘S), or the button beside the window's name. The choice is
   remembered.

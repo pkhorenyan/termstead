@@ -75,9 +75,8 @@ extension Theme {
         yellow: 0xFFD400, red: 0xFF5F5F
     )
 
-    // Two palettes many people know from their editors and other terminals,
-    // picked for hues the themes above lack. The canvas, text and ANSI colors
-    // are each palette's own; the chrome around them is derived.
+    // Hues the themes above lack. The canvas, text and ANSI colors are set
+    // here; the chrome around them is derived.
 
     /// Nord (nordtheme.com, MIT): Polar Night surfaces, Frost accent.
     static let nord = derived(
@@ -88,20 +87,21 @@ extension Theme {
         yellow: 0xEBCB8B, red: 0xBF616A
     )
 
-    /// Everforest (github.com/sainnhe/everforest, MIT): green-grey surfaces
-    /// and a sage accent. The canvas is a shade darker than its bg0 so the
-    /// find match, in its yellow, keeps 7:1 against it.
-    static let everforest = derived(
-        id: "everforest", name: "Everforest", kind: .dark,
-        window: 0x2D353B, sidebar: 0x293136, terminal: 0x272E33,
-        text: 0xD3C6AA, muted: 0x4F585E, accent: 0xA7C080,
-        green: 0xA7C080, blue: 0x7FBBB3, border: 0x3D484D,
-        yellow: 0xDBBC7F, red: 0xE67E80
+    /// Green phosphor on black, after the film's falling code. Text is a
+    /// softer mint than the signature #00FF41, which stays for the accent
+    /// and green: a whole screen of it is hard to read for long. Red keeps
+    /// its own hue, so an error still looks like one.
+    static let matrix = derived(
+        id: "matrix", name: "Matrix", kind: .dark,
+        window: 0x060B07, sidebar: 0x08110A, terminal: 0x020503,
+        text: 0x9CFFB0, muted: 0x1E4A29, accent: 0x00FF41,
+        green: 0x00FF41, blue: 0x3FD9A6, border: 0x133A1D,
+        yellow: 0xC8FF3D, red: 0xFF6B57
     )
 
     /// Order matches the 4×2 grid on the Appearance screen.
     static let all: [Theme] = [graphite, daylight, midnight, sepia,
-                               ember, highContrast, nord, everforest]
+                               ember, highContrast, nord, matrix]
 
     static func named(_ id: String) -> Theme {
         all.first { $0.id == id } ?? .graphite

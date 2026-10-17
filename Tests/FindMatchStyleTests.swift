@@ -98,7 +98,7 @@ struct FindMatchStyleTests {
                 guard let pixel = rgb(x, y) else { continue }
                 if pixel.distance(to: theme.onFindMatch) < 0.15 { newText += 1 }
                 // The fill itself is not text, even where its color lies
-                // near the cells' own (Everforest's yellow, 0.14 away).
+                // near the cells' own.
                 if pixel.distance(to: theme.ansiText) < 0.15, pixel.distance(to: theme.findMatch) > 0.05 {
                     oldText += 1
                 }
