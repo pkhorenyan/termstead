@@ -9,6 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A tab dragged off its strip, with the window split, follows the pointer
+  anywhere in the window, while the tab itself waits, faded, in its slot.
+  Back over its own strip it slides along it as before.
 - Two more dark themes: Nord, the calm grey-blue palette many people know
   from their editors, and Synthwave, 80s
   neon on deep violet.

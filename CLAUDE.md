@@ -746,6 +746,13 @@ These have each cost real time. They are not hypothetical.
   and tabs report `frame(in: .global)` to `AppState.paneStrips` /
   `tabFrames` (not observed), and `TabInteractionView` converts the pointer
   to the same top-left space through the window's content view.
+  Off its own strip the tab is *carried*: `AppState.carriedTab` (set once)
+  and `carryPoint` (every move, read only by `TabGhostLayer` over the main
+  window) draw a copy under the pointer. The pointer is reported before the
+  travel, so a tab leaving the strip never takes a slot on its way out. In
+  a test window without `.fullSizeContentView` SwiftUI's global space sits a
+  titlebar below the content view's: take test points from the frames
+  SwiftUI reports, not from the views.
 - **SwiftUI drops a command's shortcut when a stock item has it.** File ▸
   Close kept ⌘W and Session ▸ Close Tab showed none, so ⌘W closed the main
   window and left the app windowless — no warning anywhere. The stock group

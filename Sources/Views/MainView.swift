@@ -76,6 +76,8 @@ struct MainView: View {
                 .background(theme.chrome.color)
                 .overlay(alignment: .top) { Divider1(theme.border) }
         }
+        // A tab dragged off its strip follows the pointer over everything.
+        .overlay { TabGhostLayer() }
         // The safe-area inset is kept: the titlebar is a real one, and the
         // content belongs below it. This is the only background that reaches
         // the titlebar strip (see `.clipped()` above), so it sets the strip's

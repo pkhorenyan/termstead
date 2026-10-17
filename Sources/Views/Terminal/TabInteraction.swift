@@ -104,8 +104,10 @@ final class TabInteractionView: NSView {
         let travel = stripX(pointer) - pressX
         guard isDragging || abs(travel) >= Self.dragThreshold else { return }
         isDragging = true
-        onDrag(travel)
+        // Where the pointer is first: off the strip the tab is carried, and
+        // a carried tab must not take a slot along the strip on its way out.
         if let point = globalPoint(pointer) { onDragPointer(point) }
+        onDrag(travel)
     }
 
     /// A window point as SwiftUI's global space has it: from the content

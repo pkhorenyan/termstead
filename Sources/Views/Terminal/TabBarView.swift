@@ -130,7 +130,10 @@ struct TabBarView: View {
                         widths[tab.id] = frame.width
                         appState.tabFrames[tab.id] = frame
                     }
-                    .offset(x: isDragged ? shownOffset(of: tab) : 0)
+                    .offset(x: isDragged && !isCarried(tab) ? shownOffset(of: tab) : 0)
+                    // Carried off the strip, the tab waits in its slot and
+                    // its ghost goes with the pointer.
+                    .opacity(isCarried(tab) ? 0.35 : 1)
                     .zIndex(isDragged ? 1 : 0)
                     // The dragged tab follows the pointer exactly: when it
                     // takes a neighbour's slot, its slot and its offset change
@@ -190,6 +193,8 @@ struct TabBarView: View {
         }
     }
 
+    private func isCarried(_ tab: Connection) -> Bool { appState.carriedTab?.id == tab.id }
+
     private func shownOffset(of tab: Connection) -> CGFloat {
         guard let drag else { return 0 }
         let tabs = tabs
@@ -206,8 +211,9 @@ struct TabBarView: View {
         var state = drag.flatMap { $0.id == id ? $0 : nil } ?? TabDrag(id: id)
         state.travel = travel
         let tabs = tabs
-        // Over another pane's strip the tab is going there, not along this one.
-        guard appState.dropPane == nil, let from = tabs.firstIndex(where: { $0.id == id }) else {
+        // Over another pane's strip the tab is going there, not along this
+        // one; carried off the strip, it is going nowhere along it either.
+        guard appState.dropPane == nil, appState.carriedTab?.id != id, let from = tabs.firstIndex(where: { $0.id == id }) else {
             drag = state
             return
         }
@@ -226,6 +232,7 @@ struct TabBarView: View {
 
     /// Notes which other pane's strip, if any, the dragged tab is over.
     private func trackDrag(at point: CGPoint) {
+        let previous = dragPoint ?? point
         dragPoint = point
         let count = connectionStore.layout.paneCount
         // A little slack above and below: a strip is only 36pt tall.
@@ -233,9 +240,34 @@ struct TabBarView: View {
             pane != self.pane && pane < count && frame.insetBy(dx: 0, dy: -12).contains(point)
         }?.key
         if appState.dropPane != target { appState.dropPane = target }
+        carry(at: point, from: previous)
+    }
+
+    /// Off its own strip the tab is carried: its ghost follows the pointer
+    /// anywhere in the window. Back over the strip it slides along it again.
+    /// - Parameter previous: the pointer at the last move, when the tab was
+    ///   still drawn under it — one move can take it well off the strip.
+    private func carry(at point: CGPoint, from previous: CGPoint) {
+        // With one pane there is nowhere else to carry it.
+        guard connectionStore.layout.paneCount > 1,
+              let id = drag?.id, let strip = appState.paneStrips[pane] else { return }
+        let onStrip = strip.insetBy(dx: 0, dy: -12).contains(point)
+        if onStrip {
+            if appState.carriedTab != nil { appState.carriedTab = nil }
+            return
+        }
+        appState.carryPoint = point
+        guard appState.carriedTab?.id != id, let frame = appState.tabFrames[id],
+              let tab = tabs.first(where: { $0.id == id }) else { return }
+        // The tab is drawn at its slot plus the offset the drag gave it.
+        let left = frame.minX + shownOffset(of: tab)
+        let grab = CGSize(width: min(max(previous.x - left, 0), frame.width),
+                          height: min(max(previous.y - frame.minY, 0), frame.height))
+        appState.carriedTab = AppState.CarriedTab(id: id, grab: grab, size: frame.size)
     }
 
     private func endDrag() {
+        appState.carriedTab = nil
         if let target = appState.dropPane, let id = drag?.id, let point = dragPoint {
             // Before the first tab whose middle is right of the pointer.
             let index = connectionStore.tabs(in: target)
@@ -331,6 +363,54 @@ struct TabBarView: View {
             Rectangle().fill(topLine).frame(height: isActive ? 3 : 2)
         }
         .contextMenu { menu(for: tab) }
+    }
+}
+
+/// The copy of a tab carried off its strip, under the pointer. It lies over
+/// the whole window and takes no clicks; the drag itself stays with the
+/// tab's own mouse layer, which goes on reporting the pointer.
+struct TabGhostLayer: View {
+    @Environment(\.theme) private var theme
+    @Environment(SessionStore.self) private var sessionStore
+    @Environment(ConnectionStore.self) private var connectionStore
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let carried = appState.carriedTab,
+               let tab = connectionStore.connections.first(where: { $0.id == carried.id }) {
+                let origin = proxy.frame(in: .global).origin
+                let point = appState.carryPoint
+                ghost(tab, size: carried.size)
+                    .position(x: point.x - carried.grab.width + carried.size.width / 2 - origin.x,
+                              y: point.y - carried.grab.height + carried.size.height / 2 - origin.y)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func ghost(_ tab: Connection, size: CGSize) -> some View {
+        let colorID = tab.sessionID.flatMap { sessionStore.sessionIndex.colorID[$0] }
+        let icon = tab.sessionID.flatMap { sessionStore.session($0)?.icon } ?? .terminal
+        let iconColor = GroupColor.rgb(for: colorID, on: theme) ?? theme.textSecondary
+        return HStack(spacing: 7) {
+            Image(systemName: icon.symbolName)
+                .font(.system(size: 12))
+                .foregroundStyle(iconColor.color)
+                .frame(width: 15, height: 15)
+            Text(tab.title)
+                .font(SBFont.ui(12.5))
+                .foregroundStyle(theme.text.color)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .frame(width: size.width, height: size.height)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(theme.elevated.color))
+        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(theme.borderStrong.color))
+        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
     }
 }
 

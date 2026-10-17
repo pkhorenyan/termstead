@@ -57,6 +57,21 @@ final class AppState {
     @ObservationIgnored var tabFrames: [UUID: CGRect] = [:]
     /// The pane whose strip a dragged tab is over, highlighted until it drops.
     var dropPane: Int?
+    /// A dragged tab carried off its own strip: a copy of it follows the
+    /// pointer (`TabGhostLayer`) while the tab itself waits, faded, in its
+    /// slot. Set when the pointer leaves the strip, not on every move.
+    var carriedTab: CarriedTab?
+    /// Where the pointer is while a tab is carried, in global space. Apart
+    /// from `carriedTab` so that only the ghost redraws as it moves, not
+    /// every strip.
+    var carryPoint: CGPoint = .zero
+
+    struct CarriedTab: Equatable {
+        var id: UUID
+        /// Where in the tab it was grabbed, so it does not jump to the pointer.
+        var grab: CGSize
+        var size: CGSize
+    }
     /// The Appearance window is up, and app-modal.
     var isAppearanceOpen = false
     /// Something modal is up; menu commands that would reach past it are off.

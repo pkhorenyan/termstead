@@ -325,6 +325,58 @@ struct PaneWindowTests {
         #expect(appState.dropPane == nil)
     }
 
+    /// Off its strip a tab is carried: its ghost follows the pointer, held
+    /// where it was grabbed, and back over the strip it is a strip drag again.
+    @Test func aTabDraggedOffItsStripIsCarried() async throws {
+        let (window, store, appState) = try await window(.stacked, tabs: [["a", "b"], ["x"]])
+        defer { window.close() }
+        // The upper pane's first tab: highest, then leftmost.
+        let a = try #require(views(TabInteractionView.self, in: window.contentView!)
+            .map { ($0, $0.convert($0.bounds, to: nil)) }
+            .min { ($0.1.midY, -$0.1.minX) > ($1.1.midY, -$1.1.minX) }?.0)
+        let own = try #require(appState.paneStrips[0])
+        let lower = try #require(appState.paneStrips[1])
+        let id = store.tabs(in: 0)[0].id
+        // Every point from SwiftUI's frames, through the same conversion the
+        // drag uses: in this test window (unlike the app's, whose content
+        // runs under the titlebar) SwiftUI's global space sits a titlebar
+        // lower than the content view's.
+        let tabFrame = try #require(appState.tabFrames[id])
+        let start = windowPoint(CGPoint(x: tabFrame.minX + 20, y: tabFrame.midY), in: window)
+
+        func mouse(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                               clickCount: 1, pressure: 1)!
+        }
+        a.mouseDown(with: mouse(.leftMouseDown, start))
+        a.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: start.x + 10, y: start.y)))
+        #expect(appState.carriedTab == nil, "still on its strip")
+
+        // Into the upper pane's terminal, well below the strip.
+        let below = CGPoint(x: own.minX + 200, y: own.maxY + 80)
+        a.mouseDragged(with: mouse(.leftMouseDragged, windowPoint(below, in: window)))
+        try await settle()
+        let carried = try #require(appState.carriedTab, "the tab is not carried off its strip")
+        #expect(carried.id == id)
+        #expect(appState.carryPoint == below)
+        #expect(carried.grab.width > 0 && carried.grab.width < carried.size.width)
+        #expect(store.tabs(in: 0).map(\.title) == ["a", "b"], "a carried tab does not reorder its strip")
+
+        a.mouseDragged(with: mouse(.leftMouseDragged, windowPoint(CGPoint(x: own.minX + 60, y: own.midY), in: window)))
+        try await settle()
+        #expect(appState.carriedTab == nil, "back on its strip, it slides along it")
+
+        let drop = windowPoint(CGPoint(x: lower.maxX - 40, y: lower.midY), in: window)
+        a.mouseDragged(with: mouse(.leftMouseDragged, drop))
+        try await settle()
+        #expect(appState.carriedTab?.id == id)
+        a.mouseUp(with: mouse(.leftMouseUp, drop))
+        try await settle()
+        #expect(appState.carriedTab == nil)
+        #expect(store.tabs(in: 1).map(\.title) == ["x", "a"])
+    }
+
     @Test func onlyTheFocusedPaneTakesTheKeyboard() async throws {
         let (window, store, _) = try await window(.grid, tabs: [["a"], ["b"], ["c"], ["d"]])
         defer { window.close() }
