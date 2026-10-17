@@ -87,21 +87,19 @@ extension Theme {
         yellow: 0xEBCB8B, red: 0xBF616A
     )
 
-    /// Green phosphor on black, after the film's falling code. Text is a
-    /// softer mint than the signature #00FF41, which stays for the accent
-    /// and green: a whole screen of it is hard to read for long. Red keeps
-    /// its own hue, so an error still looks like one.
-    static let matrix = derived(
-        id: "matrix", name: "Matrix", kind: .dark,
-        window: 0x060B07, sidebar: 0x08110A, terminal: 0x020503,
-        text: 0x9CFFB0, muted: 0x1E4A29, accent: 0x00FF41,
-        green: 0x00FF41, blue: 0x3FD9A6, border: 0x133A1D,
-        yellow: 0xC8FF3D, red: 0xFF6B57
+    /// Synthwave: 80s neon on deep violet, after the "Synthwave '84" editor
+    /// theme — hot pink accent, mint, cyan and yellow.
+    static let synthwave = derived(
+        id: "synthwave", name: "Synthwave", kind: .dark,
+        window: 0x241B2F, sidebar: 0x211A2C, terminal: 0x1A1423,
+        text: 0xF4EEFF, muted: 0x4A3D5C, accent: 0xFF7EDB,
+        green: 0x72F1B8, blue: 0x36F9F6, border: 0x34294A,
+        yellow: 0xFEDE5D, red: 0xFE4450
     )
 
     /// Order matches the 4×2 grid on the Appearance screen.
     static let all: [Theme] = [graphite, daylight, midnight, sepia,
-                               ember, highContrast, nord, matrix]
+                               ember, highContrast, nord, synthwave]
 
     static func named(_ id: String) -> Theme {
         all.first { $0.id == id } ?? .graphite
