@@ -7,6 +7,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
 ### Added
 
 - The sidebar can be hidden, leaving the window to the terminals: View ▸
