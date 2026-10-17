@@ -5,7 +5,7 @@ struct AppearanceView: View {
     @Environment(\.theme) private var theme
     @Environment(AppState.self) private var appState
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 5)
 
     @Environment(\.dismiss) private var dismiss
     /// Read each time the window opens, so a font installed meanwhile shows up.

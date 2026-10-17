@@ -232,7 +232,7 @@ scripts/release.sh 0.2.0
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
 | `Tests/` | `TermsteadTests` |
 | `TestLab/` | Docker SSH servers for manual and automated testing (`lab.sh`), and the screenshot kit in `screenshots/` |
-| `Sources/Theme/` | `Theme` tokens, the six themes, `RGB`, `ThemeStore`, `SBFont` |
+| `Sources/Theme/` | `Theme` tokens, the ten themes, `RGB`, `ThemeStore`, `SBFont` |
 | `Sources/Views/Sidebar/` | The tree: rows, the AppKit mouse layer, the tree's keyboard (`TreeKeyboard`), the resize handle, and `SidebarTabRail` (Sessions / SFTP down the left edge) |
 | `Sources/Views/Terminal/` | `PaneLayoutView` (the panes, `PaneSplit` dividers, `PaneView`, `EmptyPaneView`), tab bar and its mouse layer (`TabInteraction`: select, drag to reorder with edge scrolling or onto another pane, middle-click; `TabStripScrolling`: the wheel), find bar and `TerminalPane` (mounts a pane's active SwiftTerm view, applies the theme) |
 | `Sources/Views/Sheets/` | Session and group forms plus their controls, and the color picker. They are *windows* now, not sheets; the names are historical |
@@ -352,8 +352,8 @@ diffs the app against it will read all of them as regressions.
 ### Themes
 
 `Theme` carries the full set of semantic tokens. Graphite is written out value
-for value from the reference and is what fidelity is measured against; the other
-five are expanded by `Theme.derived(...)` from the nine tokens the Settings
+for value from the reference and is what fidelity is measured against; the
+others are expanded by `Theme.derived(...)` from the nine tokens the Settings
 screen publishes, using ratios calibrated so that feeding it Graphite's nine
 seeds reproduces Graphite exactly.
 

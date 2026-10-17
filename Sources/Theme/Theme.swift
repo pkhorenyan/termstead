@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// Graphite is written out literally, value for value, from the reference
 /// mockup — it is the default theme and the one fidelity is measured against.
-/// The other five ship only the nine tokens the Appearance screen publishes
+/// The others ship only the nine tokens the Appearance screen publishes
 /// (window, sidebar, terminal, text, muted, accent, green, blue, border), so
 /// they are expanded by `Theme.derived(...)`, whose ratios are calibrated so
 /// that feeding it Graphite's nine seeds reproduces Graphite's literal values.
