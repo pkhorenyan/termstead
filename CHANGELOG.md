@@ -9,18 +9,16 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- About Termstead links to the program's website and to its source on
-  GitHub.
-- A tab dragged off its strip, with the window split, follows the pointer
-  anywhere over the panes, but not past their edges, while the tab
-  itself waits, faded, in its slot.
-  Back over its own strip it slides along it as before.
-- Two more dark themes: Nord, the calm grey-blue palette many people know
-  from their editors, and Synthwave, 80s
-  neon on deep violet.
 - The sidebar can be hidden, leaving the window to the terminals: View ▸
   Hide Sidebar (⌃⌘S), or the button beside the window's name. The choice is
   remembered.
+- With the window split, a tab dragged off its strip follows the pointer
+  anywhere over the panes, while the tab itself waits, faded, in its slot.
+  Back over its own strip it slides along it as before.
+- Two more dark themes: Nord, the calm grey-blue palette many people know
+  from their editors, and Synthwave, 80s neon on deep violet.
+- About Termstead links to the program's website and to its source on
+  GitHub.
 
 ### Fixed
 
@@ -28,7 +26,7 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the field being typed in; it used to stay on the first field when Tab
   moved on.
 - The Homebrew cask declares its macOS requirement as `depends_on macos:
-  :sonoma`; Homebrew 5 warns about the old `">= :sonoma"` form.
+  :sonoma`; newer Homebrew warned about the old `">= :sonoma"` form.
 
 ## [0.4.0] - 2026-10-14
 
