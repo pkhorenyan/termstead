@@ -114,6 +114,7 @@ against the project's signing key before it is installed.
 | Split vertically / horizontally | ⌘D / ⇧⌘D |
 | Previous / next pane | ⌘[ / ⌘] |
 | Broadcast input to the visible panes | ⌥⌘I |
+| Hide / show the sidebar | ⌃⌘S |
 | Find / Next / Previous | ⌘F / ⌘G / ⇧⌘G |
 | Text size in the tab: bigger / smaller / default | ⌘+ / ⌘− / ⌘0 |
 | Settings | ⌘, |

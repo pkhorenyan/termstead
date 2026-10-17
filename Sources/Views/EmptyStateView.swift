@@ -33,7 +33,9 @@ struct EmptyStateView: View {
                     .font(SBFont.ui(26, .semibold))
                     .kerning(-0.26)
                     .foregroundStyle(theme.text.color)
-                Text("Type an address or pick a session on the \(themeStore.sidebarSide.rawValue) to open a terminal.")
+                Text(appState.isSidebarHidden
+                     ? "Type an address to open a terminal, or show the sidebar (⌃⌘S) to pick a session."
+                     : "Type an address or pick a session on the \(themeStore.sidebarSide.rawValue) to open a terminal.")
                     .font(SBFont.ui(14))
                     .foregroundStyle(theme.textSecondary.color)
                     .lineSpacing(7)

@@ -101,6 +101,15 @@ final class AppState {
 
     var sidebarTab: SidebarTab = .sessions
 
+    /// The sidebar can be put away (View ▸ Hide Sidebar, ⌃⌘S, or the button
+    /// beside the window's name), leaving the whole window to the terminals.
+    /// Remembered across launches.
+    var isSidebarHidden: Bool = UserDefaults.standard.bool(forKey: AppState.sidebarHiddenKey) {
+        didSet { UserDefaults.standard.set(isSidebarHidden, forKey: AppState.sidebarHiddenKey) }
+    }
+
+    static let sidebarHiddenKey = "sidebar.hidden"
+
     /// After a tab logs in the sidebar turns to its files, as MobaXterm's
     /// does — once the first folder has loaded, so it opens on folders, and
     /// not at all for a server without SFTP. Only for the tab in front, and

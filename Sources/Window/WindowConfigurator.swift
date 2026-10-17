@@ -14,6 +14,8 @@ struct WindowConfigurator: NSViewRepresentable {
     /// Drawn in the titlebar beside the window buttons. Every window in the app
     /// names itself this way rather than drawing a bar of its own.
     var titlebarTitle: String?
+    /// Set by the main window: the sidebar button right after the name.
+    var sidebarToggle: SidebarToggle?
     /// Remembers where the window was and how big, across launches.
     var frameAutosaveName: String?
     /// Set by the main window: adds the gear at the trailing end.
@@ -63,6 +65,7 @@ struct WindowConfigurator: NSViewRepresentable {
         window.isMovableByWindowBackground = false
         window.appearance = theme.appearance
         if let titlebarTitle { installTitle(on: window, text: titlebarTitle) }
+        if let sidebarToggle { installSidebarToggle(on: window, toggle: sidebarToggle) }
         if let onOpenAppearance { installActions(on: window, action: onOpenAppearance) }
 
         // Sheets, popovers and the Appearance window are each their own
@@ -96,7 +99,30 @@ struct WindowConfigurator: NSViewRepresentable {
         controller.identifier = identifier
         controller.layoutAttribute = .leading
         let host = TitlebarDragHostingView(rootView: content)
-        host.frame = NSRect(x: 0, y: 0, width: 110, height: toolbarHeight)
+        // Narrower when the sidebar button follows, so it sits by the name.
+        host.frame = NSRect(x: 0, y: 0, width: sidebarToggle == nil ? 110 : 80, height: toolbarHeight)
+        controller.view = host
+        window.addTitlebarAccessoryViewController(controller)
+    }
+
+    /// The sidebar button, an accessory of its own after the name's. Inside
+    /// the name's view it would not click: that view says a press there moves
+    /// the window (`TitlebarDragHostingView`), and AppKit takes it as a drag.
+    private func installSidebarToggle(on window: NSWindow, toggle: SidebarToggle) {
+        let identifier = NSUserInterfaceItemIdentifier("sb.titlebar.sidebar")
+        let content = TitlebarSidebarButton(theme: theme, toggle: toggle)
+
+        if let existing = window.titlebarAccessoryViewControllers
+            .first(where: { $0.identifier == identifier }) {
+            (existing.view as? NSHostingView<TitlebarSidebarButton>)?.rootView = content
+            return
+        }
+
+        let controller = NSTitlebarAccessoryViewController()
+        controller.identifier = identifier
+        controller.layoutAttribute = .leading
+        let host = NSHostingView(rootView: content)
+        host.frame = NSRect(x: 0, y: 0, width: TitlebarSidebarButton.width, height: toolbarHeight)
         controller.view = host
         window.addTitlebarAccessoryViewController(controller)
     }

@@ -23,6 +23,35 @@ struct TitlebarName: View {
     }
 }
 
+/// What the sidebar button needs: whether the sidebar is hidden, which side
+/// it lives on (the symbol follows it) and what a press does.
+struct SidebarToggle {
+    var isHidden: Bool
+    var side: ThemeStore.SidebarSide
+    var toggle: () -> Void
+}
+
+/// Hides and shows the sidebar, from beside the window's name.
+struct TitlebarSidebarButton: View {
+    var theme: Theme
+    var toggle: SidebarToggle
+
+    static let width: CGFloat = 30
+
+    var body: some View {
+        Button(action: toggle.toggle) {
+            Image(systemName: toggle.side == .left ? "sidebar.left" : "sidebar.right")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(theme.textSecondary.color)
+                .frame(width: Self.width, height: Metrics.toolbarHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(toggle.isHidden ? "Show the sidebar (⌃⌘S)" : "Hide the sidebar (⌃⌘S)")
+        .accessibilityLabel(toggle.isHidden ? "Show Sidebar" : "Hide Sidebar")
+    }
+}
+
 /// The gear at the trailing end of the titlebar, which opens Appearance.
 ///
 /// It replaces the "Theme" button that used to sit in the toolbar. There is no

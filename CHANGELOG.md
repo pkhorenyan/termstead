@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The sidebar can be hidden, leaving the window to the terminals: View ▸
+  Hide Sidebar (⌃⌘S), or the button beside the window's name. The choice is
+  remembered.
+
 ### Fixed
 
 - The Homebrew cask declares its macOS requirement as `depends_on macos:

@@ -50,11 +50,11 @@ struct MainView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if themeStore.sidebarSide == .left {
-                    sidebar
+                    if !appState.isSidebarHidden { sidebar }
                     mainColumn
                 } else {
                     mainColumn
-                    sidebar
+                    if !appState.isSidebarHidden { sidebar }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -86,6 +86,9 @@ struct MainView: View {
                                toolbarHeight: Metrics.toolbarHeight,
                                minSize: Metrics.minWindowSize,
                                titlebarTitle: "Termstead",
+                               sidebarToggle: .init(isHidden: appState.isSidebarHidden,
+                                                    side: themeStore.sidebarSide,
+                                                    toggle: { appState.isSidebarHidden.toggle() }),
                                frameAutosaveName: "MainWindow",
                                onOpenAppearance: {
                                    openWindow(id: TermsteadApp.appearanceWindowID)
@@ -131,6 +134,13 @@ struct MainView: View {
             Button("OK") {}
         } message: {
             Text(storage.loadProblem ?? "")
+        }
+        // A hidden sidebar takes the keyboard with it when the tree or its
+        // search field had it; the terminal in front gets it instead.
+        .onChange(of: appState.isSidebarHidden) {
+            guard appState.isSidebarHidden, let terminal = connectionStore.active?.terminalView,
+                  let window = terminal.window else { return }
+            window.makeFirstResponder(terminal)
         }
         .onChange(of: themeStore.showServerLoad, initial: true) {
             connectionStore.watchesServerLoad = themeStore.showServerLoad
