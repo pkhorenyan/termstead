@@ -27,15 +27,17 @@ struct FormField<Content: View>: View {
     }
 }
 
-/// Text input matching the design's well, with an optional accent focus ring.
+/// Text input matching the design's well, with the accent ring the mockup
+/// shows on the field being edited.
 struct SBTextField: View {
     @Environment(\.theme) private var theme
     @Binding var text: String
     var placeholder: String
     var font: Font
-    /// Draws the accent border the mockup shows on the field being edited.
-    var focused: Bool = false
     var isSecure: Bool = false
+    /// The ring follows the keyboard. It used to be a flag the form set on
+    /// its first field, so it stayed there while Tab moved on.
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         Group {
@@ -46,11 +48,12 @@ struct SBTextField: View {
             }
         }
         .textFieldStyle(.plain)
+        .focused($isFocused)
         .font(font)
         .foregroundStyle(theme.text.color)
         .padding(.horizontal, 12)
         .frame(height: 36)
-        .background(FieldBackground(theme: theme, focused: focused))
+        .background(FieldBackground(theme: theme, focused: isFocused))
     }
 }
 

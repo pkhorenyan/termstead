@@ -24,6 +24,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- In the session, group and quick-connect forms, the accent ring follows
+  the field being typed in; it used to stay on the first field when Tab
+  moved on.
 - The Homebrew cask declares its macOS requirement as `depends_on macos:
   :sonoma`; Homebrew 5 warns about the old `">= :sonoma"` form.
 

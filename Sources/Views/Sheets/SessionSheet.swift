@@ -130,7 +130,7 @@ struct SessionSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             FormField(label: "Name") {
                 SBTextField(text: $name, placeholder: "prod-web-03",
-                            font: SBFont.ui(14), focused: !isEditing)
+                            font: SBFont.ui(14))
             }
 
             HStack(alignment: .bottom, spacing: 12) {

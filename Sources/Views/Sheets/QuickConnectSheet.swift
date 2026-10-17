@@ -35,7 +35,7 @@ struct QuickConnectSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 FormField(label: "Address") {
                     SBTextField(text: $address, placeholder: "user@host:22",
-                                font: SBFont.mono(14), focused: true)
+                                font: SBFont.mono(14))
                         .onSubmit(connect)
                 }
                 Text(problem ?? "Keys, the ssh agent and ~/.ssh/config apply as usual.")

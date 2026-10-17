@@ -79,7 +79,7 @@ struct GroupSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 FormField(label: "Name") {
                     SBTextField(text: $name, placeholder: "Group name",
-                                font: SBFont.ui(14), focused: !isEditing)
+                                font: SBFont.ui(14))
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
