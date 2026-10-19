@@ -52,7 +52,7 @@ private struct TunnelList: View {
             .padding(14)
             .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
-        .frame(width: 460)
+        .frame(width: 420)
         .frame(maxHeight: 420)
         .fixedSize(horizontal: false, vertical: true)
         .background(theme.elevated.color)
@@ -72,30 +72,54 @@ private struct TunnelList: View {
             }
 
             ForEach(forwards) { forward in
-                HStack(spacing: 8) {
-                    Text(forward.summary)
-                        .font(SBFont.mono(12))
-                        .foregroundStyle(theme.textSecondary.color)
-                        .lineLimit(1)
-                        .frame(width: 210, alignment: .leading)
-                    if let state = connectionStore.forwardState(forward.id, of: id) {
-                        ForwardStateLabel(state: state)
-                        Spacer(minLength: 0)
-                        let running = state == .running || state == .opening
-                        // Stop also while opening: a login that hangs ends here.
-                        small(running ? "Stop" : "Start") {
-                            connectionStore.setForward(forward.id, of: id, running: !running)
-                        }
-                    } else {
-                        Text("Not open")
-                            .font(SBFont.ui(12))
-                            .foregroundStyle(theme.textMuted.color)
-                        Spacer(minLength: 0)
-                    }
-                }
+                row(forward, of: id)
             }
         }
     }
+
+    /// The tunnel, its state, and Stop / Start right beside the state; a
+    /// failure's reason on a line below.
+    private func row(_ forward: PortForward, of id: String) -> some View {
+        let state = connectionStore.forwardState(forward.id, of: id)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(forward.summary)
+                    .font(SBFont.mono(12))
+                    .foregroundStyle(theme.textSecondary.color)
+                    .lineLimit(1)
+                    .frame(width: 210, alignment: .leading)
+                if let state {
+                    ForwardStateLabel(state: state, showsReason: false)
+                        .frame(width: Self.stateWidth, alignment: .leading)
+                    let running = state == .running || state == .opening
+                    // Stop also while opening: a login that hangs ends here.
+                    // One width for both words, so the column does not shift.
+                    Button {
+                        connectionStore.setForward(forward.id, of: id, running: !running)
+                    } label: {
+                        Text(running ? "Stop" : "Start").frame(width: 40)
+                    }
+                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 24, horizontalPadding: 6,
+                                                      fontSize: 11.5, filled: true))
+                } else {
+                    Text("Not open")
+                        .font(SBFont.ui(12))
+                        .foregroundStyle(theme.textMuted.color)
+                }
+                Spacer(minLength: 0)
+            }
+            if case .failed(let reason)? = state {
+                Text(reason)
+                    .font(SBFont.ui(11.5))
+                    .foregroundStyle(theme.ansiRed.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 218)
+            }
+        }
+    }
+
+    /// Wide enough for "● Opening…", the longest state.
+    private static let stateWidth: CGFloat = 92
 
     private func small(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)

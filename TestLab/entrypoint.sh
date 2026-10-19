@@ -16,8 +16,14 @@ chown lab:lab /home/lab/.bashrc
 printf '[ -f ~/.bashrc ] && . ~/.bashrc\n' > /home/lab/.bash_profile
 chown lab:lab /home/lab/.bash_profile
 
-# A page on port 80 that says which host served it, for port forwarding:
-# nothing publishes it to the Mac, so only a tunnel reaches it.
+# A page on port 80 that says which host served it, for port forwarding.
+# Only direct's is published to the Mac (LAB_PUBLISHED), as the far end of
+# the sample's remote tunnel; it must not claim a tunnel brought you there.
+if [ -n "$LAB_PUBLISHED" ]; then
+    HOW="Docker publishes it to the Mac on <code>$LAB_PUBLISHED</code>, so no tunnel is needed to read it here. The remote tunnel leads to it from app: <code>wget -qO- localhost:9000</code> on app."
+else
+    HOW="This page is served on <code>$(hostname):80</code>, which is not published to the Mac. If you can read it, a tunnel brought you here."
+fi
 mkdir -p /srv/www
 cat > /srv/www/index.html <<PAGE
 <!doctype html>
@@ -33,8 +39,7 @@ cat > /srv/www/index.html <<PAGE
 <main>
   <h1>Hello from $(hostname)</h1>
   <p>$LAB_ROLE</p>
-  <p>This page is served on <code>$(hostname):80</code>, which is not published to
-  the Mac. If you can read it, a tunnel brought you here.</p>
+  <p>$HOW</p>
 </main>
 PAGE
 httpd -p 80 -h /srv/www

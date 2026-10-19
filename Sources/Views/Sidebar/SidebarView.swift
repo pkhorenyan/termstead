@@ -44,10 +44,13 @@ struct SidebarView: View {
         }
     }
 
+    /// The session list stays mounted, hidden, while the SFTP tab shows:
+    /// built again on the way back it started at the top, and a long list
+    /// lost the place it was scrolled to.
     private var panel: some View {
-        VStack(spacing: 14) {
-            switch appState.sidebarTab {
-            case .sessions:
+        let showsSessions = appState.sidebarTab == .sessions
+        return ZStack {
+            VStack(spacing: 14) {
                 searchField
 
                 if sessionStore.isEmpty {
@@ -57,12 +60,20 @@ struct SidebarView: View {
                 }
 
                 footer
-            case .files:
+            }
+            .opacity(showsSessions ? 1 : 0)
+            .allowsHitTesting(showsSessions)
+            .accessibilityHidden(!showsSessions)
+
+            if !showsSessions {
                 FilesPanel()
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 12)
+        .onChange(of: showsSessions) {
+            if !showsSessions { keyboard.release() }
+        }
     }
 
     private var deletionTitle: String {

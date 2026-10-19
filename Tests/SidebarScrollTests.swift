@@ -63,6 +63,50 @@ struct SidebarScrollTests {
         #expect(scroll.contentView.bounds.origin.y != before, "the tree did not scroll")
     }
 
+    /// Over to the SFTP tab and back, the list is where it was scrolled to —
+    /// it used to be built again at the top — and while hidden it takes no
+    /// clicks.
+    @Test func theTreeKeepsItsPlaceAcrossTheSFTPTab() async throws {
+        let store = SessionStore.sample()
+        store.collapsedGroupIDs = []
+        let appState = AppState(defaults: try #require(UserDefaults(suiteName: "termstead-scroll-\(UUID().uuidString)")))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 360),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
+        window.contentView = NSHostingView(rootView:
+            SidebarView()
+                .frame(width: 248, height: 360)
+                .environment(store)
+                .environment(appState)
+                .environment(ConnectionStore())
+                .environment(\.theme, .graphite))
+        window.orderFront(nil)
+        defer { window.close() }
+        for _ in 0..<10 { try await Task.sleep(for: .milliseconds(20)) }
+
+        let scroll = try #require(findScrollView(in: window.contentView!))
+        let document = try #require(scroll.documentView)
+        let target = NSPoint(x: 0, y: min(160, document.frame.height - scroll.contentView.bounds.height))
+        scroll.contentView.scroll(to: target)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let scrolled = scroll.contentView.bounds.origin.y
+        #expect(scrolled > 0, "the sample tree should be longer than 360pt")
+
+        appState.sidebarTab = .files
+        for _ in 0..<10 { try await Task.sleep(for: .milliseconds(20)) }
+        let row = try #require(findRowLayer(in: window.contentView!))
+        let center = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+        #expect(!(window.contentView!.hitTest(window.contentView!.convert(center, from: nil)) is RowInteractionView),
+                "a hidden row took a click on the SFTP tab")
+
+        appState.sidebarTab = .sessions
+        for _ in 0..<10 { try await Task.sleep(for: .milliseconds(20)) }
+        let after = try #require(findScrollView(in: window.contentView!))
+        #expect(after === scroll, "the list was built again")
+        #expect(after.contentView.bounds.origin.y == scrolled, "back from SFTP at the top, not where it was")
+    }
+
     /// The same inside the whole main window, with its clipped content row,
     /// titlebar configuration and status bar.
     @Test func theWheelScrollsTheSidebarInTheMainWindow() async throws {

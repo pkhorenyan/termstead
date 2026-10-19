@@ -41,6 +41,13 @@ final class TreeKeyboardFocus {
         guard let view, let window = view.window, window.firstResponder !== view else { return }
         window.makeFirstResponder(view)
     }
+
+    /// The tree is out of sight (the SFTP tab): its arrows and ⌫ must not
+    /// act on rows nobody can see.
+    func release() {
+        guard let view, let window = view.window, window.firstResponder === view else { return }
+        window.makeFirstResponder(nil)
+    }
 }
 
 /// The session tree's keyboard: one view behind the list rather than the

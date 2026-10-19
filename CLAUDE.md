@@ -340,7 +340,10 @@ diffs the app against it will read all of them as regressions.
   indents by 8pt per level from a 14pt base.
 - **The sidebar is resizable**, 230–434pt including its 34pt tab rail
   (double-click the divider to reset), and its width is remembered. The rail
-  switches between Sessions and SFTP, as MobaXterm does. It can be hidden
+  switches between Sessions and SFTP, as MobaXterm does; the session list
+  stays mounted, hidden, while SFTP shows, so it comes back scrolled where it
+  was (`SidebarView.panel`; hidden it takes no clicks, and the tree's
+  keyboard is let go). It can be hidden
   (⌃⌘S, or the button after the window's name — an accessory of its own,
   since a press on the name's view moves the window), and stays hidden
   across launches (`AppState.isSidebarHidden`).

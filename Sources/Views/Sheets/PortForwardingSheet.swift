@@ -296,6 +296,9 @@ struct PortForwardingSheet: View {
 struct ForwardStateLabel: View {
     @Environment(\.theme) private var theme
     var state: ForwardState
+    /// A failure's reason beside it; the status bar's list puts it on a
+    /// line of its own instead, to keep the button next to the state.
+    var showsReason = true
 
     var body: some View {
         HStack(spacing: 6) {
@@ -303,7 +306,7 @@ struct ForwardStateLabel: View {
             Text(title)
                 .font(SBFont.ui(12.5, .medium))
                 .foregroundStyle((state == .running ? theme.text : theme.textMuted).color)
-            if case .failed(let reason) = state {
+            if showsReason, case .failed(let reason) = state {
                 Text(reason)
                     .font(SBFont.ui(12))
                     .foregroundStyle(theme.ansiRed.color)
@@ -319,7 +322,7 @@ struct ForwardStateLabel: View {
         case .opening: "Opening…"
         case .running: "Running"
         case .stopped: "Stopped"
-        case .failed: "Failed:"
+        case .failed: showsReason ? "Failed:" : "Failed"
         }
     }
 

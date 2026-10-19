@@ -36,6 +36,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Back from the SFTP tab, the session list is where it was scrolled to,
+  not at the top.
 - In the Nord theme the text fields were the same color as the form around
   them; they are darker now.
 
