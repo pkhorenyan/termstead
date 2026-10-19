@@ -200,6 +200,73 @@ struct SSHLaunchTests {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         #expect(SSHLaunch.passphraseAccount(forKey: "~/.ssh/id") == "key:\(home)/.ssh/id:passphrase")
     }
+
+    // MARK: - Port forwarding
+
+    @Test func forwardsGoOnTheCommandLineBeforeTheHost() throws {
+        var web = session()
+        web.forwards = [
+            PortForward(kind: .local, listenPort: 8080, destinationHost: "db", destinationPort: 5432),
+            PortForward(kind: .remote, bindAddress: "*", listenPort: 9000,
+                        destinationHost: "localhost", destinationPort: 3000),
+            PortForward(kind: .dynamic, listenPort: 1080),
+            PortForward(kind: .local, bindAddress: "::1", listenPort: 8443,
+                        destinationHost: "fe80::1", destinationPort: 443),
+        ]
+        let plan = try SSHLaunch.plan(for: web, sessions: [:], keyExists: allKeysExist)
+        #expect(plan.arguments(configPath: "/tmp/c") == [
+            "-F", "/tmp/c", "-o", "ServerAliveInterval=30",
+            "-L", "8080:db:5432",
+            "-R", "*:9000:localhost:3000",
+            "-D", "1080",
+            "-L", "[::1]:8443:[fe80::1]:443",
+            "10.0.1.13",
+        ])
+        // Kept out of the config, which sftp reads as well.
+        #expect(!plan.config.contains("Forward"))
+    }
+
+    @Test func incompleteForwardsAreRefused() throws {
+        func refusal(_ forward: PortForward) -> SSHLaunchError? {
+            var web = session()
+            web.forwards = [PortForward(kind: .dynamic, listenPort: 1080), forward]
+            do {
+                _ = try SSHLaunch.plan(for: web, sessions: [:], keyExists: allKeysExist)
+                return nil
+            } catch { return error as? SSHLaunchError }
+        }
+        #expect(refusal(PortForward(destinationPort: 80)) == .forward(index: 1, problem: "needs a port to listen on"))
+        #expect(refusal(PortForward(listenPort: 8080)) == .forward(index: 1, problem: "needs a destination port"))
+        #expect(refusal(PortForward(listenPort: 8080, destinationHost: " ", destinationPort: 80))
+                == .forward(index: 1, problem: "needs a destination host"))
+        #expect(refusal(PortForward(listenPort: 8080, destinationHost: "-oProxyCommand=x", destinationPort: 80))
+                == .forward(index: 1, problem: "has an unusable destination “-oProxyCommand=x”"))
+        #expect(refusal(PortForward(bindAddress: "a b", listenPort: 8080, destinationPort: 80))
+                == .forward(index: 1, problem: "has an unusable listen address “a b”"))
+    }
+
+    /// `ssh -G` reads the forwards as intended.
+    @Test func sshReadsTheForwards() throws {
+        var web = session()
+        web.forwards = [PortForward(kind: .local, listenPort: 8080, destinationHost: "db", destinationPort: 5432),
+                        PortForward(kind: .dynamic, bindAddress: "*", listenPort: 1080)]
+        let plan = try SSHLaunch.plan(for: web, sessions: [:], keyExists: allKeysExist)
+        let config = FileManager.default.temporaryDirectory.appendingPathComponent("sb-fwd-\(UUID().uuidString)")
+        try plan.config.write(to: config, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: config) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: SSHLaunch.executable)
+        process.arguments = ["-G"] + plan.arguments(configPath: config.path)
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        try process.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(output.contains("localforward 8080 [db]:5432"))
+        #expect(output.contains("dynamicforward [*]:1080"))
+    }
 }
 
 /// The generated file checked by OpenSSH itself: `ssh -G` resolves the config
@@ -261,4 +328,5 @@ struct ExitStatusTests {
         #expect(Connection.exitCode(fromWaitStatus: 1 << 8) == 1)
         #expect(Connection.exitCode(fromWaitStatus: SIGTERM) == 128 + SIGTERM)
     }
+
 }

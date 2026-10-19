@@ -94,6 +94,14 @@ extension SessionStore {
             Session(id: "lab-app-password", user: "lab", host: "app", port: 22,
                     icon: .cloud, auth: .password, keyPath: key,
                     jumps: [JumpHost(host: "127.0.0.1", user: "lab", port: 2202, auth: .password)]),
+            // Tunnels: app's own sshd on this Mac's 22022, and a SOCKS proxy
+            // into the lab's network on 21080.
+            Session(id: "lab-app-tunnels", user: "lab", host: "app", port: 22,
+                    icon: .router, auth: .key, keyPath: key,
+                    jumps: [JumpHost(host: "lab-bastion")],
+                    portForwards: [PortForward(kind: .local, listenPort: 22022,
+                                               destinationHost: "localhost", destinationPort: 22),
+                                   PortForward(kind: .dynamic, listenPort: 21080)]),
         ]
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [
@@ -102,6 +110,7 @@ extension SessionStore {
             .group(SessionGroup(id: "testlab-jump", name: "Through jump hosts", colorID: "blue", children: [
                 .session("lab-bastion"), .session("lab-app-1-jump"), .session("lab-db-2-jumps"),
                 .session("lab-db-2-jumps-typed"), .session("lab-app-password"),
+                .session("lab-app-tunnels"),
             ])),
         ])
         return (group, sessions)

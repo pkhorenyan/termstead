@@ -51,6 +51,54 @@ struct JumpHost: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+/// One tunnel opened alongside a session's shell: ssh's `-L`, `-R` or `-D`.
+struct PortForward: Identifiable, Hashable, Codable, Sendable {
+    enum Kind: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
+        case local, remote, dynamic
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .local: "Local"
+            case .remote: "Remote"
+            case .dynamic: "SOCKS"
+            }
+        }
+
+        /// Which side listens: this Mac for local and SOCKS, the server for remote.
+        var listenSide: String { self == .remote ? "server" : "this Mac" }
+        /// Which side the destination is resolved from.
+        var destinationSide: String { self == .remote ? "this Mac" : "server" }
+    }
+
+    var id = UUID()
+    var kind: Kind = .local
+    /// Empty listens on the loopback interface only, ssh's default. `*` or an
+    /// address opens the port to others (for `-R`, only if the server's
+    /// `GatewayPorts` allows it).
+    var bindAddress: String = ""
+    var listenPort: Int?
+    /// Unused for SOCKS, where every connection names its own destination.
+    var destinationHost: String = "localhost"
+    var destinationPort: Int?
+
+    /// "8080 → db:5432", for the form and the status bar.
+    var summary: String {
+        let listen = listenPort.map(String.init) ?? "…"
+        if kind == .dynamic { return "SOCKS \(listen)" }
+        let host = destinationHost.trimmingCharacters(in: .whitespaces)
+        let destination = "\(host.isEmpty ? "…" : host):\(destinationPort.map(String.init) ?? "…")"
+        return kind == .local ? "\(listen) → \(destination)" : "server \(listen) → \(destination)"
+    }
+
+    /// Nothing typed yet: dropped on save rather than kept as a blank row.
+    var isBlank: Bool {
+        listenPort == nil && destinationPort == nil
+            && bindAddress.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
 /// How a session proves who it is to the server.
 enum SessionAuth: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case password, key
@@ -82,6 +130,14 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     /// groups — inside one the group's wins (`GroupColor.sessionColorID`).
     /// Optional, so files written before sessions had colors still read.
     var colorID: String? = nil
+    /// Tunnels opened with the shell. Optional for the same reason as
+    /// `colorID`: older files have no such key; read it through `forwards`.
+    var portForwards: [PortForward]? = nil
+
+    var forwards: [PortForward] {
+        get { portForwards ?? [] }
+        set { portForwards = newValue.isEmpty ? nil : newValue }
+    }
 
     var address: String {
         port == 22 ? "\(user)@\(host)" : "\(user)@\(host):\(port)"

@@ -42,6 +42,7 @@ struct SessionSheet: View {
     /// What was typed into the hops' password fields. Never part of the model:
     /// on Save it goes to the Keychain (see `storeSecrets`) and nowhere else.
     @State private var jumpPasswords: [UUID: String] = [:]
+    @State private var forwards: [PortForward] = []
     /// Keychain accounts that already hold something, looked up when the form
     /// opens. Only their existence is read — the secrets never enter the UI.
     @State private var storedAccounts: Set<String> = []
@@ -93,7 +94,7 @@ struct SessionSheet: View {
             HStack(alignment: .top, spacing: 28) {
                 connectionColumn.frame(width: Self.columnWidth)
 
-                // The jump chain is the only part that grows without bound, so
+                // The jump chain and the tunnels grow without bound, so
                 // this column scrolls instead of stretching the sheet past the
                 // window and taking the footer buttons with it.
                 //
@@ -334,6 +335,7 @@ struct SessionSheet: View {
             if authMode == .key { keyFields } else { passwordFields }
 
             jumpHostsSection
+            forwardsSection
         }
     }
 
@@ -619,6 +621,112 @@ struct SessionSheet: View {
             )
     }
 
+    // MARK: - Port forwarding
+
+    private var forwardsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Port forwarding")
+                    .font(SBFont.ui(13, .semibold))
+                    .foregroundStyle(theme.text.color)
+                Text("opened with the terminal")
+                    .font(SBFont.ui(12))
+                    .foregroundStyle(theme.textFaint.color)
+                Spacer(minLength: 0)
+            }
+
+            if forwards.isEmpty {
+                InsetNote(text: "No tunnels. Local reaches a server-side port from this Mac, Remote the other way round, SOCKS sends a browser through the server.")
+            }
+
+            ForEach(Array(forwards.enumerated()), id: \.element.id) { index, _ in
+                forwardRow(index: index, forward: $forwards[index])
+            }
+
+            Button {
+                forwards.append(PortForward())
+            } label: {
+                Label("Add port forward", systemImage: "plus")
+                    .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 11))
+            }
+            .buttonStyle(DashedButtonStyle(theme: theme, fontSize: 12.5))
+        }
+        .padding(.top, 16)
+        .overlay(alignment: .top) { Divider1(theme.border) }
+    }
+
+    /// Laid out like a jump host: a numbered header with the kind and the
+    /// remove button, then where it listens and where it leads.
+    private func forwardRow(index: Int, forward: Binding<PortForward>) -> some View {
+        let kind = forward.wrappedValue.kind
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: Self.hopNumberGap) {
+                Text("\(index + 1)")
+                    .font(SBFont.ui(11.5, .semibold))
+                    .foregroundStyle(theme.text.color)
+                    .frame(width: Self.hopNumberSize, height: Self.hopNumberSize)
+                    .background(Circle().fill(theme.selected.color))
+                SegmentedPicker(options: PortForward.Kind.allCases,
+                                selection: forward.kind,
+                                label: \.label,
+                                title: "Kind of port forward \(index + 1)",
+                                height: 28, fontSize: 12.5,
+                                segmentCornerRadius: 6, cornerRadius: 9)
+                Button {
+                    let id = forward.wrappedValue.id
+                    forwards.removeAll { $0.id == id }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.textSecondary.color)
+                }
+                .buttonStyle(IconButtonStyle(theme: theme, size: CGSize(width: 28, height: 28),
+                                             cornerRadius: 8, bordered: true, borderColor: theme.border))
+                .accessibilityLabel("Remove port forward \(index + 1)")
+            }
+
+            HStack(alignment: .bottom, spacing: 12) {
+                FormField(label: "Listen on \(kind.listenSide)") {
+                    SBTextField(text: forward.bindAddress, placeholder: "localhost",
+                                font: SBFont.mono(13))
+                }
+                .accessibilityLabel("Listen address for port forward \(index + 1)")
+                FormField(label: "Port") {
+                    SBTextField(text: portBinding(forward, \.listenPort),
+                                placeholder: kind == .dynamic ? "1080" : "8080",
+                                font: SBFont.mono(13))
+                }
+                .frame(width: 84)
+                .accessibilityLabel("Listen port for port forward \(index + 1)")
+            }
+
+            if kind != .dynamic {
+                HStack(alignment: .bottom, spacing: 12) {
+                    FormField(label: "Destination, as seen from \(kind.destinationSide)") {
+                        SBTextField(text: forward.destinationHost, placeholder: "localhost",
+                                    font: SBFont.mono(13))
+                    }
+                    .accessibilityLabel("Destination host for port forward \(index + 1)")
+                    FormField(label: "Port") {
+                        SBTextField(text: portBinding(forward, \.destinationPort),
+                                    placeholder: "80", font: SBFont.mono(13))
+                    }
+                    .frame(width: 84)
+                    .accessibilityLabel("Destination port for port forward \(index + 1)")
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func portBinding(_ forward: Binding<PortForward>,
+                             _ field: WritableKeyPath<PortForward, Int?>) -> Binding<String> {
+        Binding(
+            get: { forward.wrappedValue[keyPath: field].map(String.init) ?? "" },
+            set: { forward.wrappedValue[keyPath: field] = Int($0.filter(\.isNumber).prefix(5)) }
+        )
+    }
+
     /// Kept out of `jumps` on purpose — see `jumpPasswords`.
     private func passwordBinding(for id: UUID) -> Binding<String> {
         Binding(
@@ -673,6 +781,7 @@ struct SessionSheet: View {
             authMode = .password
             keyPath = Session.defaultKeyPath
             jumps = []
+            forwards = []
 
         case .edit(let id):
             guard let session = sessionStore.session(id) else { return }
@@ -687,6 +796,7 @@ struct SessionSheet: View {
             authMode = session.auth
             keyPath = session.keyPath
             jumps = session.jumps
+            forwards = session.forwards
         }
         refreshStoredAccounts()
     }
@@ -728,7 +838,7 @@ struct SessionSheet: View {
     private func save(thenConnect: Bool) {
         guard isValid else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        let session = Session(
+        var session = Session(
             id: trimmedName,
             user: user.trimmingCharacters(in: .whitespaces),
             host: host.trimmingCharacters(in: .whitespaces),
@@ -743,6 +853,7 @@ struct SessionSheet: View {
             jumps: jumps.filter { !$0.host.trimmingCharacters(in: .whitespaces).isEmpty },
             colorID: colorID
         )
+        session.forwards = forwards.filter { !$0.isBlank }
 
         var savedID: String?
         storeSecrets(for: trimmedName)

@@ -40,6 +40,8 @@
   any pane can be left out.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
+- **Port forwarding.** Local, remote and SOCKS tunnels, saved with the session
+  and opened with its terminal, through every jump host on the way.
 - **Server load at a glance.** The status bar shows the CPU, memory, disk and
   network of the Linux server in front, read over the connection already open.
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh

@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Port forwarding. Session settings has a Port forwarding section for
+  local (`-L`), remote (`-R`) and SOCKS (`-D`) tunnels; they open with the
+  session's terminal, through its jump hosts, and close with it.
+
 ## [0.5.0] - 2026-10-17
 
 ### Added

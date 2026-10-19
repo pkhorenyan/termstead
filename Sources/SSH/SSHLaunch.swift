@@ -36,6 +36,8 @@ struct SSHLaunchPlan: Equatable, Sendable {
     var target: SSHEndpoint
     /// The contents of the ssh_config file the connection runs with.
     var config: String
+    /// `-L`, `-R` and `-D` with their specs, for the terminal's ssh only.
+    var forwards: [String] = []
 
     /// Arguments for `/usr/bin/ssh`, given where `config` was written.
     ///
@@ -51,7 +53,10 @@ struct SSHLaunchPlan: Equatable, Sendable {
             arguments += ["-o", "ControlMaster=auto", "-o", "ControlPath=\(controlPath)",
                           "-o", "ControlPersist=no"]
         }
-        return arguments + [target.alias]
+        // On the command line, not in the config: `sftp` and the server-load
+        // channel read the config too, and would ask the master for the same
+        // tunnels again.
+        return arguments + forwards + [target.alias]
     }
 }
 
@@ -59,6 +64,7 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
     case invalid(field: String, value: String)
     case emptyHop(index: Int)
     case jumpLoop(String)
+    case forward(index: Int, problem: String)
 
     var description: String {
         switch self {
@@ -68,6 +74,8 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
             "Jump host \(index + 1) has no address."
         case .jumpLoop(let name):
             "The jump chain goes through “\(name)” itself."
+        case .forward(let index, let problem):
+            "Port forward \(index + 1) \(problem)."
         }
     }
 }
@@ -155,7 +163,46 @@ enum SSHLaunch {
         let target = try endpoint(user: session.user.isEmpty ? nil : session.user,
                                   host: session.host, port: session.port,
                                   auth: targetAuth, passwordAccount: targetPassword)
-        return assemble(hops: hops, target: target)
+        var plan = assemble(hops: hops, target: target)
+        plan.forwards = try session.forwards.enumerated().flatMap { index, forward in
+            try forwardArguments(forward, index: index)
+        }
+        return plan
+    }
+
+    /// `-L [bind:]port:host:hostport`, `-R` the same way round from the
+    /// server, `-D [bind:]port`. IPv6 addresses go in brackets, since the
+    /// colon is the separator.
+    static func forwardArguments(_ forward: PortForward, index: Int) throws -> [String] {
+        func fail(_ problem: String) -> SSHLaunchError { .forward(index: index, problem: problem) }
+        func bracketed(_ host: String) -> String { host.contains(":") ? "[\(host)]" : host }
+
+        guard let listen = forward.listenPort, (1...65535).contains(listen) else {
+            throw fail("needs a port to listen on")
+        }
+        var spec = String(listen)
+        let bind = forward.bindAddress.trimmingCharacters(in: .whitespaces)
+        if !bind.isEmpty {
+            // `*` means every interface; anything else must read as a host.
+            if bind != "*" {
+                do { try validate(bind, field: "address") } catch { throw fail("has an unusable listen address “\(bind)”") }
+            }
+            spec = "\(bracketed(bind)):\(spec)"
+        }
+
+        switch forward.kind {
+        case .dynamic:
+            return ["-D", spec]
+        case .local, .remote:
+            let host = forward.destinationHost.trimmingCharacters(in: .whitespaces)
+            do { try validate(host, field: "host") } catch {
+                throw fail(host.isEmpty ? "needs a destination host" : "has an unusable destination “\(host)”")
+            }
+            guard let port = forward.destinationPort, (1...65535).contains(port) else {
+                throw fail("needs a destination port")
+            }
+            return [forward.kind == .local ? "-L" : "-R", "\(spec):\(bracketed(host)):\(port)"]
+        }
     }
 
     /// A one-off connection typed into quick connect: nothing but an address,

@@ -43,6 +43,21 @@ struct SessionPersistenceTests {
         #expect(decoded.jumps.first?.id == hop.id)
     }
 
+    @Test func forwardsSurviveAndOlderFilesStillRead() throws {
+        var session = Session(id: "edge", user: "ops", host: "edge.example", port: 22, icon: .shield)
+        let forward = PortForward(kind: .remote, bindAddress: "*", listenPort: 9000,
+                                  destinationHost: "localhost", destinationPort: 3000)
+        session.forwards = [forward]
+        let decoded = try JSONDecoder().decode(Session.self, from: JSONEncoder().encode(session))
+        #expect(decoded.forwards == [forward])
+
+        // A file from before port forwarding has no such key.
+        session.forwards = []
+        let data = try JSONEncoder().encode(session)
+        #expect(!String(decoding: data, as: UTF8.self).contains("portForwards"))
+        #expect(try JSONDecoder().decode(Session.self, from: data).forwards.isEmpty)
+    }
+
     @Test func missingFileIsReportedAsMissing() {
         #expect(SessionPersistence.load(from: temporaryURL()) == .missing)
     }
