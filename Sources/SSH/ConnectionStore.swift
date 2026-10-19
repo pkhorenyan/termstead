@@ -266,6 +266,62 @@ final class ConnectionStore {
         closing.close()
         detach(closing)
         updateLoadWatches()
+        // A stop lasts while the session has a tab; the next connection
+        // opens every tunnel again.
+        if let session = closing.sessionID, !connections.contains(where: { $0.sessionID == session }) {
+            stoppedForwards[session] = nil
+        }
+    }
+
+    // MARK: - Port forwarding
+
+    /// Tunnels stopped by hand, per session — see `setForward`.
+    private(set) var stoppedForwards: [String: Set<UUID>] = [:]
+
+    /// The tab whose ssh has the session's tunnels open, once it is logged in:
+    /// only then can they be stopped and started.
+    func forwardHolder(of sessionID: String) -> Connection? {
+        connections.first { $0.sessionID == sessionID && $0.holdsForwards && $0.isLoggedIn }
+    }
+
+    func isForwardRunning(_ id: UUID, of sessionID: String) -> Bool {
+        guard let holder = forwardHolder(of: sessionID), holder.carriesForward(id) else { return false }
+        return !(stoppedForwards[sessionID]?.contains(id) ?? false)
+    }
+
+    /// "Stop Port Forwarding" or "Start Port Forwarding" for a session's
+    /// context menu, with what it does; `nil` when there is nothing to control.
+    func forwardingMenuItem(for session: Session) -> (title: String, run: () -> Void)? {
+        guard forwardHolder(of: session.id) != nil,
+              session.forwards.contains(where: { forwardHolder(of: session.id)?.carriesForward($0.id) ?? false })
+        else { return nil }
+        let anyRunning = session.forwards.contains { isForwardRunning($0.id, of: session.id) }
+        return (anyRunning ? "Stop Port Forwarding" : "Start Port Forwarding",
+                { Task { await self.setAllForwards(of: session, running: !anyRunning) } })
+    }
+
+    /// Stops or starts one tunnel over the connection that holds it. Returns
+    /// ssh's complaint if it refused; the tunnel's state is then unchanged.
+    @discardableResult
+    func setForward(_ id: UUID, of sessionID: String, running: Bool) async -> String? {
+        guard let holder = forwardHolder(of: sessionID) else { return "The session is not connected." }
+        let problem = await withCheckedContinuation { continuation in
+            holder.setForward(id, running: running) { continuation.resume(returning: $0) }
+        }
+        guard problem == nil else { return problem }
+        if running {
+            stoppedForwards[sessionID]?.remove(id)
+        } else {
+            stoppedForwards[sessionID, default: []].insert(id)
+        }
+        return nil
+    }
+
+    /// Every tunnel of the session at once, for the context menus.
+    func setAllForwards(of session: Session, running: Bool) async {
+        for forward in session.forwards where isForwardRunning(forward.id, of: session.id) != running {
+            await setForward(forward.id, of: session.id, running: running)
+        }
     }
 
     /// Takes a tab out of the list. If it was in front in its pane, its
@@ -360,6 +416,10 @@ final class ConnectionStore {
         connection.mayForward = { [weak self] asking in
             guard let self, let session = asking.sessionID else { return true }
             return !connections.contains { $0 !== asking && $0.sessionID == session && $0.holdsForwards }
+        }
+        connection.isForwardStopped = { [weak self, weak connection] id in
+            guard let self, let session = connection?.sessionID else { return false }
+            return stoppedForwards[session]?.contains(id) ?? false
         }
         connection.onForwardsReleased = { [weak self, weak connection] in
             guard let self, let session = connection?.sessionID else { return }

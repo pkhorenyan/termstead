@@ -50,7 +50,8 @@ final class Connection: Identifiable {
     /// The server has no /proc to read; asking again would not change that.
     @ObservationIgnored private(set) var loadIsUnsupported = false
     @ObservationIgnored private var loadWatch: ServerLoadWatch?
-    @ObservationIgnored private var isLoggedIn = false
+    /// ssh has logged in to the target (see `watchForLogin`).
+    private(set) var isLoggedIn = false
 
     @ObservationIgnored let terminalView: SSHTerminalView
     @ObservationIgnored private var relay: ProcessRelay?
@@ -71,6 +72,8 @@ final class Connection: Identifiable {
     /// Whether this tab may open the tunnels: no other tab of its session
     /// holds them. Asked by `ConnectionStore`, which sees every tab.
     @ObservationIgnored var mayForward: (Connection) -> Bool = { _ in true }
+    /// Tunnels the user stopped. They stay down when another tab takes over.
+    @ObservationIgnored var isForwardStopped: (UUID) -> Bool = { _ in false }
     /// Told when this tab stops holding the tunnels, so another can take them.
     @ObservationIgnored var onForwardsReleased: (() -> Void)?
 
@@ -113,7 +116,7 @@ final class Connection: Identifiable {
         // take them over later (`takeOverForwards`).
         var launched = plan
         holdsForwards = !plan.forwards.isEmpty && mayForward(self)
-        if !holdsForwards { launched.forwards = [] }
+        launched.forwards = holdsForwards ? plan.forwards.filter { !isForwardStopped($0.id) } : []
         if !plan.forwards.isEmpty && !holdsForwards {
             terminalView.feed(text: "\u{1b}[2mPort forwarding is open in another tab of this session; this tab takes it over if that one closes.\u{1b}[0m\r\n")
         }
@@ -271,31 +274,55 @@ final class Connection: Identifiable {
     /// `ssh -O forward` to its master — no new login, and the shell carries on.
     func takeOverForwards() {
         guard !didClose, isLoggedIn, state.isRunning, !holdsForwards,
-              let plan, !plan.forwards.isEmpty, mayForward(self), let client = sftp else { return }
+              let plan, !plan.forwards.isEmpty, mayForward(self) else { return }
         // Claimed at once: two tabs must not both ask while the first answer
         // is on its way.
         holdsForwards = true
+        let running = plan.forwards.filter { !isForwardStopped($0.id) }
+        guard !running.isEmpty else { return }
+        multiplex("forward", running.flatMap(\.arguments)) { [weak self] problem in
+            guard let self, let problem, holdsForwards else { return }
+            holdsForwards = false
+            terminalView.feed(text: "\r\n\u{1b}[31mCould not take over port forwarding: \(problem)\u{1b}[0m\r\n")
+        }
+    }
+
+    /// Stops one of the tunnels this tab holds (`ssh -O cancel`), or opens it
+    /// again. `done` gets ssh's complaint, or `nil` once it is done.
+    func setForward(_ id: UUID, running: Bool, done: @escaping @MainActor (String?) -> Void) {
+        guard holdsForwards, isLoggedIn, state.isRunning else { return done("The session is not connected.") }
+        guard let forward = plan?.forwards.first(where: { $0.id == id }) else {
+            return done("Added after the session connected: reconnect to open it.")
+        }
+        multiplex(running ? "forward" : "cancel", forward.arguments, done: done)
+    }
+
+    /// The tunnel was in the settings this tab connected with.
+    func carriesForward(_ id: UUID) -> Bool {
+        plan?.forwards.contains { $0.id == id } ?? false
+    }
+
+    /// Runs `ssh -O <operation>` against this tab's connection master.
+    private func multiplex(_ operation: String, _ arguments: [String],
+                           done: @escaping @MainActor (String?) -> Void) {
+        guard let client = sftp else { return done("The session is not connected.") }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: SSHLaunch.executable)
         process.arguments = ["-F", client.configPath, "-o", "ControlPath=\(client.controlPath)",
-                             "-O", "forward"] + plan.forwards + [client.alias]
+                             "-O", operation] + arguments + [client.alias]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         let errors = Pipe()
         process.standardError = errors
-        process.terminationHandler = { [weak self] finished in
+        process.terminationHandler = { finished in
             let succeeded = finished.terminationStatus == 0
             let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self, !succeeded, self.holdsForwards else { return }
-                    self.holdsForwards = false
-                    self.terminalView.feed(text: "\r\n\u{1b}[31mCould not take over port forwarding: \(message)\u{1b}[0m\r\n")
-                }
+                MainActor.assumeIsolated { done(succeeded ? nil : message) }
             }
         }
-        do { try process.run() } catch { holdsForwards = false }
+        do { try process.run() } catch { done(error.localizedDescription) }
     }
 
     private func releaseForwards() {

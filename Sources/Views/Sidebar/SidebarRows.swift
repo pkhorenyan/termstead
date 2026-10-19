@@ -232,6 +232,8 @@ struct SessionRowView: View {
     var onTogglePin: () -> Void
     var onOpenSettings: () -> Void
     var onOpenForwards: () -> Void
+    /// Stops or starts the session's live tunnels; `nil` with none to control.
+    var forwardsToggle: (title: String, run: () -> Void)?
     var actions: TreeRowActions
 
     private var isSelected: Bool { actions.isSelected }
@@ -325,6 +327,7 @@ struct SessionRowView: View {
             actions.moveMenu(includingTopLevel: false)
             Button("Session Settings…", action: onOpenSettings)
             Button("Port Forwarding…", action: onOpenForwards)
+            if let forwardsToggle { Button(forwardsToggle.title, action: forwardsToggle.run) }
             Button(isPinned ? "Unpin" : "Pin to Top", action: onTogglePin)
             actions.deleteItem()
         }
@@ -342,6 +345,7 @@ struct PinnedRowView: View {
     var onConnectInNewTab: () -> Void
     var onOpenSettings: () -> Void
     var onOpenForwards: () -> Void
+    var forwardsToggle: (title: String, run: () -> Void)?
     var onUnpin: () -> Void
     var onDelete: () -> Void
     var keyboard: TreeKeyboardFocus?
@@ -405,6 +409,7 @@ struct PinnedRowView: View {
             Divider()
             Button("Session Settings…", action: onOpenSettings)
             Button("Port Forwarding…", action: onOpenForwards)
+            if let forwardsToggle { Button(forwardsToggle.title, action: forwardsToggle.run) }
             Button("Unpin", action: onUnpin)
             Divider()
             Button("Delete…", role: .destructive, action: onDelete)

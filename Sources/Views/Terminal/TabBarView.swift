@@ -157,6 +157,9 @@ struct TabBarView: View {
         if let saved {
             Button("Session Settings…") { appState.route = .sessionSettings(id: saved.id) }
             Button("Port Forwarding…") { appState.route = .portForwarding(sessionID: saved.id) }
+            if let toggle = connectionStore.forwardingMenuItem(for: saved) {
+                Button(toggle.title, action: toggle.run)
+            }
         }
         if layout.paneCount > 1 {
             Menu("Move to Pane") {

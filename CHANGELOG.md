@@ -14,6 +14,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on its tab. They open with the session's terminal, through its jump
   hosts, and close with it. A second tab of the same session leaves them to
   the first, and takes them over when that one closes.
+- Tunnels can be stopped and started while the session is connected, as
+  in MobaXterm: one at a time with Stop / Start in the Port Forwarding
+  window, which shows whether each is running, or all at once with Stop
+  Port Forwarding in the session's context menu. The shell is not touched.
 - A right-click on the sidebar's empty space opens a menu: New Session,
   New Group, Quick Connect and Import from ~/.ssh/config.
 

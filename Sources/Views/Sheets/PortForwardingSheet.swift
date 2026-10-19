@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// A session's tunnels, opened from its context menu. They start with the
-/// session's terminal (`SSHLaunchPlan.forwards`), so a change reaches a live
-/// tab only through "Save & reconnect".
+/// session's terminal (`SSHLaunchPlan.forwards`), so an edit reaches a live
+/// tab only through "Save & reconnect"; stopping and starting a tunnel that
+/// is already there goes to the running ssh at once.
 struct PortForwardingSheet: View {
     private static let width: CGFloat = 520
     private static let margin: CGFloat = 28
@@ -16,6 +17,10 @@ struct PortForwardingSheet: View {
 
     @State private var forwards: [PortForward] = []
     @State private var didLoad = false
+    /// Tunnels with a stop or start on its way to ssh.
+    @State private var busy: Set<UUID> = []
+    /// What ssh said when it refused to stop or start a tunnel.
+    @State private var refusals: [UUID: String] = [:]
 
     private var problem: String? {
         for (index, forward) in kept.enumerated() {
@@ -108,6 +113,8 @@ struct PortForwardingSheet: View {
                 .accessibilityLabel("Remove port forward \(index + 1)")
             }
 
+            liveState(forward.wrappedValue, index: index)
+
             HStack(alignment: .bottom, spacing: 12) {
                 FormField(label: "Listen on \(kind.listenSide)") {
                     SBTextField(text: forward.bindAddress, placeholder: "localhost",
@@ -140,6 +147,63 @@ struct PortForwardingSheet: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    /// Whether the tunnel is open on the session's live connection, and the
+    /// button that stops or starts it there — as MobaXterm's tunnels have.
+    /// Nothing while the session is not connected.
+    @ViewBuilder
+    private func liveState(_ forward: PortForward, index: Int) -> some View {
+        if let holder = connectionStore.forwardHolder(of: sessionID) {
+            HStack(spacing: 8) {
+                if !holder.carriesForward(forward.id) || forward != saved(forward.id) {
+                    Text("Changed since the session connected: applies on reconnect")
+                        .font(SBFont.ui(12))
+                        .foregroundStyle(theme.textMuted.color)
+                } else {
+                    let running = connectionStore.isForwardRunning(forward.id, of: sessionID)
+                    StatusDot(color: (running ? theme.accent : theme.textFaint).color, size: 7)
+                    Text(running ? "Running" : "Stopped")
+                        .font(SBFont.ui(12.5, .medium))
+                        .foregroundStyle((running ? theme.text : theme.textMuted).color)
+                    if let refusal = refusals[forward.id] {
+                        Text(refusal)
+                            .font(SBFont.ui(12))
+                            .foregroundStyle(theme.ansiRed.color)
+                            .lineLimit(2)
+                            .help(refusal)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        toggle(forward.id, running: !running)
+                    } label: {
+                        Label(running ? "Stop" : "Start",
+                              systemImage: running ? "stop.fill" : "play.fill")
+                            .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 9))
+                    }
+                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26,
+                                                      horizontalPadding: 10, fontSize: 12, filled: true))
+                    .disabled(busy.contains(forward.id))
+                    .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
+                }
+            }
+            .padding(.leading, 30)
+            .frame(minHeight: 26)
+        }
+    }
+
+    private func saved(_ id: UUID) -> PortForward? {
+        sessionStore.session(sessionID)?.forwards.first { $0.id == id }
+    }
+
+    private func toggle(_ id: UUID, running: Bool) {
+        busy.insert(id)
+        refusals[id] = nil
+        Task {
+            let problem = await connectionStore.setForward(id, of: sessionID, running: running)
+            busy.remove(id)
+            refusals[id] = problem
+        }
     }
 
     private func portBinding(_ forward: Binding<PortForward>,

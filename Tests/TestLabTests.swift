@@ -190,6 +190,57 @@ final class TestLabTests {
         #expect(moved.contains("Hello from app"), "the tunnel did not move to the second tab")
     }
 
+    /// A tunnel stops and starts on the live connection, the shell untouched,
+    /// and a stopped one stays down when another tab takes the tunnels over.
+    @Test func aTunnelStopsAndStartsAgain() async throws {
+        let store = ConnectionStore()
+        let session = sessions["lab-app-tunnels"]!
+        let web = session.forwards[0].id
+        func open() throws -> Connection {
+            let connection = Connection(sessionID: session.id, title: "", address: "",
+                                        keyDescription: "", keychain: keychain)
+            store.add(connection)
+            connection.start(try plan(session.id))
+            return connection
+        }
+        func page() async -> String {
+            (try? await Self.exchange(port: 28080, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
+        }
+        func middle() async -> String {
+            (try? await Self.exchange(port: 28081, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
+        }
+        func waitFor(_ condition: () async -> Bool) async throws {
+            for _ in 0..<200 where !(await condition()) { try await Task.sleep(for: .milliseconds(50)) }
+        }
+
+        let first = try open()
+        defer { store.close(first.id) }
+        try await waitFor { store.forwardHolder(of: session.id) != nil }
+        try await waitFor { await page().contains("Hello from app") }
+        #expect(store.isForwardRunning(web, of: session.id))
+
+        #expect(await store.setForward(web, of: session.id, running: false) == nil)
+        #expect(!store.isForwardRunning(web, of: session.id))
+        #expect(await page().isEmpty, "the stopped tunnel still answers")
+        #expect(await middle().contains("Hello from middle"), "the other tunnels must stay up")
+
+        #expect(await store.setForward(web, of: session.id, running: true) == nil)
+        try await waitFor { await page().contains("Hello from app") }
+        #expect(await page().contains("Hello from app"))
+
+        // Stopped again, then handed to a second tab: it stays stopped there.
+        #expect(await store.setForward(web, of: session.id, running: false) == nil)
+        let second = try open()
+        defer { store.close(second.id) }
+        try await waitFor { screen(second).contains("lab@app") }
+        store.close(first.id)
+        try await waitFor { store.forwardHolder(of: session.id) === second }
+        try await waitFor { await middle().contains("Hello from middle") }
+        #expect(await middle().contains("Hello from middle"))
+        #expect(await page().isEmpty)
+        #expect(!store.isForwardRunning(web, of: session.id))
+    }
+
     /// Sends `request` to 127.0.0.1:`port` and reads the reply until the
     /// server closes the connection.
     private static func exchange(port: UInt16, sending request: String) async throws -> String {

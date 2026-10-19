@@ -36,8 +36,14 @@ struct SSHLaunchPlan: Equatable, Sendable {
     var target: SSHEndpoint
     /// The contents of the ssh_config file the connection runs with.
     var config: String
-    /// `-L`, `-R` and `-D` with their specs, for the terminal's ssh only.
-    var forwards: [String] = []
+    /// One of the session's tunnels as ssh is told it: `-L spec` and so on.
+    struct Forward: Equatable, Sendable {
+        var id: UUID
+        var arguments: [String]
+    }
+
+    /// For the terminal's ssh only.
+    var forwards: [Forward] = []
 
     /// Arguments for `/usr/bin/ssh`, given where `config` was written.
     ///
@@ -56,7 +62,7 @@ struct SSHLaunchPlan: Equatable, Sendable {
         // On the command line, not in the config: `sftp` and the server-load
         // channel read the config too, and would ask the master for the same
         // tunnels again.
-        return arguments + forwards + [target.alias]
+        return arguments + forwards.flatMap(\.arguments) + [target.alias]
     }
 }
 
@@ -164,8 +170,8 @@ enum SSHLaunch {
                                   host: session.host, port: session.port,
                                   auth: targetAuth, passwordAccount: targetPassword)
         var plan = assemble(hops: hops, target: target)
-        plan.forwards = try session.forwards.enumerated().flatMap { index, forward in
-            try forwardArguments(forward, index: index)
+        plan.forwards = try session.forwards.enumerated().map { index, forward in
+            SSHLaunchPlan.Forward(id: forward.id, arguments: try forwardArguments(forward, index: index))
         }
         return plan
     }
