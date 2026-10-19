@@ -232,7 +232,7 @@ struct SessionRowView: View {
     var onTogglePin: () -> Void
     var onOpenSettings: () -> Void
     var onOpenForwards: () -> Void
-    /// Stop, start, or run the session's tunnels without a shell — see
+    /// Start or Stop Port Forwarding — see
     /// `ConnectionStore.forwardingMenuItems`.
     var forwardingItems: [(title: String, run: () -> Void)] = []
     var actions: TreeRowActions

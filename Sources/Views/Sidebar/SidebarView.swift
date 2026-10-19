@@ -334,7 +334,9 @@ struct SidebarView: View {
         for id in ids { connectionStore.connect(sessionID: id, in: sessionStore) }
         // The same tab `connect` brings forward for a session already open.
         if case .session(let anchor, _)? = sessionStore.selection,
-           let tab = connectionStore.connections.first(where: { $0.sessionID == anchor && $0.state.isRunning }) {
+           let tab = connectionStore.connections.first(where: {
+               $0.sessionID == anchor && $0.state.isRunning && !$0.isTunnelOnly
+           }) {
             connectionStore.activeID = tab.id
         }
     }

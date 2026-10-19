@@ -195,7 +195,10 @@ final class ConnectionStore {
     /// front if there is one, and only otherwise opens another. `newTab` always
     /// opens another — a second shell on the same server is a normal thing to want.
     func connect(sessionID: String, in store: SessionStore, newTab: Bool = false) {
-        if !newTab, let existing = connections.first(where: { $0.sessionID == sessionID && $0.state.isRunning }) {
+        // Not the tunnel connection, even shown as a tab: it has no shell.
+        if !newTab, let existing = connections.first(where: {
+            $0.sessionID == sessionID && $0.state.isRunning && !$0.isTunnelOnly
+        }) {
             activeID = existing.id
             return
         }

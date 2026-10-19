@@ -69,7 +69,7 @@ straight on a screen: `newSession`, `newGroup`, `sessionSettings` and
 `portForwarding` (with `-sb-session <name>`), `groupSettings` (with `-sb-group <id>`), `quickConnect`,
 `empty`, `appearance`.
 `-sb-color-picker YES` opens the custom color dialog over the main window.
-`-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-layout sideBySide|stacked|grid` splits the window first and then deals those tabs out to the panes in turn, `-sb-broadcast YES` turns broadcast input on over them, `-sb-sidebar files`
+`-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-layout sideBySide|stacked|grid` splits the window first and then deals those tabs out to the panes in turn, `-sb-broadcast YES` turns broadcast input on over them, `-sb-tunnels a,b` starts those sessions' port forwarding, `-sb-sidebar files`
 shows the Files tab, and `-sb-ssh-prefix <file>` puts that file's ssh options
 ahead of the generated config (trust settings for a throwaway local sshd; start
 one with `Subsystem sftp /usr/libexec/sftp-server` to look at the Files tab).
@@ -228,7 +228,7 @@ scripts/release.sh 0.2.0
 | `Sources/AboutPanel.swift` | The standard About panel, with links to the website and the source |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
-| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (tunnels: who holds them, their states, tunnel-only connections), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
+| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
@@ -295,14 +295,15 @@ read from there, never stored on `Session`.
   then loads the first folder and turns the sidebar to SFTP — not for a
   server without SFTP, and not if the tab is no longer in front. The
   screenshot kit turns it off (`-files.showAfterLogin NO`) to keep the tree.
-- **Tunnels** (`ConnectionStore+Forwarding.swift`) belong to one connection
-  per session, the holder: a tab, or a tunnel-only connection (`ssh -N`,
-  "Start Tunnels Only", kept in `ConnectionStore.tunnels` and shown as a tab
-  only if it needs the user). They are never on ssh's command line: after
-  login the store asks the master for each one (`ssh -O forward`), so each
-  gets its own state — running, stopped, or failed with a reason. Stop is
-  `-O cancel`. When the holder ends, another connection of the session takes
-  them over; stops last until the session's last connection closes.
+- **Tunnels** (`ConnectionStore+Forwarding.swift`) are an option of their
+  own, as in MobaXterm: a tab never opens them. "Start Port Forwarding" runs
+  them on a tunnel connection (`ssh -N`, kept in `ConnectionStore.tunnels`,
+  shown as a tab only if ssh needs the user or fails before login). They are
+  never on ssh's command line: after login the store asks the master for
+  each one (`ssh -O forward`), so each gets its own state — running,
+  stopped, or failed with a reason. Stopping one is `-O cancel`; "Stop Port
+  Forwarding" ends the tunnel connection. Connect and double-click skip a
+  tunnel connection shown as a tab: it has no shell.
 
 ## Conventions
 

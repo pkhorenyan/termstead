@@ -175,6 +175,12 @@ struct MainView: View {
                     connectionStore.activeID = tab.id
                 }
             }
+            // `-sb-tunnels a,b` starts those sessions' port forwarding.
+            if let names = defaults.string(forKey: "sb-tunnels") {
+                for id in names.split(separator: ",") {
+                    connectionStore.startTunnels(sessionID: id.trimmingCharacters(in: .whitespaces), in: sessionStore)
+                }
+            }
             // `-sb-broadcast YES` turns broadcast input on over those panes.
             if defaults.bool(forKey: "sb-broadcast"), !connectionStore.isBroadcasting {
                 connectionStore.toggleBroadcast()

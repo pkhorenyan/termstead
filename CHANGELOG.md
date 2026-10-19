@@ -11,34 +11,27 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Port forwarding: local (`-L`), remote (`-R`) and SOCKS (`-D`) tunnels,
   set up from a session's context menu (Port Forwarding…) in the sidebar or
-  on its tab. They open with the session's terminal, through its jump
-  hosts, and close with it. A second tab of the same session leaves them to
-  the first, and takes them over when that one closes.
-- Tunnels can be stopped and started while the session is connected, as
-  in MobaXterm: one at a time with Stop / Start in the Port Forwarding
-  window, or all at once with Stop Port Forwarding in the session's context
-  menu. The shell is not touched.
-- Each tunnel shows whether it really opened. A port already taken on the
-  Mac reads "Port 8080 is already in use on this Mac" instead of looking
-  like a running tunnel.
+  on its tab, through the session's jump hosts. As in MobaXterm it is an
+  option of its own: connecting opens a shell and no tunnels, and Start Port
+  Forwarding in the context menu runs them on a connection of their own,
+  with no tab. Stop Port Forwarding ends it. If ssh needs an answer (a host
+  key, a password not saved), that connection opens as a tab.
+- Each tunnel shows whether it really opened, and can be stopped and
+  started on its own while port forwarding runs. A port already taken on
+  the Mac reads "Port 8080 is already in use on this Mac".
 - A count of running tunnels in the status bar. Clicking it lists every
-  session's tunnels with their state and Stop / Start.
-- Start Tunnels Only, in a session's context menu: the tunnels without a
-  terminal, as MobaXterm's tunnel manager runs them. Chosen while a tab
-  has the tunnels, it takes them over, and the tab can then be closed. If
-  ssh needs an answer (a host key, a password not saved), the connection
-  opens as a tab.
+  session's tunnels with their state, Stop / Start, and Stop All.
 - Import from ~/.ssh/config brings a host's LocalForward, RemoteForward and
   DynamicForward into the session, and so does the Port Forwarding window
   for sessions imported earlier.
+- A right-click on the sidebar's empty space opens a menu: New Session,
+  New Group, Quick Connect and Import from ~/.ssh/config.
 
 ### Changed
 
 - Termstead no longer opens the tunnels a `~/.ssh/config` names by itself:
   it could neither show nor stop them, and a second tab of the session
   failed on each one. Import them into the session (see above).
-- A right-click on the sidebar's empty space opens a menu: New Session,
-  New Group, Quick Connect and Import from ~/.ssh/config.
 
 ### Fixed
 

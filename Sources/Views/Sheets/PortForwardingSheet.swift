@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// A session's tunnels, opened from its context menu. They start with the
-/// session's terminal (`SSHLaunchPlan.forwards`), so an edit reaches a live
-/// tab only through "Save & reconnect"; stopping and starting a tunnel that
-/// is already there goes to the running ssh at once.
+/// A session's tunnels, opened from its context menu. They run on a
+/// connection of their own, started with "Start Port Forwarding" — never
+/// with the session's terminal. An edit reaches running tunnels through
+/// "Save & Restart"; stopping and starting a tunnel that is already there
+/// goes to the running ssh at once.
 struct PortForwardingSheet: View {
     private static let width: CGFloat = 520
     private static let margin: CGFloat = 28
@@ -33,12 +34,12 @@ struct PortForwardingSheet: View {
     /// Rows with nothing typed are dropped rather than saved as blanks.
     private var kept: [PortForward] { forwards.filter { !$0.isBlank } }
 
-    private var isLive: Bool { connectionStore.isLive(sessionID) }
+    private var isForwarding: Bool { connectionStore.isForwarding(sessionID) }
 
     var body: some View {
         VStack(spacing: 0) {
             SheetHeader(title: "Port forwarding",
-                        subtitle: "Tunnels for \(sessionID), opened with its terminal.",
+                        subtitle: "Tunnels for \(sessionID). They run on a connection of their own, not with the terminal.",
                         horizontalPadding: Self.margin)
 
             // The bar's lane comes out of the trailing margin, as in
@@ -113,7 +114,6 @@ struct PortForwardingSheet: View {
                                 title: "Kind of port forward \(index + 1)",
                                 height: 28, fontSize: 12.5,
                                 segmentCornerRadius: 6, cornerRadius: 9)
-                liveButton(forward.wrappedValue, index: index)
                 Button {
                     let id = forward.wrappedValue.id
                     forwards.removeAll { $0.id == id }
@@ -163,55 +163,47 @@ struct PortForwardingSheet: View {
         .padding(.vertical, 6)
     }
 
-    /// The tunnel's state on the live connection, when the session has one
-    /// and the tunnel is as it connected; `nil` otherwise.
-    private func liveStateOf(_ forward: PortForward) -> ForwardState? {
-        guard forward == saved(forward.id) else { return nil }
-        return connectionStore.forwardState(forward.id, of: sessionID)
-    }
-
-    /// Stop / Start, in the tunnel's own header beside its remove button —
-    /// as MobaXterm's tunnels have. Only while the session is connected.
-    @ViewBuilder
-    private func liveButton(_ forward: PortForward, index: Int) -> some View {
-        if let state = liveStateOf(forward) {
-            let running = state == .running || state == .opening
-            Button {
-                connectionStore.setForward(forward.id, of: sessionID, running: !running)
-            } label: {
-                Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
-                    .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 10))
-                    .font(SBFont.ui(12.5, .medium))
-                    .foregroundStyle((running ? theme.text : theme.accent).color)
-                    .frame(width: 72, height: 28)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.field.color))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder((running ? theme.border : theme.accent).color, lineWidth: 1))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(state == .opening)
-            .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
-        }
-    }
-
-    /// Whether the tunnel is open on the session's live connection. Nothing
-    /// while the session is not connected.
+    /// The tunnel on the running tunnel connection: a strip with its state
+    /// on the left and Stop / Start on the right, under the tunnel's header.
+    /// Nothing while port forwarding is off.
     @ViewBuilder
     private func liveState(_ forward: PortForward, index: Int) -> some View {
         if connectionStore.forwardHolder(of: sessionID) != nil {
-            Group {
+            HStack(spacing: 10) {
                 if let state = liveStateOf(forward) {
                     ForwardStateLabel(state: state)
+                    Spacer(minLength: 8)
+                    let running = state == .running || state == .opening
+                    Button {
+                        connectionStore.setForward(forward.id, of: sessionID, running: !running)
+                    } label: {
+                        Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
+                            .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 10))
+                    }
+                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 28, horizontalPadding: 14,
+                                                      fontSize: 12.5, filled: true))
+                    .frame(minWidth: 84, alignment: .trailing)
+                    .disabled(state == .opening)
+                    .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
                 } else {
-                    Text("Changed since the session connected: applies on reconnect")
+                    Text("Changed since port forwarding started: applies on restart")
                         .font(SBFont.ui(12))
                         .foregroundStyle(theme.textMuted.color)
+                    Spacer(minLength: 0)
                 }
             }
-            .padding(.leading, 30)
+            .padding(.leading, 12)
+            .padding(.trailing, 5)
+            .frame(minHeight: 38)
+            .background(FieldBackground(theme: theme))
         }
+    }
+
+    /// The tunnel's state on the tunnel connection, when it is running and
+    /// the tunnel is as it started; `nil` otherwise.
+    private func liveStateOf(_ forward: PortForward) -> ForwardState? {
+        guard forward == saved(forward.id) else { return nil }
+        return connectionStore.forwardState(forward.id, of: sessionID)
     }
 
     private func saved(_ id: UUID) -> PortForward? {
@@ -263,21 +255,14 @@ struct PortForwardingSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            if isLive {
-                Button("Save") { save(thenReconnect: false) }
-                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 36,
-                                                      horizontalPadding: 16, fontSize: 13.5, filled: true))
-                    .disabled(problem != nil)
-                Button("Save & reconnect") { save(thenReconnect: true) }
-                    .buttonStyle(PrimaryButtonStyle(theme: theme, height: 36,
-                                                    horizontalPadding: 18, fontSize: 13.5))
-                    .disabled(problem != nil)
-            } else {
-                Button("Save") { save(thenReconnect: false) }
-                    .buttonStyle(PrimaryButtonStyle(theme: theme, height: 36,
-                                                    horizontalPadding: 18, fontSize: 13.5))
-                    .disabled(problem != nil)
-            }
+            Button("Save") { save(thenStart: false) }
+                .buttonStyle(SecondaryButtonStyle(theme: theme, height: 36,
+                                                  horizontalPadding: 16, fontSize: 13.5, filled: true))
+                .disabled(problem != nil)
+            Button(isForwarding ? "Save & Restart" : "Save & Start") { save(thenStart: true) }
+                .buttonStyle(PrimaryButtonStyle(theme: theme, height: 36,
+                                                horizontalPadding: 18, fontSize: 13.5))
+                .disabled(problem != nil || kept.isEmpty)
         }
         .padding(.horizontal, Self.margin)
         .padding(.top, 16)
@@ -294,13 +279,17 @@ struct PortForwardingSheet: View {
         if forwards.isEmpty { forwards = [PortForward()] }
     }
 
-    private func save(thenReconnect: Bool) {
+    /// "Save & Start" starts port forwarding; "Save & Restart" starts it
+    /// again with what was just saved.
+    private func save(thenStart: Bool) {
         guard problem == nil, var session = sessionStore.session(sessionID) else { return }
         session.forwards = kept
         // No parent: the session stays where it is in its group.
         sessionStore.applySessionEdits(originalID: sessionID, updated: session, parentID: nil)
         close()
-        if thenReconnect { connectionStore.reconnect(sessionID: sessionID, in: sessionStore) }
+        guard thenStart else { return }
+        connectionStore.stopTunnels(sessionID: sessionID)
+        connectionStore.startTunnels(sessionID: sessionID, in: sessionStore)
     }
 }
 

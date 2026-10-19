@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The status bar's count of running tunnels, every session's, and the list
-/// behind it: each tunnel with its state and Stop / Start, each tunnel-only
-/// connection with Disconnect — MobaXterm's tunnel window, in a popover.
+/// behind it: each tunnel with its state and Stop / Start, each session's
+/// with Stop All — MobaXterm's tunnel window, in a popover.
 struct TunnelStatusItem: View {
     @Environment(\.theme) private var theme
     @Environment(ConnectionStore.self) private var connectionStore
@@ -59,7 +59,7 @@ private struct TunnelList: View {
     }
 
     private func section(_ id: String) -> some View {
-        let background = connectionStore.tunnels.first { $0.sessionID == id }
+        let tunnel = connectionStore.tunnelConnection(of: id)
         let holder = connectionStore.forwardHolder(of: id)
         let forwards = holder?.plan?.forwards.map(\.forward) ?? sessionStore.session(id)?.forwards ?? []
         return VStack(alignment: .leading, spacing: 8) {
@@ -68,19 +68,15 @@ private struct TunnelList: View {
                     .font(SBFont.ui(13, .semibold))
                     .foregroundStyle(theme.text.color)
                     .lineLimit(1)
-                Text(where_(background: background, holder: holder))
+                Text(status(of: tunnel))
                     .font(SBFont.ui(11.5))
                     .foregroundStyle(theme.textMuted.color)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if let background {
-                    if background.state.isRunning {
-                        small("Disconnect") { connectionStore.stopTunnels(sessionID: id) }
-                    } else {
-                        small("Reconnect") { background.restart() }
-                        small("Remove") { connectionStore.stopTunnels(sessionID: id) }
-                    }
+                if let tunnel, !tunnel.state.isRunning {
+                    small("Reconnect") { tunnel.restart() }
                 }
+                small("Stop All") { connectionStore.stopTunnels(sessionID: id) }
                 small("Edit…") { appState.route = .portForwarding(sessionID: id) }
             }
 
@@ -110,12 +106,10 @@ private struct TunnelList: View {
         }
     }
 
-    private func where_(background: Connection?, holder: Connection?) -> String {
-        if let background {
-            if background.state.isRunning { return background.isLoggedIn ? "tunnels only" : "connecting…" }
-            return "disconnected"
-        }
-        return holder == nil ? "connecting…" : "in a tab"
+    private func status(of tunnel: Connection?) -> String {
+        guard let tunnel else { return "" }
+        if !tunnel.state.isRunning { return "disconnected" }
+        return tunnel.isLoggedIn ? "" : "connecting…"
     }
 
     private func small(_ title: String, action: @escaping () -> Void) -> some View {
