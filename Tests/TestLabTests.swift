@@ -58,9 +58,14 @@ final class TestLabTests {
         // Tunnels 20000 ports up, so a tab of the same session left open in
         // a running Termstead cannot hold the ports the test reads.
         var session = sessions[id]!
+        // A remote tunnel leading to one of those ports follows it.
+        let listening = Set(session.forwards.compactMap(\.listenPort))
         session.forwards = session.forwards.map { forward in
             var moved = forward
             moved.listenPort = forward.listenPort.map { $0 + 20000 }
+            if forward.kind == .remote, let port = forward.destinationPort, listening.contains(port) {
+                moved.destinationPort = port + 20000
+            }
             return moved
         }
         var plan = try SSHLaunch.plan(for: session, sessions: sessions)
@@ -364,8 +369,9 @@ final class TestLabTests {
         #expect(await Self.get(28081).contains("Hello from middle"))
     }
 
-    /// The remote tunnel: a port on app that leads back through this Mac to
-    /// direct's page (published on 127.0.0.1:2280), read from a shell on app.
+    /// The remote tunnel: a port on app that leads back to this Mac — to the
+    /// local tunnel to middle, so app's `wget` goes app → Mac → bastion →
+    /// middle. With the local tunnel stopped there is nothing to reach.
     @Test func aRemoteTunnelLeadsBackHere() async throws {
         let store = ConnectionStore()
         let session = tunnelsSession()
@@ -375,11 +381,12 @@ final class TestLabTests {
         defer { store.close(terminal.id) }
         try await waitFor { store.forwardState(session.forwards[3].id, of: session.id) == .running }
         #expect(store.forwardState(session.forwards[3].id, of: session.id) == .running)
-        for _ in 0..<5 where !screen(terminal).contains("Hello from direct") {
+        try await waitFor { store.forwardState(session.forwards[1].id, of: session.id) == .running }
+        for _ in 0..<5 where !screen(terminal).contains("Hello from middle") {
             terminal.terminalView.send(txt: "wget -qO- localhost:29000 | grep h1\r")
-            try await waitFor { screen(terminal).contains("Hello from direct") }
+            try await waitFor { screen(terminal).contains("Hello from middle") }
         }
-        #expect(screen(terminal).contains("Hello from direct"), "\(screen(terminal))")
+        #expect(screen(terminal).contains("Hello from middle"), "\(screen(terminal))")
     }
 
     /// A tunnel named in the user's own config is not opened behind

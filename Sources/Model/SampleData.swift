@@ -98,8 +98,10 @@ extension SessionStore {
             //   localhost:8080 → app's own page
             //   localhost:8081 → middle's page, resolved from app
             //   localhost:1080 → SOCKS into the dmz (http://bastion, http://middle)
-            //   app:9000       → back to this Mac's 127.0.0.1:2280 (direct's page);
-            //                    on app: wget -qO- localhost:9000
+            //   app:9000       → back to this Mac's localhost:8081, the tunnel
+            //                    above, so on app `wget -qO- localhost:9000`
+            //                    goes app → Mac → bastion → middle. Nothing on
+            //                    the Mac serves it once port forwarding stops.
             Session(id: "lab-app-tunnels", user: "lab", host: "app", port: 22,
                     icon: .router, auth: .key, keyPath: key,
                     jumps: [JumpHost(host: "lab-bastion")],
@@ -109,7 +111,7 @@ extension SessionStore {
                                                destinationHost: "middle", destinationPort: 80),
                                    PortForward(kind: .dynamic, listenPort: 1080),
                                    PortForward(kind: .remote, listenPort: 9000,
-                                               destinationHost: "localhost", destinationPort: 2280)]),
+                                               destinationHost: "localhost", destinationPort: 8081)]),
         ]
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [

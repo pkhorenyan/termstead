@@ -18,9 +18,10 @@ services:
   direct:
     <<: *host
     hostname: direct
-    environment: { LAB_ROLE: "Reached directly on 127.0.0.1:2201.", LAB_PUBLISHED: "127.0.0.1:2280" }
-    # 2280: direct's web page, for the sample's remote tunnel to lead back to.
-    ports: ["127.0.0.1:2201:22", "127.0.0.1:2280:80"]
+    environment: { LAB_ROLE: "Reached directly on 127.0.0.1:2201." }
+    # Only ssh: a page published here opened with every tunnel stopped, and
+    # read as a tunnel that had not stopped.
+    ports: ["127.0.0.1:2201:22"]
     volumes:
       - ./.state/hostkeys/direct:/lab/hostkey:ro
       - ./.state/authorized_keys:/lab/authorized_keys:ro

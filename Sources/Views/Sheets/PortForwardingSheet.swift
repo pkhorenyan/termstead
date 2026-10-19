@@ -163,36 +163,52 @@ struct PortForwardingSheet: View {
         .padding(.vertical, 6)
     }
 
-    /// The tunnel while port forwarding is on: its state, and Stop / Start
-    /// for it alone. Nothing while port forwarding is off.
+    /// The tunnel while port forwarding is on: its state, Stop / Start right
+    /// after it, and a failure's reason on the line below. Nothing while
+    /// port forwarding is off.
     @ViewBuilder
     private func liveState(_ forward: PortForward, index: Int) -> some View {
         if connectionStore.isForwarding(sessionID) {
-            HStack(spacing: 10) {
+            Group {
                 if let state = liveStateOf(forward) {
-                    ForwardStateLabel(state: state)
-                    Spacer(minLength: 8)
-                    let running = state == .running || state == .opening
-                    Button {
-                        connectionStore.setForward(forward.id, of: sessionID, running: !running)
-                    } label: {
-                        Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
-                            .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 10))
-                            .frame(width: Self.liveButtonWidth)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 10) {
+                            // A fixed width, so the button stays put as the
+                            // state changes.
+                            ForwardStateLabel(state: state, showsReason: false)
+                                .frame(width: Self.stateWidth, alignment: .leading)
+                            let running = state == .running || state == .opening
+                            Button {
+                                connectionStore.setForward(forward.id, of: sessionID, running: !running)
+                            } label: {
+                                Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
+                                    .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 10))
+                                    .frame(width: Self.liveButtonWidth)
+                            }
+                            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 30, horizontalPadding: 0,
+                                                              fontSize: 13, filled: true))
+                            .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
+                            Spacer(minLength: 0)
+                        }
+                        if case .failed(let reason) = state {
+                            Text(reason)
+                                .font(SBFont.ui(12))
+                                .foregroundStyle(theme.ansiRed.color)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 30, horizontalPadding: 0,
-                                                      fontSize: 13, filled: true))
-                    .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
                 } else {
                     Text("Changed since port forwarding started: applies on restart")
                         .font(SBFont.ui(12))
                         .foregroundStyle(theme.textMuted.color)
-                    Spacer(minLength: 0)
                 }
             }
             .padding(.leading, 30)
         }
     }
+
+    /// Wide enough for "● Opening…", the longest state.
+    private static let stateWidth: CGFloat = 96
 
     /// Wide enough to read as the tunnel's own control, not a chip.
     private static let liveButtonWidth: CGFloat = 104
