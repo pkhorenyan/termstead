@@ -117,5 +117,30 @@ struct SidebarBlankMenuTests {
         #expect(store.selection == .session("\(name) copy", inPinned: false))
         let editor = window.firstResponder as? NSTextView
         #expect(editor?.string == "\(name) copy", "the copy's name is not open for editing")
+
+        // A click inside the name, to place the caret, keeps it open.
+        window.makeKey()
+        let field = try #require(editor)
+        let inside = field.convert(NSPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            NSApp.sendEvent(try #require(NSEvent.mouseEvent(
+                with: type, location: inside, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        }
+        for _ in 0..<10 { try await Task.sleep(for: .milliseconds(20)) }
+        #expect((window.firstResponder as? NSTextView)?.string == "\(name) copy",
+                "a click inside the name ended the edit")
+
+        // A click on the sidebar's empty space keeps the name as it is, as in
+        // Finder: no Return needed. Through NSApp, as a real click arrives.
+        let empty = content.convert(NSPoint(x: content.bounds.midX, y: content.isFlipped ? 500 : 400), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            NSApp.sendEvent(try #require(NSEvent.mouseEvent(
+                with: type, location: empty, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        }
+        for _ in 0..<15 { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(!(window.firstResponder is NSTextView), "the name is still open for editing after a click elsewhere")
+        #expect(store.session("\(name) copy") != nil)
     }
 }
