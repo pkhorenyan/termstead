@@ -150,13 +150,14 @@ extension ConnectionStore {
         var plan = launch.plan
         plan.forwards = [forward]
         let connection = Connection(sessionID: sessionID,
-                                    title: "\(sessionID) — \(forward.forward.summary)",
+                                    title: Self.tunnelTitle(sessionID, forward.forward),
                                     address: launch.session.statusAddress,
                                     keyDescription: Self.keyDescription(for: launch.session),
                                     keychain: launch.keychain, isTunnelOnly: true)
         wire(connection)
+        // The session's name at the time, not now: it may be renamed meanwhile.
         connection.onEnded = { [weak self, weak connection] in
-            guard let self, let connection else { return }
+            guard let self, let connection, let sessionID = connection.sessionID else { return }
             ended(connection, forward: forward.id, of: sessionID)
         }
         tunnels.append(connection)
@@ -210,6 +211,27 @@ extension ConnectionStore {
             tunnels.removeAll { $0 === connection }
             connection.close()
         }
+    }
+
+    /// A session renamed while forwarding: its tunnels, their states and
+    /// what they started with follow the new name, or the menu would offer
+    /// to start them again over the running ones.
+    func renameTunnels(from oldID: String, to newID: String) {
+        for connection in everyConnection where connection.isTunnelOnly && connection.sessionID == oldID {
+            connection.sessionID = newID
+            if let forward = connection.plan?.forwards.first {
+                connection.title = Self.tunnelTitle(newID, forward.forward)
+            }
+        }
+        if let states = forwardStates.removeValue(forKey: oldID) { forwardStates[newID] = states }
+        if var launch = tunnelLaunches.removeValue(forKey: oldID) {
+            launch.session.id = newID
+            tunnelLaunches[newID] = launch
+        }
+    }
+
+    static func tunnelTitle(_ sessionID: String, _ forward: PortForward) -> String {
+        "\(sessionID) — \(forward.summary)"
     }
 
     /// Moves a tunnel connection into the tab strip.

@@ -24,6 +24,37 @@ struct TabMemoryTests {
         #expect(memory.active == 1)
     }
 
+    /// A tunnel connection shown as a tab (it needed a password) is not a
+    /// shell, and must not come back as one at the next launch.
+    @Test func aTunnelConnectionIsNotRemembered() {
+        let tabs = store([("prod-web-01", "deploy@10.0.1.12:22")])
+        tabs.add(Connection(sessionID: "prod-web-01", title: "prod-web-01 — 8080 → localhost:80",
+                            address: "deploy@10.0.1.12:22", keyDescription: "", isTunnelOnly: true))
+        let memory = TabMemory(tabs)
+        #expect(memory.tabs == [TabMemory.Tab(sessionID: "prod-web-01")])
+        #expect(memory.active == nil, "the tunnel tab was in front, and is not remembered")
+    }
+
+    /// "Save & reconnect" in Session settings reconnects the terminal; a
+    /// tunnel connection shown as a tab is port forwarding's, and stays.
+    @Test func reconnectingLeavesATunnelConnectionAlone() {
+        let sessions = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        // Refused at once, so the reconnected tab ends without waiting on anything.
+        let refused = Session(id: "local", user: "u", host: "127.0.0.1", port: 1, icon: .server)
+        sessions.createSession(refused, parentID: nil)
+        let tabs = ConnectionStore()
+        let terminal = Connection(sessionID: "local", title: "local", address: "", keyDescription: "")
+        let tunnel = Connection(sessionID: "local", title: "local — 8080 → localhost:80", address: "",
+                                keyDescription: "", isTunnelOnly: true)
+        tabs.add(terminal)
+        tabs.add(tunnel)
+        tabs.reconnect(sessionID: "local", in: sessions)
+        defer { tabs.closeAll() }
+        #expect(tabs.connections.contains { $0 === tunnel }, "the tunnel connection was closed")
+        #expect(!tabs.connections.contains { $0 === terminal })
+        #expect(tabs.connections.filter { !$0.isTunnelOnly }.count == 1)
+    }
+
     /// With sudden or automatic termination declared, quitting ended the app
     /// right after `applicationShouldTerminate`: `applicationWillTerminate`,
     /// which saves the tabs, never ran, and nothing was reopened.

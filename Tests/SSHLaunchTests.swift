@@ -230,6 +230,20 @@ struct SSHLaunchTests {
         #expect(!plan.config.contains("Forward"))
     }
 
+    /// Open in Browser: the tunnel's own address on this Mac, https for 443;
+    /// nothing for a tunnel a browser on this Mac cannot open by address.
+    @Test func aLocalTunnelsBrowserAddress() {
+        func url(_ forward: PortForward) -> String? { forward.browserURL?.absoluteString }
+        #expect(url(PortForward(listenPort: 8080, destinationPort: 80)) == "http://localhost:8080/")
+        #expect(url(PortForward(bindAddress: "*", listenPort: 8080, destinationPort: 80)) == "http://localhost:8080/")
+        #expect(url(PortForward(bindAddress: "127.0.0.2", listenPort: 9090, destinationPort: 80))
+                == "http://127.0.0.2:9090/")
+        #expect(url(PortForward(bindAddress: "::1", listenPort: 8443, destinationPort: 443)) == "https://[::1]:8443/")
+        #expect(url(PortForward(kind: .remote, listenPort: 9000, destinationPort: 80)) == nil)
+        #expect(url(PortForward(kind: .dynamic, listenPort: 1080)) == nil)
+        #expect(url(PortForward(destinationPort: 80)) == nil)
+    }
+
     @Test func tunnelsOnlyRunNoShell() throws {
         let plan = try SSHLaunch.plan(for: session(), sessions: [:], keyExists: allKeysExist)
         #expect(plan.arguments(configPath: "/tmp/c", tunnelOnly: true).suffix(4)

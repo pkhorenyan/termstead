@@ -92,6 +92,19 @@ struct PortForward: Identifiable, Hashable, Codable, Sendable {
         return kind == .local ? "\(listen) → \(destination)" : "server \(listen) → \(destination)"
     }
 
+    /// Where a browser on this Mac reaches a local tunnel: its own address
+    /// and port, over https when it leads to 443. `nil` for the other kinds —
+    /// a remote tunnel listens on the server, a SOCKS one is a proxy.
+    var browserURL: URL? {
+        guard kind == .local, let port = listenPort else { return nil }
+        var host = bindAddress.trimmingCharacters(in: .whitespaces)
+        // Every interface, or none named: this Mac's own.
+        if host.isEmpty || host == "*" || host == "0.0.0.0" || host == "::" { host = "localhost" }
+        if host.contains(":") { host = "[\(host)]" }
+        let scheme = destinationPort == 443 ? "https" : "http"
+        return URL(string: "\(scheme)://\(host):\(port)/")
+    }
+
     /// Nothing typed yet: dropped on save rather than kept as a blank row.
     var isBlank: Bool {
         listenPort == nil && destinationPort == nil

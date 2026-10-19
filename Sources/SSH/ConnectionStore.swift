@@ -231,7 +231,9 @@ final class ConnectionStore {
     /// "Save & reconnect": the session's tabs are closed and one fresh tab takes
     /// the first one's place — in its pane — running with the settings just saved.
     func reconnect(sessionID: String, in store: SessionStore) {
-        let old = connections.filter { $0.sessionID == sessionID }
+        // Not a tunnel connection shown as a tab: port forwarding is stopped
+        // and started on its own, never by reconnecting the terminal.
+        let old = connections.filter { $0.sessionID == sessionID && !$0.isTunnelOnly }
         let first = old.first
         let position = first.flatMap { first in tabs(in: first.pane).firstIndex { $0.id == first.id } }
         for connection in old { close(connection.id) }
@@ -247,10 +249,11 @@ final class ConnectionStore {
     /// session's live connection.
     func renameSession(from oldID: String, to newID: String) {
         guard oldID != newID else { return }
-        for connection in connections where connection.sessionID == oldID {
+        for connection in connections where connection.sessionID == oldID && !connection.isTunnelOnly {
             connection.sessionID = newID
             connection.title = newID
         }
+        renameTunnels(from: oldID, to: newID)
     }
 
     /// A quick connection: an address and nothing else, not saved.

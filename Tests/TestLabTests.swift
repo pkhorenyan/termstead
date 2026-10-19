@@ -285,6 +285,36 @@ final class TestLabTests {
         #expect(await Self.get(28080).isEmpty)
     }
 
+    /// A session renamed while forwarding keeps its tunnels: they answer
+    /// to the new name, and are not offered to be started again on top.
+    @Test func renamingKeepsTheTunnels() async throws {
+        let store = ConnectionStore()
+        let session = tunnelsSession()
+        let web = session.forwards[0].id
+        try startTunnels(in: store, session)
+        defer { store.stopTunnels(sessionID: "renamed") }
+        try await waitFor { store.forwardState(web, of: session.id) == .running }
+
+        store.renameSession(from: session.id, to: "renamed")
+        #expect(!store.isForwarding(session.id))
+        #expect(store.isForwarding("renamed"))
+        #expect(store.forwardState(web, of: "renamed") == .running)
+        #expect(store.tunnels.allSatisfy { $0.sessionID == "renamed" && $0.title.hasPrefix("renamed — ") })
+        var renamed = session
+        renamed.id = "renamed"
+        let items = store.forwardingMenuItems(for: renamed, in: SessionStore.sample())
+        #expect(items.map(\.title) == ["Stop Port Forwarding"])
+
+        // Stopping a single tunnel and all of them goes by the new name.
+        store.setForward(web, of: "renamed", running: false)
+        try await waitFor { await Self.get(28080).isEmpty }
+        #expect(await Self.get(28080).isEmpty)
+        store.stopTunnels(sessionID: "renamed")
+        #expect(store.tunnels.isEmpty)
+        try await waitFor { await Self.get(28081).isEmpty }
+        #expect(await Self.get(28081).isEmpty)
+    }
+
     /// One tunnel stops and starts on the running tunnel connection; the
     /// others are untouched.
     @Test func aTunnelStopsAndStartsAgain() async throws {

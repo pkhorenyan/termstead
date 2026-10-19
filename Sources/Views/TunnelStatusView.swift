@@ -52,7 +52,7 @@ private struct TunnelList: View {
             .padding(14)
             .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
-        .frame(width: 420)
+        .frame(width: 456)
         .frame(maxHeight: 420)
         .fixedSize(horizontal: false, vertical: true)
         .background(theme.elevated.color)
@@ -101,6 +101,18 @@ private struct TunnelList: View {
                     }
                     .buttonStyle(SecondaryButtonStyle(theme: theme, height: 24, horizontalPadding: 6,
                                                       fontSize: 11.5, filled: true))
+                    if state == .running, let url = forward.browserURL {
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(SecondaryButtonStyle(theme: theme, height: 24, horizontalPadding: 7,
+                                                          fontSize: 11.5, filled: true))
+                        .help("Open \(url.absoluteString) in the browser")
+                        .accessibilityLabel("Open in Browser")
+                    }
                 } else {
                     Text("Not open")
                         .font(SBFont.ui(12))

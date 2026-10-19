@@ -34,7 +34,9 @@ struct TabMemory: Codable, Equatable, Sendable {
 
     @MainActor
     init(_ store: ConnectionStore) {
-        let all = store.connections
+        // A tunnel connection shown as a tab is no shell to reopen: port
+        // forwarding is started by hand, and would come back as a terminal.
+        let all = store.connections.filter { !$0.isTunnelOnly }
         tabs = all.map { connection in
             var tab = connection.sessionID.map { Tab(sessionID: $0) } ?? Tab(address: connection.address)
             tab.pane = connection.pane == 0 ? nil : connection.pane

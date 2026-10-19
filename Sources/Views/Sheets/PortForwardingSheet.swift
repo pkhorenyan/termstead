@@ -188,6 +188,17 @@ struct PortForwardingSheet: View {
                             .buttonStyle(SecondaryButtonStyle(theme: theme, height: 30, horizontalPadding: 0,
                                                               fontSize: 13, filled: true))
                             .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
+                            if state == .running, let url = forward.browserURL {
+                                Button {
+                                    NSWorkspace.shared.open(url)
+                                } label: {
+                                    Label("Open in Browser", systemImage: "arrow.up.right.square")
+                                        .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 11))
+                                }
+                                .buttonStyle(SecondaryButtonStyle(theme: theme, height: 30, horizontalPadding: 12,
+                                                                  fontSize: 13, filled: true))
+                                .help(url.absoluteString)
+                            }
                             Spacer(minLength: 0)
                         }
                         if case .failed(let reason) = state {

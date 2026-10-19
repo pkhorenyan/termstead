@@ -20,6 +20,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   started on its own while port forwarding runs. Stopping one also ends the
   connections already open through it, such as a browser's. A port already
   taken on the Mac reads "Port 8080 is already in use on this Mac".
+- Open in Browser for a running local tunnel, in the Port Forwarding
+  window and the status bar's list: its address on this Mac, https when it
+  leads to port 443.
 - A count of running tunnels in the status bar. Clicking it lists every
   session's tunnels with their state, Stop / Start, and Stop All.
 - Import from ~/.ssh/config brings a host's LocalForward, RemoteForward and
