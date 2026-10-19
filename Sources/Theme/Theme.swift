@@ -70,6 +70,10 @@ extension Theme {
     /// more contrasty neighbour of `sidebar`, so the `sidebar → border` ramp
     /// *raises* a surface in both, and is extrapolated past 1 for the greys
     /// above `border`.
+    ///
+    /// `field` is for a theme whose terminal is not its darkest surface (Nord's
+    /// canvas is lighter than its window): mixing towards it there lifts the
+    /// text fields to the form's own tone, and they vanish.
     static func derived(
         id: String,
         name: String,
@@ -84,7 +88,8 @@ extension Theme {
         blue b: UInt32,
         border bd: UInt32,
         yellow y: UInt32,
-        red r: UInt32
+        red r: UInt32,
+        field f: UInt32? = nil
     ) -> Theme {
         let window = RGB(w), sidebar = RGB(s), terminal = RGB(t)
         let text = RGB(tx), muted = RGB(m), accent = RGB(a), border = RGB(bd)
@@ -103,7 +108,7 @@ extension Theme {
             chrome: sidebar.mix(border, 0.25),
             sidebar: sidebar,
             terminal: terminal,
-            field: window.mix(terminal, 0.33),
+            field: f.map { RGB($0) } ?? window.mix(terminal, 0.33),
             inset: sidebar.mix(window, 0.45),
             elevated: elevated,
             selected: sidebar.mix(border, 0.95),

@@ -156,6 +156,7 @@ struct TabBarView: View {
             .disabled(tab.sessionID != nil && saved == nil)
         if let saved {
             Button("Session Settings…") { appState.route = .sessionSettings(id: saved.id) }
+            Button("Port Forwarding…") { appState.route = .portForwarding(sessionID: saved.id) }
         }
         if layout.paneCount > 1 {
             Menu("Move to Pane") {

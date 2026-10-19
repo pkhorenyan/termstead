@@ -9,9 +9,15 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Port forwarding. Session settings has a Port forwarding section for
-  local (`-L`), remote (`-R`) and SOCKS (`-D`) tunnels; they open with the
-  session's terminal, through its jump hosts, and close with it.
+- Port forwarding: local (`-L`), remote (`-R`) and SOCKS (`-D`) tunnels,
+  set up from a session's context menu (Port Forwarding…) in the sidebar or
+  on its tab. They open with the session's terminal, through its jump
+  hosts, and close with it.
+
+### Fixed
+
+- In the Nord theme the text fields were the same color as the form around
+  them; they are darker now.
 
 ## [0.5.0] - 2026-10-17
 

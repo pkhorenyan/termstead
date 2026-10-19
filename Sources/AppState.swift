@@ -26,6 +26,7 @@ final class AppState {
     enum Route: Identifiable {
         case newSession(parentGroupID: String?)
         case sessionSettings(id: String)
+        case portForwarding(sessionID: String)
         case newGroup(parentGroupID: String?)
         case groupSettings(id: String)
         case quickConnect
@@ -34,6 +35,7 @@ final class AppState {
             switch self {
             case .newSession(let parent): "newSession:\(parent ?? "-")"
             case .sessionSettings(let id): "sessionSettings:\(id)"
+            case .portForwarding(let id): "portForwarding:\(id)"
             case .newGroup(let parent): "newGroup:\(parent ?? "-")"
             case .groupSettings(let id): "groupSettings:\(id)"
             case .quickConnect: "quickConnect"
@@ -92,6 +94,8 @@ final class AppState {
             // `-sb-session <name>` picks which one to open.
             let target = UserDefaults.standard.string(forKey: "sb-session") ?? "prod-web-01"
             route = .sessionSettings(id: target)
+        case "portForwarding":
+            route = .portForwarding(sessionID: UserDefaults.standard.string(forKey: "sb-session") ?? "prod-web-01")
         case "quickConnect": route = .quickConnect
         case "groupSettings":
             // `-sb-group <id>` picks which one.

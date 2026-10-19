@@ -84,7 +84,8 @@ extension Theme {
         window: 0x2B303B, sidebar: 0x272C36, terminal: 0x2E3440,
         text: 0xD8DEE9, muted: 0x4C566A, accent: 0x88C0D0,
         green: 0xA3BE8C, blue: 0x81A1C1, border: 0x3B4252,
-        yellow: 0xEBCB8B, red: 0xBF616A
+        yellow: 0xEBCB8B, red: 0xBF616A,
+        field: 0x22262F
     )
 
     /// Synthwave: 80s neon on deep violet, after the "Synthwave '84" editor

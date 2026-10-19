@@ -65,8 +65,8 @@ open build/Build/Products/Release/Termstead.app
 ### Debug routes
 
 `open build/Build/Products/Release/Termstead.app --args -sb-route <name>` lands
-straight on a screen: `newSession`, `newGroup`, `sessionSettings` (with
-`-sb-session <name>`), `groupSettings` (with `-sb-group <id>`), `quickConnect`,
+straight on a screen: `newSession`, `newGroup`, `sessionSettings` and
+`portForwarding` (with `-sb-session <name>`), `groupSettings` (with `-sb-group <id>`), `quickConnect`,
 `empty`, `appearance`.
 `-sb-color-picker YES` opens the custom color dialog over the main window.
 `-sb-connect a,b,c` opens those sessions' tabs at launch (the first in front), `-sb-layout sideBySide|stacked|grid` splits the window first and then deals those tabs out to the panes in turn, `-sb-broadcast YES` turns broadcast input on over them, `-sb-sidebar files`
@@ -101,6 +101,7 @@ How each screen is reached in normal use:
 | Session settings | a session's context menu, or ⌘I |
 | New group | ⇧⌘N, "Group" in the sidebar footer, or a group's context menu (New Subgroup…) |
 | Group settings | a group's context menu |
+| Port forwarding | a session's context menu, in the sidebar or on its tab |
 | Quick connect | ⌘K (the first-launch screen's own field, otherwise a form); ⌘T for a new tab |
 | Settings | ⌘, or the gear at the trailing end of the titlebar |
 | Files (SFTP) | the SFTP tab on the sidebar's left rail |

@@ -247,6 +247,7 @@ struct SidebarView: View {
                                 onConnect: { connect(row.id, newTab: false, inPinned: true) },
                                 onConnectInNewTab: { connect(row.id, newTab: true, inPinned: true) },
                                 onOpenSettings: { appState.route = .sessionSettings(id: row.id) },
+                                onOpenForwards: { appState.route = .portForwarding(sessionID: row.id) },
                                 onUnpin: { sessionStore.togglePin(row.id) },
                                 onDelete: { pendingDeletion = [SidebarDragItem(kind: .session, id: row.id)] },
                                 keyboard: keyboard
@@ -368,6 +369,7 @@ struct SidebarView: View {
                 onConnectInNewTab: { connect(data.id, newTab: true) },
                 onTogglePin: { sessionStore.togglePin(data.id) },
                 onOpenSettings: { appState.route = .sessionSettings(id: data.id) },
+                onOpenForwards: { appState.route = .portForwarding(sessionID: data.id) },
                 actions: actions
             )
         }

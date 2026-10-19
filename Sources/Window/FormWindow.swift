@@ -270,6 +270,8 @@ private struct FormRoot: View {
             SessionSheet(mode: .create(parentGroupID: parent))
         case .sessionSettings(let id):
             SessionSheet(mode: .edit(sessionID: id))
+        case .portForwarding(let id):
+            PortForwardingSheet(sessionID: id)
         case .newGroup(let parent):
             GroupSheet(mode: .create(parentGroupID: parent))
         case .groupSettings(let id):
@@ -287,6 +289,7 @@ extension AppState.Route {
         switch self {
         case .newSession: "New session"
         case .sessionSettings: "Session settings"
+        case .portForwarding: "Port forwarding"
         case .newGroup: "New group"
         case .groupSettings: "Group settings"
         case .quickConnect: "Quick connect"
