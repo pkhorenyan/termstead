@@ -78,4 +78,44 @@ struct SidebarBlankMenuTests {
         #expect(titles.contains("Connect"), "got \(titles)")
         #expect(!titles.contains("New Session…"))
     }
+
+    /// Duplicate, from a session's own menu: the copy appears right after it
+    /// with its name open for editing, as in Finder.
+    @Test func duplicateFromTheMenuOpensTheCopysName() async throws {
+        // A name with no saved password anywhere: the copy touches the real
+        // Keychain only to look.
+        let name = "dup-\(UUID().uuidString.prefix(8))"
+        let store = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        store.createSession(Session(id: name, user: "u", host: "h", port: 22, icon: .server), parentID: nil)
+        let window = try sidebar(store)
+        defer { window.close() }
+        for _ in 0..<10 { try await Task.sleep(for: .milliseconds(20)) }
+
+        func rows(_ view: NSView) -> [RowInteractionView] {
+            ((view as? RowInteractionView).map { [$0] } ?? []) + view.subviews.flatMap(rows)
+        }
+        let content = try #require(window.contentView)
+        let row = try #require(rows(content).first { $0.bounds.height > 30 }, "no session row")
+        let point = content.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), from: row)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown, location: content.convert(point, to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 1))
+        var view = content.hitTest(point)
+        var menu: NSMenu?
+        while let current = view, menu == nil {
+            menu = current.menu(for: event)
+            view = current.superview
+        }
+        let found = try #require(menu)
+        let index = found.indexOfItem(withTitle: "Duplicate")
+        try #require(index >= 0, "no Duplicate in \(found.items.map(\.title))")
+        found.performActionForItem(at: index)
+        for _ in 0..<15 { try await Task.sleep(for: .milliseconds(20)) }
+
+        #expect(store.session("\(name) copy") != nil)
+        #expect(store.selection == .session("\(name) copy", inPinned: false))
+        let editor = window.firstResponder as? NSTextView
+        #expect(editor?.string == "\(name) copy", "the copy's name is not open for editing")
+    }
 }

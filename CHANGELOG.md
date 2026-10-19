@@ -28,6 +28,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Import from ~/.ssh/config brings a host's LocalForward, RemoteForward and
   DynamicForward into the session, and so does the Port Forwarding window
   for sessions imported earlier.
+- Duplicate, in a session's context menu: a copy right after it, named
+  "… copy", with its name open for editing as in Finder. It connects as the
+  original does — saved passwords come along — while its jump hosts and
+  tunnels are its own, so deleting one session leaves the other's intact.
+- A ⇄ beside the name of a session with port forwarding on: green while a
+  tunnel runs, red when one failed, grey with all of them stopped.
 - A right-click on the sidebar's empty space opens a menu: New Session,
   New Group, Quick Connect and Import from ~/.ssh/config.
 

@@ -56,6 +56,20 @@ struct KeychainStore: Sendable {
         SecItemDelete(query(account) as CFDictionary)
     }
 
+    /// For a duplicated session: its password, and each jump host's, paired
+    /// by position in the chain. A key's passphrase belongs to the key file,
+    /// so the copy already shares it.
+    func copySecrets(of original: Session, to copy: Session) {
+        var pairs = [(SSHLaunch.sessionPasswordAccount(original.id), SSHLaunch.sessionPasswordAccount(copy.id))]
+        for (old, new) in zip(original.jumps, copy.jumps) {
+            pairs.append((SSHLaunch.hopPasswordAccount(old.id), SSHLaunch.hopPasswordAccount(new.id)))
+        }
+        // Only what is there: `contains` reads attributes, never the secret.
+        for (from, to) in pairs where contains(from) {
+            if let secret = secret(for: from) { set(secret, for: to) }
+        }
+    }
+
     /// For a renamed session. Reading the old item may ask for Keychain access
     /// once; that is the price of keeping the password.
     func move(_ oldAccount: String, to newAccount: String) {

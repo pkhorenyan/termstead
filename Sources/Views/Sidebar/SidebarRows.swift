@@ -235,6 +235,9 @@ struct SessionRowView: View {
     /// Start or Stop Port Forwarding — see
     /// `ConnectionStore.forwardingMenuItems`.
     var forwardingItems: [(title: String, run: () -> Void)] = []
+    /// Port forwarding is on for the session: the mark beside its name.
+    var forwarding: ForwardingSummary?
+    var onDuplicate: () -> Void
     var actions: TreeRowActions
 
     private var isSelected: Bool { actions.isSelected }
@@ -263,6 +266,7 @@ struct SessionRowView: View {
                         StatusDot(color: theme.accent.color, size: 6)
                             .accessibilityLabel("Connected")
                     }
+                    if let forwarding { TunnelMark(summary: forwarding) }
                     Spacer(minLength: 0)
                     // Marks a tree row that is also in the Pinned strip. The
                     // strip's own rows need no mark — their heading says it.
@@ -325,6 +329,7 @@ struct SessionRowView: View {
             Button("Open in New Tab", action: onConnectInNewTab)
             Divider()
             actions.renameItem()
+            Button("Duplicate", action: onDuplicate)
             actions.moveMenu(includingTopLevel: false)
             Button("Session Settings…", action: onOpenSettings)
             Button("Port Forwarding…", action: onOpenForwards)
@@ -349,6 +354,8 @@ struct PinnedRowView: View {
     var onOpenSettings: () -> Void
     var onOpenForwards: () -> Void
     var forwardingItems: [(title: String, run: () -> Void)] = []
+    var forwarding: ForwardingSummary?
+    var onDuplicate: () -> Void
     var onUnpin: () -> Void
     var onDelete: () -> Void
     var keyboard: TreeKeyboardFocus?
@@ -375,6 +382,7 @@ struct PinnedRowView: View {
                 .foregroundStyle(theme.textMuted.color)
                 .lineLimit(1)
 
+            if let forwarding { TunnelMark(summary: forwarding) }
             if isLive {
                 StatusDot(color: theme.accent.color, size: 6)
                     .accessibilityLabel("Connected")
@@ -410,6 +418,7 @@ struct PinnedRowView: View {
             Button("Connect", action: onConnect)
             Button("Open in New Tab", action: onConnectInNewTab)
             Divider()
+            Button("Duplicate", action: onDuplicate)
             Button("Session Settings…", action: onOpenSettings)
             Button("Port Forwarding…", action: onOpenForwards)
             ForEach(Array(forwardingItems.enumerated()), id: \.offset) { _, item in
@@ -419,5 +428,26 @@ struct PinnedRowView: View {
             Divider()
             Button("Delete…", role: .destructive, action: onDelete)
         }
+    }
+}
+
+/// Port forwarding is on for a session: the tunnels' glyph beside its name,
+/// as the dot beside it says a terminal is connected. Green while any tunnel
+/// runs, red when one failed, grey with all of them stopped.
+struct TunnelMark: View {
+    @Environment(\.theme) private var theme
+    var summary: ForwardingSummary
+
+    var body: some View {
+        Image(systemName: "arrow.left.arrow.right")
+            .font(.system(size: 8.5, weight: .bold))
+            .foregroundStyle(color.color)
+            .help(summary.description)
+            .accessibilityLabel(summary.description)
+    }
+
+    private var color: RGB {
+        if summary.failed { return theme.ansiRed }
+        return summary.running > 0 ? theme.accent : theme.textMuted
     }
 }

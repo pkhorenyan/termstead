@@ -848,6 +848,45 @@ final class SessionStore {
         return name
     }
 
+    /// "Duplicate": a copy right after the session in its group, named
+    /// "<name> copy" (then "copy 2", …), selected. Not pinned.
+    ///
+    /// Its jump hosts and tunnels get ids of their own. A hop's id names its
+    /// password in the Keychain, and deleting a session deletes its hops'
+    /// passwords: shared ids would take the other session's with them.
+    /// Returns the copy; `KeychainStore.copySecrets` carries the passwords over.
+    @discardableResult
+    func duplicateSession(_ id: String) -> Session? {
+        guard let original = sessions[id], let group = currentGroupID(ofSession: id),
+              let position = position(of: SidebarDragItem(kind: .session, id: id)) else { return nil }
+        var copy = original
+        copy.id = Self.copyName(of: id, taken: Set(sessions.keys))
+        copy.jumps = original.jumps.map { hop in
+            var fresh = hop
+            fresh.id = UUID()
+            return fresh
+        }
+        copy.forwards = original.forwards.map { forward in
+            var fresh = forward
+            fresh.id = UUID()
+            return fresh
+        }
+        guard let name = createSession(copy, parentID: group) else { return nil }
+        // Created at the end of the group; moved to just after the original.
+        drop(SidebarDragItem(kind: .session, id: name),
+             to: DropTarget(parentGroupID: group, index: position.index + 1))
+        select(session: name)
+        return copy
+    }
+
+    static func copyName(of name: String, taken: Set<String>) -> String {
+        let first = "\(name) copy"
+        guard taken.contains(first) else { return first }
+        var number = 2
+        while taken.contains("\(first) \(number)") { number += 1 }
+        return "\(first) \(number)"
+    }
+
     /// Adds sessions imported from `~/.ssh/config` to a top-level group of
     /// their own. A name that is already a session is left alone, so importing
     /// again only brings in hosts added since.

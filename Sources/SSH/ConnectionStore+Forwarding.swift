@@ -11,6 +11,18 @@ enum ForwardState: Equatable, Sendable {
     case failed(String)
 }
 
+/// A session's port forwarding at a glance, for the mark on its sidebar row.
+struct ForwardingSummary: Equatable, Sendable {
+    var running: Int
+    var total: Int
+    var failed: Bool
+
+    var description: String {
+        let count = "\(running) of \(total) tunnel\(total == 1 ? "" : "s") running"
+        return failed ? "Port forwarding: \(count), one failed" : "Port forwarding: \(count)"
+    }
+}
+
 /// What a session's port forwarding was started with. Kept so that one
 /// stopped tunnel can be started again on the same terms.
 struct TunnelLaunch {
@@ -76,6 +88,14 @@ extension ConnectionStore {
         everyConnection.first {
             $0.isTunnelOnly && $0.sessionID == sessionID && $0.plan?.forwards.first?.id == id
         }
+    }
+
+    /// `nil` while port forwarding is off for the session.
+    func forwardingSummary(of sessionID: String) -> ForwardingSummary? {
+        guard let states = forwardStates[sessionID] else { return nil }
+        let failed = states.values.contains { if case .failed = $0 { true } else { false } }
+        return ForwardingSummary(running: states.values.filter { $0 == .running }.count,
+                                 total: launchedForwards(of: sessionID).count, failed: failed)
     }
 
     /// Sessions with port forwarding on, for the status bar.

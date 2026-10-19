@@ -135,6 +135,18 @@ struct SidebarView: View {
 
     /// Stored passwords go with their sessions. Key passphrases stay: they
     /// belong to a key file that other sessions may still use.
+    /// The copy lands right after the original with its name open for
+    /// editing, as Finder's Duplicate does, and connects as the original
+    /// does: the saved passwords come along.
+    private func duplicate(_ id: String) {
+        guard let original = sessionStore.session(id),
+              let copy = sessionStore.duplicateSession(id) else { return }
+        KeychainStore.shared.copySecrets(of: original, to: copy)
+        let item = SidebarDragItem(kind: .session, id: copy.id)
+        reveal = listing().rowID(of: .session(copy.id, inPinned: false))
+        startRename(item)
+    }
+
     private func confirmDeletion() {
         guard let items = pendingDeletion else { return }
         pendingDeletion = nil
@@ -262,6 +274,8 @@ struct SidebarView: View {
                                 onOpenSettings: { appState.route = .sessionSettings(id: row.id) },
                                 onOpenForwards: { appState.route = .portForwarding(sessionID: row.id) },
                                 forwardingItems: connectionStore.forwardingMenuItems(for: row.session, in: sessionStore),
+                                forwarding: connectionStore.forwardingSummary(of: row.id),
+                                onDuplicate: { duplicate(row.id) },
                                 onUnpin: { sessionStore.togglePin(row.id) },
                                 onDelete: { pendingDeletion = [SidebarDragItem(kind: .session, id: row.id)] },
                                 keyboard: keyboard
@@ -402,6 +416,8 @@ struct SidebarView: View {
                 onOpenSettings: { appState.route = .sessionSettings(id: data.id) },
                 onOpenForwards: { appState.route = .portForwarding(sessionID: data.id) },
                 forwardingItems: connectionStore.forwardingMenuItems(for: data.session, in: sessionStore),
+                forwarding: connectionStore.forwardingSummary(of: data.id),
+                onDuplicate: { duplicate(data.id) },
                 actions: actions
             )
         }
