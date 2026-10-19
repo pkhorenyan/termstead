@@ -94,14 +94,21 @@ extension SessionStore {
             Session(id: "lab-app-password", user: "lab", host: "app", port: 22,
                     icon: .cloud, auth: .password, keyPath: key,
                     jumps: [JumpHost(host: "127.0.0.1", user: "lab", port: 2202, auth: .password)]),
-            // Tunnels: app's own sshd on this Mac's 22022, and a SOCKS proxy
-            // into the lab's network on 21080.
+            // One tunnel of each kind (every lab host serves a page on :80):
+            //   localhost:8080 → app's own page
+            //   localhost:8081 → middle's page, resolved from app
+            //   localhost:1080 → SOCKS into the dmz (http://bastion, http://middle)
+            //   app:9000       → back to this Mac's 127.0.0.1:2201 (direct's sshd)
             Session(id: "lab-app-tunnels", user: "lab", host: "app", port: 22,
                     icon: .router, auth: .key, keyPath: key,
                     jumps: [JumpHost(host: "lab-bastion")],
-                    portForwards: [PortForward(kind: .local, listenPort: 22022,
-                                               destinationHost: "localhost", destinationPort: 22),
-                                   PortForward(kind: .dynamic, listenPort: 21080)]),
+                    portForwards: [PortForward(kind: .local, listenPort: 8080,
+                                               destinationHost: "localhost", destinationPort: 80),
+                                   PortForward(kind: .local, listenPort: 8081,
+                                               destinationHost: "middle", destinationPort: 80),
+                                   PortForward(kind: .dynamic, listenPort: 1080),
+                                   PortForward(kind: .remote, listenPort: 9000,
+                                               destinationHost: "localhost", destinationPort: 2201)]),
         ]
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [

@@ -16,6 +16,29 @@ chown lab:lab /home/lab/.bashrc
 printf '[ -f ~/.bashrc ] && . ~/.bashrc\n' > /home/lab/.bash_profile
 chown lab:lab /home/lab/.bash_profile
 
+# A page on port 80 that says which host served it, for port forwarding:
+# nothing publishes it to the Mac, so only a tunnel reaches it.
+mkdir -p /srv/www
+cat > /srv/www/index.html <<PAGE
+<!doctype html>
+<meta charset="utf-8">
+<title>$(hostname) — Termstead test lab</title>
+<style>
+  body { font: 18px/1.5 -apple-system, sans-serif; background: #1e2128; color: #d8dee9;
+         display: grid; place-items: center; min-height: 90vh; margin: 0; }
+  main { max-width: 34em; padding: 2em; }
+  h1 { font-size: 2.4em; margin: 0 0 .2em; color: #88c0d0; }
+  code { color: #a3be8c; }
+</style>
+<main>
+  <h1>Hello from $(hostname)</h1>
+  <p>$LAB_ROLE</p>
+  <p>This page is served on <code>$(hostname):80</code>, which is not published to
+  the Mac. If you can read it, a tunnel brought you here.</p>
+</main>
+PAGE
+httpd -p 80 -h /srv/www
+
 # Something to browse in Termstead's Files tab. Seeded once per container, so
 # files uploaded while testing survive a restart (not a `./lab.sh down`).
 if [ ! -f /home/lab/.lab-seeded ]; then

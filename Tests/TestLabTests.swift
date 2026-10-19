@@ -128,19 +128,23 @@ final class TestLabTests {
         try await expectShell(on: "lab-direct-passphrase", reaching: "direct")
     }
 
-    /// A local forward through a jump host reaches app's sshd, and the Files
-    /// tab still joins the connection, its config untouched by the tunnels.
+    /// Local forwards through a jump host reach app's page and, resolved
+    /// from app, middle's; the Files tab still joins the connection, its
+    /// config untouched by the tunnels.
     @Test func localForwardThroughAJump() async throws {
         try await expectShell(on: "lab-app-tunnels", reaching: "app") { connection in
-            let banner = try await Self.banner(port: 22022)
-            #expect(banner.hasPrefix("SSH-2.0"), "got \(banner)")
+            #expect(try await Self.exchange(port: 8080, sending: "GET / HTTP/1.0\r\n\r\n")
+                .contains("Hello from app"))
+            #expect(try await Self.exchange(port: 8081, sending: "GET / HTTP/1.0\r\n\r\n")
+                .contains("Hello from middle"))
             let client = try #require(connection.sftp)
             #expect(try await client.home() == "/home/lab")
         }
     }
 
-    /// The first line a TCP server on 127.0.0.1 sends.
-    private static func banner(port: UInt16) async throws -> String {
+    /// Sends `request` to 127.0.0.1:`port` and reads the reply until the
+    /// server closes the connection.
+    private static func exchange(port: UInt16, sending request: String) async throws -> String {
         try await Task.detached {
             let fd = socket(AF_INET, SOCK_STREAM, 0)
             defer { close(fd) }
@@ -156,9 +160,15 @@ final class TestLabTests {
                 }
             }
             guard connected == 0 else { throw POSIXError(.ECONNREFUSED) }
-            var buffer = [UInt8](repeating: 0, count: 256)
-            let count = read(fd, &buffer, buffer.count)
-            return String(decoding: buffer.prefix(max(count, 0)), as: UTF8.self)
+            _ = request.utf8CString.withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count - 1) }
+            var reply: [UInt8] = []
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = read(fd, &buffer, buffer.count)
+                guard count > 0 else { break }
+                reply += buffer.prefix(count)
+            }
+            return String(decoding: reply, as: UTF8.self)
         }.value
     }
 

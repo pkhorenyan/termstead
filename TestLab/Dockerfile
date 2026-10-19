@@ -3,7 +3,9 @@
 # makes a host usable as a jump host.
 FROM alpine:3.20
 
-RUN apk add --no-cache openssh-server bash \
+# busybox-extras brings httpd: each host serves a page on port 80, inside the
+# lab's networks only, for trying port forwarding on.
+RUN apk add --no-cache openssh-server bash busybox-extras \
  && adduser -D -s /bin/bash lab \
  && echo "lab:lab" | chpasswd \
  && mkdir -p /home/lab/.ssh && chmod 700 /home/lab/.ssh && chown -R lab:lab /home/lab/.ssh \
