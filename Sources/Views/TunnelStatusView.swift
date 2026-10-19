@@ -44,15 +44,18 @@ private struct TunnelList: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                ForEach(sessions, id: \.self) { id in
+            VStack(alignment: .leading, spacing: 12) {
+                // A line between sessions: with several forwarding, their
+                // tunnels otherwise read as one list.
+                ForEach(Array(sessions.enumerated()), id: \.element) { index, id in
+                    if index > 0 { Divider1(theme.border) }
                     section(id)
                 }
             }
             .padding(14)
             .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
-        .frame(width: 456)
+        .frame(width: Self.width)
         .frame(maxHeight: 420)
         .fixedSize(horizontal: false, vertical: true)
         .background(theme.elevated.color)
@@ -61,18 +64,14 @@ private struct TunnelList: View {
     private func section(_ id: String) -> some View {
         let forwards = connectionStore.launchedForwards(of: id)
         return VStack(alignment: .leading, spacing: 8) {
-            // The buttons start over the state column, as the rows' Stop
-            // follows their state.
             HStack(spacing: 8) {
                 Text(id)
                     .font(SBFont.ui(13, .semibold))
                     .foregroundStyle(theme.text.color)
                     .lineLimit(1)
-                    .frame(width: Self.summaryWidth, alignment: .leading)
-                small("Edit…") { appState.route = .portForwarding(sessionID: id) }
-                    .frame(width: Self.stateWidth, alignment: .leading)
-                small("Stop All") { connectionStore.stopTunnels(sessionID: id) }
                 Spacer(minLength: 0)
+                small("Stop All") { connectionStore.stopTunnels(sessionID: id) }
+                small("Edit") { appState.route = .portForwarding(sessionID: id) }
             }
 
             ForEach(forwards) { forward in
@@ -136,6 +135,10 @@ private struct TunnelList: View {
 
     /// The tunnel's own column, "server 29000 → localhost:2280" included.
     private static let summaryWidth: CGFloat = 210
+    /// The columns and nothing more: summary, state, Stop, Open in Browser,
+    /// with the padding either side. A wider list left a band of nothing on
+    /// the right.
+    private static let width: CGFloat = 14 + summaryWidth + 8 + stateWidth + 8 + 52 + 8 + 26 + 14
 
     /// Wide enough for "● Opening…", the longest state.
     private static let stateWidth: CGFloat = 92
