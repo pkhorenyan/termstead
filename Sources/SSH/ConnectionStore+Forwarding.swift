@@ -26,7 +26,11 @@ extension ConnectionStore {
         connection.onLogin = { [weak self, weak connection] in
             guard let self, let connection else { return }
             onLogin?(connection)
-            if connection.holdsForwards || connection.claimForwards() { openForwards(on: connection) }
+            if connection.holdsForwards || connection.claimForwards() {
+                openForwards(on: connection)
+            } else if connection.isTunnelOnly {
+                takeForwards(to: connection)
+            }
         }
         connection.mayForward = { [weak self] asking in
             guard let self, let session = asking.sessionID else { return true }
@@ -108,6 +112,32 @@ extension ConnectionStore {
         }
     }
 
+    /// "Start Tunnels Only" while a tab has the tunnels: the tab closes its
+    /// own, and once ssh has let go of the ports the tunnel-only connection
+    /// opens them, so the tab can be closed without taking them along.
+    private func takeForwards(to taker: Connection) {
+        guard let session = taker.sessionID,
+              let old = everyConnection.first(where: { $0 !== taker && $0.sessionID == session && $0.holdsForwards })
+        else { return }
+        old.giveUpForwards()
+        let open = (old.plan?.forwards ?? []).filter {
+            let state = forwardStates[session]?[$0.id]
+            return state == .running || state == .opening
+        }
+        var pending = open.count
+        let finish = { [weak self, weak taker] in
+            guard let self, let taker, taker.claimForwards() else { return }
+            openForwards(on: taker)
+        }
+        guard pending > 0 else { return finish() }
+        for forward in open {
+            old.multiplex("cancel", forward.arguments) { _ in
+                pending -= 1
+                if pending == 0 { finish() }
+            }
+        }
+    }
+
     /// The holder is gone: its tunnels close with its ssh. Another of the
     /// session's connections, already logged in, takes them over; one still
     /// logging in takes them when it is in (`wire`).
@@ -155,8 +185,7 @@ extension ConnectionStore {
     func startTunnels(for session: Session, plan: SSHLaunchPlan,
                       keychain: KeychainStore = .shared) -> Connection? {
         let sessionID = session.id
-        guard !session.forwards.isEmpty,
-              !everyConnection.contains(where: { $0.sessionID == sessionID && $0.holdsForwards }) else { return nil }
+        guard !session.forwards.isEmpty, !tunnels.contains(where: { $0.sessionID == sessionID }) else { return nil }
         let connection = Connection(sessionID: sessionID, title: "\(session.id) — tunnels",
                                     address: session.statusAddress,
                                     keyDescription: Self.keyDescription(for: session),
@@ -208,7 +237,9 @@ extension ConnectionStore {
                 items.append((anyRunning ? "Stop Port Forwarding" : "Start Port Forwarding",
                               { self.setAllForwards(of: session.id, running: !anyRunning) }))
             }
-        } else if !everyConnection.contains(where: { $0.sessionID == session.id && $0.holdsForwards }) {
+        }
+        // Also while a tab has them: they move over, and the tab can close.
+        if !tunnels.contains(where: { $0.sessionID == session.id }) {
             items.append(("Start Tunnels Only", { [weak self, weak store] in
                 guard let self, let store else { return }
                 startTunnels(sessionID: session.id, in: store)

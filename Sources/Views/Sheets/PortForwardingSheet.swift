@@ -113,6 +113,7 @@ struct PortForwardingSheet: View {
                                 title: "Kind of port forward \(index + 1)",
                                 height: 28, fontSize: 12.5,
                                 segmentCornerRadius: 6, cornerRadius: 9)
+                liveButton(forward.wrappedValue, index: index)
                 Button {
                     let id = forward.wrappedValue.id
                     forwards.removeAll { $0.id == id }
@@ -162,29 +163,47 @@ struct PortForwardingSheet: View {
         .padding(.vertical, 6)
     }
 
-    /// Whether the tunnel is open on the session's live connection, and the
-    /// button that stops or starts it there — as MobaXterm's tunnels have.
-    /// Nothing while the session is not connected.
+    /// The tunnel's state on the live connection, when the session has one
+    /// and the tunnel is as it connected; `nil` otherwise.
+    private func liveStateOf(_ forward: PortForward) -> ForwardState? {
+        guard forward == saved(forward.id) else { return nil }
+        return connectionStore.forwardState(forward.id, of: sessionID)
+    }
+
+    /// Stop / Start, in the tunnel's own header beside its remove button —
+    /// as MobaXterm's tunnels have. Only while the session is connected.
+    @ViewBuilder
+    private func liveButton(_ forward: PortForward, index: Int) -> some View {
+        if let state = liveStateOf(forward) {
+            let running = state == .running || state == .opening
+            Button {
+                connectionStore.setForward(forward.id, of: sessionID, running: !running)
+            } label: {
+                Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
+                    .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 10))
+                    .font(SBFont.ui(12.5, .medium))
+                    .foregroundStyle((running ? theme.text : theme.accent).color)
+                    .frame(width: 72, height: 28)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.field.color))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder((running ? theme.border : theme.accent).color, lineWidth: 1))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(state == .opening)
+            .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
+        }
+    }
+
+    /// Whether the tunnel is open on the session's live connection. Nothing
+    /// while the session is not connected.
     @ViewBuilder
     private func liveState(_ forward: PortForward, index: Int) -> some View {
         if connectionStore.forwardHolder(of: sessionID) != nil {
-            HStack(spacing: 8) {
-                if let state = connectionStore.forwardState(forward.id, of: sessionID),
-                   forward == saved(forward.id) {
+            Group {
+                if let state = liveStateOf(forward) {
                     ForwardStateLabel(state: state)
-                    Spacer(minLength: 0)
-                    let running = state == .running || state == .opening
-                    Button {
-                        connectionStore.setForward(forward.id, of: sessionID, running: !running)
-                    } label: {
-                        Label(running ? "Stop" : "Start",
-                              systemImage: running ? "stop.fill" : "play.fill")
-                            .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 9))
-                    }
-                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26,
-                                                      horizontalPadding: 10, fontSize: 12, filled: true))
-                    .disabled(state == .opening)
-                    .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
                 } else {
                     Text("Changed since the session connected: applies on reconnect")
                         .font(SBFont.ui(12))
@@ -192,7 +211,6 @@ struct PortForwardingSheet: View {
                 }
             }
             .padding(.leading, 30)
-            .frame(minHeight: 26)
         }
     }
 

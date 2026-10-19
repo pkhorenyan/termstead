@@ -338,6 +338,45 @@ final class TestLabTests {
         #expect(await Self.get(28080).contains("Hello from app"))
     }
 
+    /// "Start Tunnels Only" while a tab has the tunnels moves them over:
+    /// the tab can then close and the tunnels stay.
+    @Test func tunnelsMoveOutOfATab() async throws {
+        let store = ConnectionStore()
+        let session = tunnelsSession()
+        let terminal = try tab(in: store, session)
+        defer { store.close(terminal.id) }
+        try await waitFor { store.forwardState(session.forwards[0].id, of: session.id) == .running }
+
+        let background = try #require(store.startTunnels(for: session, plan: try plan(session.id),
+                                                         keychain: keychain))
+        defer { store.stopTunnels(sessionID: session.id) }
+        try await waitFor { store.forwardHolder(of: session.id) === background }
+        #expect(store.forwardHolder(of: session.id) === background)
+        #expect(!terminal.holdsForwards)
+        try await waitFor { store.forwardState(session.forwards[0].id, of: session.id) == .running }
+
+        store.close(terminal.id)
+        try await waitFor { await Self.get(28080).contains("Hello from app") }
+        #expect(await Self.get(28080).contains("Hello from app"))
+        #expect(store.connections.isEmpty)
+    }
+
+    /// The remote tunnel: a port on app that leads back through this Mac to
+    /// direct's page (published on 127.0.0.1:2280).
+    @Test func aRemoteTunnelLeadsBackHere() async throws {
+        let store = ConnectionStore()
+        let session = tunnelsSession()
+        let connection = try tab(in: store, session)
+        defer { store.close(connection.id) }
+        try await waitFor { store.forwardState(session.forwards[3].id, of: session.id) == .running }
+        #expect(store.forwardState(session.forwards[3].id, of: session.id) == .running)
+        for _ in 0..<5 where !screen(connection).contains("Hello from direct") {
+            connection.terminalView.send(txt: "wget -qO- localhost:29000 | grep h1\r")
+            try await waitFor { screen(connection).contains("Hello from direct") }
+        }
+        #expect(screen(connection).contains("Hello from direct"), "\(screen(connection))")
+    }
+
     /// A tunnel named in the user's own config is not opened behind
     /// Termstead's back: it could neither show it nor stop it.
     @Test func theConfigsOwnTunnelsAreCleared() async throws {

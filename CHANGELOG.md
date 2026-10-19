@@ -24,8 +24,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A count of running tunnels in the status bar. Clicking it lists every
   session's tunnels with their state and Stop / Start.
 - Start Tunnels Only, in a session's context menu: the tunnels without a
-  terminal, as MobaXterm's tunnel manager runs them. If ssh needs an answer
-  (a host key, a password not saved), the connection opens as a tab.
+  terminal, as MobaXterm's tunnel manager runs them. Chosen while a tab
+  has the tunnels, it takes them over, and the tab can then be closed. If
+  ssh needs an answer (a host key, a password not saved), the connection
+  opens as a tab.
 - Import from ~/.ssh/config brings a host's LocalForward, RemoteForward and
   DynamicForward into the session, and so does the Port Forwarding window
   for sessions imported earlier.

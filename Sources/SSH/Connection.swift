@@ -122,7 +122,7 @@ final class Connection: Identifiable {
         removeWorkDirectory()
 
         holdsForwards = !plan.forwards.isEmpty && mayForward(self)
-        if !plan.forwards.isEmpty && !holdsForwards {
+        if !plan.forwards.isEmpty && !holdsForwards && !isTunnelOnly {
             terminalView.feed(text: "\u{1b}[2mPort forwarding is open in another tab of this session; this tab takes it over if that one closes.\u{1b}[0m\r\n")
         }
 
@@ -282,6 +282,12 @@ final class Connection: Identifiable {
               let plan, !plan.forwards.isEmpty, mayForward(self) else { return false }
         holdsForwards = true
         return true
+    }
+
+    /// Hands the tunnels to a tunnel-only connection, which the user asked
+    /// for: no other connection is told to take them.
+    func giveUpForwards() {
+        holdsForwards = false
     }
 
     /// The tunnel was in the settings this tab connected with.
