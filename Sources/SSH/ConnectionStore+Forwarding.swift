@@ -1,23 +1,39 @@
 import Foundation
 
-/// Where one of a session's tunnels stands on its tunnel connection.
+/// Where one of a session's tunnels stands while port forwarding is on.
 enum ForwardState: Equatable, Sendable {
-    /// Asked of ssh, no answer yet.
+    /// Its connection is logging in, or ssh has been asked for the tunnel.
     case opening
     case running
-    /// Stopped by hand. Stays down across a reconnect of the tunnel
-    /// connection, until port forwarding is stopped for the session.
+    /// Stopped by hand: its connection, and every connection through it, is gone.
     case stopped
-    /// ssh refused it; the reason, in the user's terms.
+    /// ssh refused it, or its connection ended; the reason, in the user's terms.
     case failed(String)
 }
 
+/// What a session's port forwarding was started with. Kept so that one
+/// stopped tunnel can be started again on the same terms.
+struct TunnelLaunch {
+    var session: Session
+    var plan: SSHLaunchPlan
+    var keychain: KeychainStore
+}
+
 /// Port forwarding is an option of its own, as in MobaXterm: connecting to
-/// a session opens a shell and nothing else. "Start Port Forwarding" runs
-/// the session's tunnels on a connection of their own — ssh `-N`, no shell,
-/// no tab — and asks its master for each tunnel once logged in, one
-/// `ssh -O forward` each, so every tunnel gets its own answer: a port already
-/// taken is a state here, not a warning scrolled past in a terminal.
+/// a session opens a shell and nothing else. "Start Port Forwarding" gives
+/// each of the session's tunnels a connection of its own — ssh `-N`, no
+/// shell, no tab.
+///
+/// One connection per tunnel, not one for all: `ssh -O cancel` closes only a
+/// tunnel's listener, and every connection already open through it — a
+/// browser's keep-alive, a psql session — lived on in the shared ssh after
+/// Stop. Ending the tunnel's own ssh ends all of them. The price is a login
+/// per tunnel.
+///
+/// Each connection asks its master for its tunnel once logged in
+/// (`ssh -O forward`) rather than taking it on the command line, so a port
+/// already taken is a state with a reason here, not a warning scrolled past
+/// in a terminal nobody sees.
 extension ConnectionStore {
     /// Tabs and tunnel connections alike.
     var everyConnection: [Connection] { connections + tunnels }
@@ -27,82 +43,124 @@ extension ConnectionStore {
         connection.onLogin = { [weak self, weak connection] in
             guard let self, let connection else { return }
             onLogin?(connection)
-            if connection.isTunnelOnly { openForwards(on: connection) }
+            if connection.isTunnelOnly { openForward(on: connection) }
         }
     }
 
-    /// The session's tunnel connection, running or not.
-    func tunnelConnection(of sessionID: String) -> Connection? {
-        everyConnection.first { $0.sessionID == sessionID && $0.isTunnelOnly }
-    }
+    // MARK: - Reading
 
-    /// The tunnel connection, once logged in: only then can tunnels be
-    /// stopped and started on it.
-    func forwardHolder(of sessionID: String) -> Connection? {
-        tunnelConnection(of: sessionID).flatMap { $0.isLoggedIn ? $0 : nil }
-    }
-
-    /// Port forwarding is on for the session: its tunnel connection is up or
-    /// on its way up.
+    /// Port forwarding is on for the session: started and not stopped as a
+    /// whole, even if each of its tunnels has been stopped or has failed.
     func isForwarding(_ sessionID: String) -> Bool {
-        tunnelConnection(of: sessionID)?.state.isRunning ?? false
+        forwardStates[sessionID] != nil
     }
 
-    /// `nil` while nothing holds the tunnel — port forwarding is off, or the
-    /// tunnel was added after it started.
+    /// `nil` while port forwarding is off for the session, or for a tunnel
+    /// added after it started.
     func forwardState(_ id: UUID, of sessionID: String) -> ForwardState? {
-        guard let holder = forwardHolder(of: sessionID), holder.carriesForward(id) else { return nil }
-        return forwardStates[sessionID]?[id]
+        forwardStates[sessionID]?[id]
     }
 
-    /// Sessions with a tunnel connection, for the status bar.
+    /// The tunnel as port forwarding started it, to tell an edit since.
+    func launchedForward(_ id: UUID, of sessionID: String) -> PortForward? {
+        tunnelLaunches[sessionID]?.plan.forwards.first { $0.id == id }?.forward
+    }
+
+    /// The tunnels port forwarding started for the session, in order.
+    func launchedForwards(of sessionID: String) -> [PortForward] {
+        tunnelLaunches[sessionID]?.plan.forwards.map(\.forward) ?? []
+    }
+
+    /// The connection carrying one tunnel, tab or not.
+    func tunnelConnection(of sessionID: String, forward id: UUID) -> Connection? {
+        everyConnection.first {
+            $0.isTunnelOnly && $0.sessionID == sessionID && $0.plan?.forwards.first?.id == id
+        }
+    }
+
+    /// Sessions with port forwarding on, for the status bar.
     var sessionsWithTunnels: [String] {
-        Array(Set(everyConnection.filter(\.isTunnelOnly).compactMap(\.sessionID)))
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        forwardStates.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    // MARK: - Starting and stopping
+    // MARK: - The session's port forwarding
 
-    /// Starts port forwarding for the session. If ssh needs the user — a host
-    /// key, a password not in the Keychain — or ends before logging in, the
-    /// connection becomes a tab so the question or the error can be seen.
+    /// Starts port forwarding for the session: a connection for each tunnel
+    /// not already running.
     func startTunnels(sessionID: String, in store: SessionStore) {
         guard let session = store.session(sessionID) else { return }
-        let plan: SSHLaunchPlan
-        do { plan = try Self.launchPlan(for: session, in: store) } catch {
+        do {
+            startTunnels(for: session, plan: try Self.launchPlan(for: session, in: store))
+        } catch {
+            // An address or a tunnel that cannot be used: said in a tab, as
+            // a connection that fails to start is.
             let failed = Connection(sessionID: sessionID, title: "\(session.id) — tunnels",
                                     address: session.statusAddress,
-                                    keyDescription: Self.keyDescription(for: session), isTunnelOnly: true)
+                                    keyDescription: Self.keyDescription(for: session))
             add(failed)
             failed.fail(String(describing: error))
-            return
         }
-        startTunnels(for: session, plan: plan)
     }
 
     /// `plan` and `keychain` apart, for the tests: a known_hosts of their own.
     @discardableResult
     func startTunnels(for session: Session, plan: SSHLaunchPlan,
-                      keychain: KeychainStore = .shared) -> Connection? {
-        guard !session.forwards.isEmpty, !isForwarding(session.id) else { return nil }
-        // One that ended is replaced, not reconnected: the settings may have
-        // changed since.
-        if let ended = tunnelConnection(of: session.id) { remove(ended, forgettingStops: false) }
+                      keychain: KeychainStore = .shared) -> [Connection] {
+        guard !plan.forwards.isEmpty else { return [] }
+        let launch = TunnelLaunch(session: session, plan: plan, keychain: keychain)
+        tunnelLaunches[session.id] = launch
+        if forwardStates[session.id] == nil { forwardStates[session.id] = [:] }
+        return plan.forwards.compactMap { forward in
+            switch forwardStates[session.id]?[forward.id] {
+            case .opening?, .running?: nil
+            default: startTunnel(forward, of: launch)
+            }
+        }
+    }
 
-        let connection = Connection(sessionID: session.id, title: "\(session.id) — tunnels",
-                                    address: session.statusAddress,
-                                    keyDescription: Self.keyDescription(for: session),
-                                    keychain: keychain, isTunnelOnly: true)
+    /// Stops port forwarding for the session: every tunnel's connection
+    /// ends, tab or not, and every connection through them.
+    func stopTunnels(sessionID: String) {
+        forwardStates[sessionID] = nil
+        tunnelLaunches[sessionID] = nil
+        for connection in everyConnection where connection.isTunnelOnly && connection.sessionID == sessionID {
+            drop(connection)
+        }
+    }
+
+    // MARK: - Single tunnels
+
+    /// Starts or stops one tunnel. Stopping ends its connection, so the
+    /// connections already open through it close too; starting makes a new one.
+    func setForward(_ id: UUID, of sessionID: String, running: Bool) {
+        guard let launch = tunnelLaunches[sessionID],
+              let forward = launch.plan.forwards.first(where: { $0.id == id }) else { return }
+        if running {
+            if let old = tunnelConnection(of: sessionID, forward: id) { drop(old) }
+            startTunnel(forward, of: launch)
+        } else {
+            forwardStates[sessionID]?[id] = .stopped
+            if let connection = tunnelConnection(of: sessionID, forward: id) { drop(connection) }
+        }
+    }
+
+    @discardableResult
+    private func startTunnel(_ forward: SSHLaunchPlan.Forward, of launch: TunnelLaunch) -> Connection {
+        let sessionID = launch.session.id
+        var plan = launch.plan
+        plan.forwards = [forward]
+        let connection = Connection(sessionID: sessionID,
+                                    title: "\(sessionID) — \(forward.forward.summary)",
+                                    address: launch.session.statusAddress,
+                                    keyDescription: Self.keyDescription(for: launch.session),
+                                    keychain: launch.keychain, isTunnelOnly: true)
         wire(connection)
         connection.onEnded = { [weak self, weak connection] in
             guard let self, let connection else { return }
-            // Only the stops outlive the connection.
-            if let session = connection.sessionID {
-                forwardStates[session] = forwardStates[session]?.filter { $0.value == .stopped }
-            }
-            if !connection.didLogIn { showTunnelConnection(connection) }
+            ended(connection, forward: forward.id, of: sessionID)
         }
         tunnels.append(connection)
+        forwardStates[sessionID]?[forward.id] = .opening
         connection.start(plan)
         // Long enough for a key or a stored password through two jump hosts;
         // anything slower is most likely a question on the terminal.
@@ -114,21 +172,44 @@ extension ConnectionStore {
         return connection
     }
 
-    /// Stops port forwarding for the session: its tunnel connection ends,
-    /// tab or not, and every tunnel with it.
-    func stopTunnels(sessionID: String) {
-        guard let connection = tunnelConnection(of: sessionID) else { return }
-        remove(connection, forgettingStops: true)
+    /// Logged in: ask the master for the tunnel. A refusal ends the
+    /// connection — there is no use keeping a login for a tunnel that is not.
+    private func openForward(on connection: Connection) {
+        guard let sessionID = connection.sessionID, let forward = connection.plan?.forwards.first else { return }
+        connection.multiplex("forward", forward.arguments) { [weak self, weak connection] problem in
+            guard let self, let connection, everyConnection.contains(where: { $0 === connection }),
+                  forwardStates[sessionID]?[forward.id] == .opening else { return }
+            if let problem {
+                forwardStates[sessionID]?[forward.id] = .failed(Self.explain(problem, for: forward.forward))
+                drop(connection)
+            } else {
+                forwardStates[sessionID]?[forward.id] = .running
+            }
+        }
     }
 
-    private func remove(_ connection: Connection, forgettingStops: Bool) {
+    /// ssh ended by itself. Before login the connection becomes a tab, so the
+    /// error or the question it stopped at can be read there.
+    private func ended(_ connection: Connection, forward id: UUID, of sessionID: String) {
+        // Closed by Termstead: whoever closed it has set the state already.
+        guard everyConnection.contains(where: { $0 === connection }) else { return }
+        guard connection.didLogIn else {
+            forwardStates[sessionID]?[id] = .failed("Could not log in: its tab says why.")
+            showTunnelConnection(connection)
+            return
+        }
+        forwardStates[sessionID]?[id] = .failed("The connection closed.")
+        tunnels.removeAll { $0 === connection }
+    }
+
+    /// Ends a tunnel connection, in the tab strip or not.
+    private func drop(_ connection: Connection) {
         if connections.contains(where: { $0 === connection }) {
             close(connection.id)
         } else {
-            connection.close()
             tunnels.removeAll { $0 === connection }
+            connection.close()
         }
-        if forgettingStops, let session = connection.sessionID { forwardStates[session] = nil }
     }
 
     /// Moves a tunnel connection into the tab strip.
@@ -138,50 +219,14 @@ extension ConnectionStore {
         add(connection)
     }
 
-    /// A tab closed by hand may be the tunnel connection, shown because it
-    /// needed the user: port forwarding stops with it.
+    /// A tunnel connection shown as a tab and closed by hand: that tunnel
+    /// stops. A state set before the close (a refusal, a stop) stays.
     func forgetForwards(ofClosed closed: Connection) {
-        guard closed.isTunnelOnly, let session = closed.sessionID else { return }
-        forwardStates[session] = nil
-    }
-
-    // MARK: - Single tunnels
-
-    func openForwards(on holder: Connection) {
-        guard let session = holder.sessionID, let plan = holder.plan else { return }
-        for forward in plan.forwards where forwardStates[session]?[forward.id] != .stopped {
-            open(forward, on: holder, of: session)
-        }
-    }
-
-    private func open(_ forward: SSHLaunchPlan.Forward, on holder: Connection, of session: String) {
-        forwardStates[session, default: [:]][forward.id] = .opening
-        holder.multiplex("forward", forward.arguments) { [weak self, weak holder] problem in
-            // The answer is for this connection only; a newer one may hold
-            // the tunnels by now.
-            guard let self, let holder, holder === forwardHolder(of: session),
-                  forwardStates[session]?[forward.id] == .opening else { return }
-            forwardStates[session]?[forward.id] = problem.map { .failed(Self.explain($0, for: forward.forward)) } ?? .running
-        }
-    }
-
-    /// Stops or starts one tunnel on the running tunnel connection. A failed
-    /// tunnel "starts" by being asked for again.
-    func setForward(_ id: UUID, of sessionID: String, running: Bool) {
-        guard let holder = forwardHolder(of: sessionID),
-              let forward = holder.plan?.forwards.first(where: { $0.id == id }) else { return }
-        if running {
-            open(forward, on: holder, of: sessionID)
-            return
-        }
-        let state = forwardStates[sessionID]?[id]
-        guard state != .stopped else { return }
-        forwardStates[sessionID, default: [:]][id] = .stopped
-        // A failed tunnel has nothing to cancel.
-        guard state == .running || state == .opening else { return }
-        holder.multiplex("cancel", forward.arguments) { [weak self] problem in
-            guard let self, let problem else { return }
-            forwardStates[sessionID]?[id] = .failed("Could not stop it: \(Self.lastLine(problem))")
+        guard closed.isTunnelOnly, let sessionID = closed.sessionID,
+              let id = closed.plan?.forwards.first?.id else { return }
+        switch forwardStates[sessionID]?[id] {
+        case .opening?, .running?: forwardStates[sessionID]?[id] = .stopped
+        default: break
         }
     }
 

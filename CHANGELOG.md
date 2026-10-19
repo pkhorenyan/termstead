@@ -13,12 +13,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   set up from a session's context menu (Port Forwarding…) in the sidebar or
   on its tab, through the session's jump hosts. As in MobaXterm it is an
   option of its own: connecting opens a shell and no tunnels, and Start Port
-  Forwarding in the context menu runs them on a connection of their own,
-  with no tab. Stop Port Forwarding ends it. If ssh needs an answer (a host
-  key, a password not saved), that connection opens as a tab.
+  Forwarding in the context menu runs each tunnel on a connection of its
+  own, with no tab. Stop Port Forwarding ends them all. If ssh needs an
+  answer (a host key, a password not saved), that connection opens as a tab.
 - Each tunnel shows whether it really opened, and can be stopped and
-  started on its own while port forwarding runs. A port already taken on
-  the Mac reads "Port 8080 is already in use on this Mac".
+  started on its own while port forwarding runs. Stopping one also ends the
+  connections already open through it, such as a browser's. A port already
+  taken on the Mac reads "Port 8080 is already in use on this Mac".
 - A count of running tunnels in the status bar. Clicking it lists every
   session's tunnels with their state, Stop / Start, and Stop All.
 - Import from ~/.ssh/config brings a host's LocalForward, RemoteForward and

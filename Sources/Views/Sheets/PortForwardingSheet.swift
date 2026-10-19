@@ -163,12 +163,11 @@ struct PortForwardingSheet: View {
         .padding(.vertical, 6)
     }
 
-    /// The tunnel on the running tunnel connection: a strip with its state
-    /// on the left and Stop / Start on the right, under the tunnel's header.
-    /// Nothing while port forwarding is off.
+    /// The tunnel while port forwarding is on: its state, and Stop / Start
+    /// for it alone. Nothing while port forwarding is off.
     @ViewBuilder
     private func liveState(_ forward: PortForward, index: Int) -> some View {
-        if connectionStore.forwardHolder(of: sessionID) != nil {
+        if connectionStore.isForwarding(sessionID) {
             HStack(spacing: 10) {
                 if let state = liveStateOf(forward) {
                     ForwardStateLabel(state: state)
@@ -179,11 +178,10 @@ struct PortForwardingSheet: View {
                     } label: {
                         Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
                             .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 10))
+                            .frame(width: Self.liveButtonWidth)
                     }
-                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 28, horizontalPadding: 14,
-                                                      fontSize: 12.5, filled: true))
-                    .frame(minWidth: 84, alignment: .trailing)
-                    .disabled(state == .opening)
+                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 30, horizontalPadding: 0,
+                                                      fontSize: 13, filled: true))
                     .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
                 } else {
                     Text("Changed since port forwarding started: applies on restart")
@@ -192,17 +190,18 @@ struct PortForwardingSheet: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 5)
-            .frame(minHeight: 38)
-            .background(FieldBackground(theme: theme))
+            .padding(.leading, 30)
         }
     }
 
-    /// The tunnel's state on the tunnel connection, when it is running and
-    /// the tunnel is as it started; `nil` otherwise.
+    /// Wide enough to read as the tunnel's own control, not a chip.
+    private static let liveButtonWidth: CGFloat = 104
+
+    /// The tunnel's state, when it is as port forwarding started it — not
+    /// edited here or saved since; `nil` otherwise.
     private func liveStateOf(_ forward: PortForward) -> ForwardState? {
-        guard forward == saved(forward.id) else { return nil }
+        guard forward == saved(forward.id),
+              forward == connectionStore.launchedForward(forward.id, of: sessionID) else { return nil }
         return connectionStore.forwardState(forward.id, of: sessionID)
     }
 

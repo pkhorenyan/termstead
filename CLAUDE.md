@@ -296,14 +296,18 @@ read from there, never stored on `Session`.
   server without SFTP, and not if the tab is no longer in front. The
   screenshot kit turns it off (`-files.showAfterLogin NO`) to keep the tree.
 - **Tunnels** (`ConnectionStore+Forwarding.swift`) are an option of their
-  own, as in MobaXterm: a tab never opens them. "Start Port Forwarding" runs
-  them on a tunnel connection (`ssh -N`, kept in `ConnectionStore.tunnels`,
-  shown as a tab only if ssh needs the user or fails before login). They are
-  never on ssh's command line: after login the store asks the master for
-  each one (`ssh -O forward`), so each gets its own state — running,
-  stopped, or failed with a reason. Stopping one is `-O cancel`; "Stop Port
-  Forwarding" ends the tunnel connection. Connect and double-click skip a
-  tunnel connection shown as a tab: it has no shell.
+  own, as in MobaXterm: a tab never opens them. "Start Port Forwarding" gives
+  **each tunnel its own connection** (`ssh -N`, kept in
+  `ConnectionStore.tunnels`, shown as a tab only if ssh needs the user or
+  fails before login). Stopping a tunnel ends its ssh. One shared ssh with
+  `-O cancel` was tried and dropped: cancel closes only the listener, and
+  connections already open through the tunnel — a browser's keep-alive, a
+  SOCKS client — kept working after Stop. The tunnel is never on ssh's
+  command line: after login the connection asks its master for it
+  (`ssh -O forward`), so a refusal is a state with a reason, and the
+  connection is closed. `TunnelLaunch` keeps what port forwarding started
+  with, to start one tunnel again. Connect and double-click skip a tunnel
+  connection shown as a tab: it has no shell.
 
 ## Conventions
 
@@ -802,7 +806,7 @@ These have each cost real time. They are not hypothetical.
   key on a bastion and a target is asked for by two ssh processes;
   `AskpassMatcher.uses(of:)` sets how many answers each secret gets before the
   terminal takes over.
-- **Tunnels go to the master one by one, and from a client with no config.**
+- **A tunnel goes to its master after login, from a client with no config.**
   On the command line a port already taken was only a warning in the
   terminal and the tunnel still looked open. A client asking with
   `-O forward` sends every tunnel its own config names as well, so it runs
@@ -810,9 +814,9 @@ These have each cost real time. They are not hypothetical.
   `ClearAllForwardings=yes`, so a `LocalForward` in the user's config is not
   opened behind Termstead's back — import puts those into the session. A
   "localhost" tunnel binds 127.0.0.1 *and* ::1 and counts as open if either
-  works; a test that wants it to fail must take both. ssh's own bind error
-  still prints in the terminal, from the master: `LogLevel` would hide real
-  errors with it.
+  works; a test that wants it to fail must take both. A test that checks an
+  open connection is closed by Stop must not lean on the lab's httpd closing
+  it: busybox httpd keeps an idle connection well past 10 s.
 - **sftp's output depends on the locale.** Without a UTF-8 `LC_CTYPE` it
   prints every non-ASCII byte in a name as `\ooo` — and an app launched from
   Finder has no `LANG`. `SFTPClient` sets `LC_CTYPE=UTF-8`. Also, a failed

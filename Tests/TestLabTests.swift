@@ -203,8 +203,42 @@ final class TestLabTests {
         return sockets
     }
 
-    private func startTunnels(in store: ConnectionStore, _ session: Session) throws -> Connection {
-        try #require(store.startTunnels(for: session, plan: try plan(session.id), keychain: keychain))
+    @discardableResult
+    private func startTunnels(in store: ConnectionStore, _ session: Session) throws -> [Connection] {
+        let started = store.startTunnels(for: session, plan: try plan(session.id), keychain: keychain)
+        try #require(!started.isEmpty)
+        return started
+    }
+
+    /// A TCP connection to 127.0.0.1:`port` that the test keeps open.
+    private static func connectSocket(port: UInt16) throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connected == 0 else {
+            close(fd)
+            throw POSIXError(.ECONNREFUSED)
+        }
+        return fd
+    }
+
+    /// Whether the other end closed `fd` within `seconds`: `false` when the
+    /// wait simply ran out with the connection still open.
+    private static func closedByPeer(_ fd: Int32, within seconds: Int) async -> Bool {
+        await Task.detached {
+            var timeout = timeval(tv_sec: seconds, tv_usec: 0)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            var byte: UInt8 = 0
+            let count = read(fd, &byte, 1)
+            return count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+        }.value
     }
 
     /// Connecting opens a shell and nothing else: port forwarding is an
@@ -231,7 +265,9 @@ final class TestLabTests {
         try await waitFor { await Self.get(28081).contains("Hello from middle") }
         #expect(await Self.get(28080).contains("Hello from app"))
         #expect(await Self.get(28081).contains("Hello from middle"))
-        #expect(store.connections.isEmpty, "the tunnel connection became a tab")
+        #expect(store.connections.isEmpty, "a tunnel connection became a tab")
+        // One connection per tunnel: Stop must be able to end each one alone.
+        #expect(store.tunnels.count == session.forwards.count)
         #expect(store.sessionsWithTunnels == [session.id])
         #expect(store.isForwarding(session.id))
 
@@ -266,6 +302,46 @@ final class TestLabTests {
         #expect(await Self.get(28080).contains("Hello from app"))
     }
 
+    /// Stop ends the connections already open through the tunnel — a
+    /// browser's keep-alive kept a stopped tunnel working — and leaves
+    /// those through the others alone.
+    @Test func stoppingATunnelDropsItsOpenConnections() async throws {
+        let store = ConnectionStore()
+        let session = tunnelsSession()
+        let web = session.forwards[0].id, middle = session.forwards[1].id
+        try startTunnels(in: store, session)
+        defer { store.stopTunnels(sessionID: session.id) }
+        try await waitFor {
+            store.forwardState(web, of: session.id) == .running
+                && store.forwardState(middle, of: session.id) == .running
+        }
+
+        let throughWeb = try Self.connectSocket(port: 28080)
+        defer { close(throughWeb) }
+        let throughMiddle = try Self.connectSocket(port: 28081)
+        defer { close(throughMiddle) }
+
+        store.setForward(web, of: session.id, running: false)
+        #expect(await Self.closedByPeer(throughWeb, within: 3), "a connection through the stopped tunnel is still open")
+        #expect(!(await Self.closedByPeer(throughMiddle, within: 1)), "a connection through another tunnel was closed")
+
+        let request = "GET / HTTP/1.0\r\n\r\n"
+        _ = request.utf8CString.withUnsafeBufferPointer { write(throughMiddle, $0.baseAddress, $0.count - 1) }
+        let reply = await Task.detached {
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var timeout = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(throughMiddle, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            var all: [UInt8] = []
+            while true {
+                let count = read(throughMiddle, &buffer, buffer.count)
+                guard count > 0 else { break }
+                all += buffer.prefix(count)
+            }
+            return String(decoding: all, as: UTF8.self)
+        }.value
+        #expect(reply.contains("Hello from middle"))
+    }
+
     /// A port something else has is a failed tunnel with the reason, and the
     /// rest open regardless.
     @Test func aTakenPortIsReported() async throws {
@@ -282,6 +358,8 @@ final class TestLabTests {
             return false
         }
         #expect(store.forwardState(web, of: session.id) == .failed("Port 28080 is already in use on this Mac."))
+        #expect(store.tunnelConnection(of: session.id, forward: web) == nil,
+                "a refused tunnel keeps no login open")
         try await waitFor { store.forwardState(middle, of: session.id) == .running }
         #expect(await Self.get(28081).contains("Hello from middle"))
     }

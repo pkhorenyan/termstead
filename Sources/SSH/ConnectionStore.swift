@@ -278,11 +278,13 @@ final class ConnectionStore {
 
     // MARK: - Port forwarding (see ConnectionStore+Forwarding.swift)
 
-    /// Each session's tunnels, while one of its connections holds them.
+    /// Each tunnel's state, per session, while port forwarding is on for it.
     var forwardStates: [String: [UUID: ForwardState]] = [:]
-    /// Connections that carry a session's tunnels and no shell ("Start
-    /// Tunnels Only"). Not tabs — until one needs the user, see
-    /// `showTunnelConnection`.
+    /// What each session's port forwarding was started with, to start one
+    /// of its tunnels again.
+    var tunnelLaunches: [String: TunnelLaunch] = [:]
+    /// One connection per running tunnel, ssh `-N` and no shell. Not tabs —
+    /// until one needs the user, see `showTunnelConnection`.
     var tunnels: [Connection] = []
 
     /// Takes a tab out of the list. If it was in front in its pane, its
@@ -360,6 +362,7 @@ final class ConnectionStore {
         connections.removeAll()
         tunnels.removeAll()
         forwardStates = [:]
+        tunnelLaunches = [:]
         activeByPane = [:]
         updateLoadWatches()
     }

@@ -59,23 +59,14 @@ private struct TunnelList: View {
     }
 
     private func section(_ id: String) -> some View {
-        let tunnel = connectionStore.tunnelConnection(of: id)
-        let holder = connectionStore.forwardHolder(of: id)
-        let forwards = holder?.plan?.forwards.map(\.forward) ?? sessionStore.session(id)?.forwards ?? []
+        let forwards = connectionStore.launchedForwards(of: id)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(id)
                     .font(SBFont.ui(13, .semibold))
                     .foregroundStyle(theme.text.color)
                     .lineLimit(1)
-                Text(status(of: tunnel))
-                    .font(SBFont.ui(11.5))
-                    .foregroundStyle(theme.textMuted.color)
-                    .lineLimit(1)
                 Spacer(minLength: 0)
-                if let tunnel, !tunnel.state.isRunning {
-                    small("Reconnect") { tunnel.restart() }
-                }
                 small("Stop All") { connectionStore.stopTunnels(sessionID: id) }
                 small("Edit…") { appState.route = .portForwarding(sessionID: id) }
             }
@@ -91,10 +82,10 @@ private struct TunnelList: View {
                         ForwardStateLabel(state: state)
                         Spacer(minLength: 0)
                         let running = state == .running || state == .opening
+                        // Stop also while opening: a login that hangs ends here.
                         small(running ? "Stop" : "Start") {
                             connectionStore.setForward(forward.id, of: id, running: !running)
                         }
-                        .disabled(state == .opening)
                     } else {
                         Text("Not open")
                             .font(SBFont.ui(12))
@@ -104,12 +95,6 @@ private struct TunnelList: View {
                 }
             }
         }
-    }
-
-    private func status(of tunnel: Connection?) -> String {
-        guard let tunnel else { return "" }
-        if !tunnel.state.isRunning { return "disconnected" }
-        return tunnel.isLoggedIn ? "" : "connecting…"
     }
 
     private func small(_ title: String, action: @escaping () -> Void) -> some View {
