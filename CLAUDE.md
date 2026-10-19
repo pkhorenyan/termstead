@@ -228,7 +228,7 @@ scripts/release.sh 0.2.0
 | `Sources/AboutPanel.swift` | The standard About panel, with links to the website and the source |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
-| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
+| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (tunnels: who holds them, their states, tunnel-only connections), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
@@ -295,6 +295,14 @@ read from there, never stored on `Session`.
   then loads the first folder and turns the sidebar to SFTP — not for a
   server without SFTP, and not if the tab is no longer in front. The
   screenshot kit turns it off (`-files.showAfterLogin NO`) to keep the tree.
+- **Tunnels** (`ConnectionStore+Forwarding.swift`) belong to one connection
+  per session, the holder: a tab, or a tunnel-only connection (`ssh -N`,
+  "Start Tunnels Only", kept in `ConnectionStore.tunnels` and shown as a tab
+  only if it needs the user). They are never on ssh's command line: after
+  login the store asks the master for each one (`ssh -O forward`), so each
+  gets its own state — running, stopped, or failed with a reason. Stop is
+  `-O cancel`. When the holder ends, another connection of the session takes
+  them over; stops last until the session's last connection closes.
 
 ## Conventions
 
@@ -793,6 +801,17 @@ These have each cost real time. They are not hypothetical.
   key on a bastion and a target is asked for by two ssh processes;
   `AskpassMatcher.uses(of:)` sets how many answers each secret gets before the
   terminal takes over.
+- **Tunnels go to the master one by one, and from a client with no config.**
+  On the command line a port already taken was only a warning in the
+  terminal and the tunnel still looked open. A client asking with
+  `-O forward` sends every tunnel its own config names as well, so it runs
+  with `-F /dev/null`; the terminal's ssh and every channel client run with
+  `ClearAllForwardings=yes`, so a `LocalForward` in the user's config is not
+  opened behind Termstead's back — import puts those into the session. A
+  "localhost" tunnel binds 127.0.0.1 *and* ::1 and counts as open if either
+  works; a test that wants it to fail must take both. ssh's own bind error
+  still prints in the terminal, from the master: `LogLevel` would hide real
+  errors with it.
 - **sftp's output depends on the locale.** Without a UTF-8 `LC_CTYPE` it
   prints every non-ASCII byte in a name as `\ooo` — and an app launched from
   Finder has no `LANG`. `SFTPClient` sets `LC_CTYPE=UTF-8`. Also, a failed

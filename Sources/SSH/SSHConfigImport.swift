@@ -19,12 +19,17 @@ enum SSHConfigImport {
         /// Identity files the config names for this host itself, rather than
         /// ssh's built-in defaults or a `Host *` block.
         var identityFiles: [String]
+        /// `LocalForward`, `RemoteForward` and `DynamicForward`, taken into the
+        /// session: Termstead clears the config's own (see `SSHLaunchPlan`).
+        var forwards: [PortForward] = []
 
         var session: Session {
-            Session(id: alias, user: user, host: alias, port: port, icon: .server,
-                    // An empty key path means "let ssh choose" (see
-                    // `SSHLaunch.auth`): the agent and the config's own keys.
-                    auth: .key, keyPath: identityFiles.first ?? "")
+            var session = Session(id: alias, user: user, host: alias, port: port, icon: .server,
+                                  // An empty key path means "let ssh choose" (see
+                                  // `SSHLaunch.auth`): the agent and the config's own keys.
+                                  auth: .key, keyPath: identityFiles.first ?? "")
+            session.forwards = forwards
+            return session
         }
     }
 
@@ -137,8 +142,55 @@ enum SSHConfigImport {
                   let port = values["port"]?.first.flatMap(Int.init) else { return nil }
             let own = (values["identityfile"] ?? []).filter { !defaults.contains($0) }
             return ResolvedHost(alias: alias, hostName: hostName, user: user, port: port,
-                                identityFiles: own)
+                                identityFiles: own, forwards: forwards(in: values))
         }
+    }
+
+    /// The tunnels the config gives `host`. Blocking, like `resolve`.
+    static func forwards(forHost host: String, configPath: String? = nil) -> [PortForward] {
+        sshG(host, configPath: configPath).map(forwards(in:)) ?? []
+    }
+
+    /// From `ssh -G`'s form: `localforward [bind]:8080 [db]:5432`,
+    /// `remoteforward 9000 [localhost]:3000`, `dynamicforward 1080`. Unix
+    /// sockets and reverse SOCKS (`remoteforward 1080 [socks]:0`) have no
+    /// field in the form and are left out.
+    static func forwards(in values: [String: [String]]) -> [PortForward] {
+        func listen(_ text: Substring) -> (bind: String, port: Int)? {
+            guard let colon = text.lastIndex(of: ":") else { return Int(text).map { ("", $0) } }
+            var bind = String(text[..<colon])
+            if bind.hasPrefix("["), bind.hasSuffix("]") { bind = String(bind.dropFirst().dropLast()) }
+            guard let port = Int(text[text.index(after: colon)...]) else { return nil }
+            return (bind == "localhost" ? "" : bind, port)
+        }
+        func destination(_ text: Substring) -> (host: String, port: Int)? {
+            guard text.hasPrefix("["), let close = text.lastIndex(of: "]"),
+                  text[close...].hasPrefix("]:"),
+                  let port = Int(text[text.index(close, offsetBy: 2)...]), port > 0 else { return nil }
+            return (String(text[text.index(after: text.startIndex)..<close]), port)
+        }
+
+        var result: [PortForward] = []
+        // ssh -G also lists a forward to a socket as a `dynamicforward` of
+        // its port; such ports are skipped there.
+        var socketPorts: Set<Int> = []
+        for (keyword, kind) in [("localforward", PortForward.Kind.local), ("remoteforward", .remote)] {
+            for line in values[keyword] ?? [] {
+                let parts = line.split(separator: " ", maxSplits: 1)
+                guard parts.count == 2, let from = listen(parts[0]) else { continue }
+                guard let to = destination(parts[1]), to.host != "socks" else {
+                    if parts[1].hasPrefix("/") { socketPorts.insert(from.port) }
+                    continue
+                }
+                result.append(PortForward(kind: kind, bindAddress: from.bind, listenPort: from.port,
+                                          destinationHost: to.host, destinationPort: to.port))
+            }
+        }
+        for line in values["dynamicforward"] ?? [] {
+            guard let from = listen(Substring(line)), !socketPorts.contains(from.port) else { continue }
+            result.append(PortForward(kind: .dynamic, bindAddress: from.bind, listenPort: from.port))
+        }
+        return result
     }
 
     private static func sshG(_ alias: String, configPath: String?) -> [String: [String]]? {

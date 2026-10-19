@@ -25,7 +25,8 @@ struct SSHLaunchTests {
           IdentitiesOnly yes
         """))
         #expect(!plan.config.contains("ProxyJump"))
-        #expect(plan.arguments(configPath: "/tmp/c") == ["-F", "/tmp/c", "-o", "ServerAliveInterval=30", "10.0.1.13"])
+        #expect(plan.arguments(configPath: "/tmp/c") == ["-F", "/tmp/c", "-o", "ServerAliveInterval=30",
+                                                         "-o", "ClearAllForwardings=yes", "10.0.1.13"])
     }
 
     @Test func userConfigIsIncludedAfterOurBlocks() throws {
@@ -203,7 +204,9 @@ struct SSHLaunchTests {
 
     // MARK: - Port forwarding
 
-    @Test func forwardsGoOnTheCommandLineBeforeTheHost() throws {
+    /// The tunnels are asked of the master after login, each on its own;
+    /// the command line clears any the user's config would open.
+    @Test func forwardsAreKeptOffTheCommandLine() throws {
         var web = session()
         web.forwards = [
             PortForward(kind: .local, listenPort: 8080, destinationHost: "db", destinationPort: 5432),
@@ -214,16 +217,33 @@ struct SSHLaunchTests {
                         destinationHost: "fe80::1", destinationPort: 443),
         ]
         let plan = try SSHLaunch.plan(for: web, sessions: [:], keyExists: allKeysExist)
-        #expect(plan.arguments(configPath: "/tmp/c") == [
-            "-F", "/tmp/c", "-o", "ServerAliveInterval=30",
-            "-L", "8080:db:5432",
-            "-R", "*:9000:localhost:3000",
-            "-D", "1080",
-            "-L", "[::1]:8443:[fe80::1]:443",
-            "10.0.1.13",
+        #expect(plan.forwards.map(\.arguments) == [
+            ["-L", "8080:db:5432"],
+            ["-R", "*:9000:localhost:3000"],
+            ["-D", "1080"],
+            ["-L", "[::1]:8443:[fe80::1]:443"],
         ])
-        // Kept out of the config, which sftp reads as well.
+        #expect(plan.forwards.map(\.id) == web.forwards.map(\.id))
+        #expect(plan.arguments(configPath: "/tmp/c") == [
+            "-F", "/tmp/c", "-o", "ServerAliveInterval=30", "-o", "ClearAllForwardings=yes", "10.0.1.13",
+        ])
         #expect(!plan.config.contains("Forward"))
+    }
+
+    @Test func tunnelsOnlyRunNoShell() throws {
+        let plan = try SSHLaunch.plan(for: session(), sessions: [:], keyExists: allKeysExist)
+        #expect(plan.arguments(configPath: "/tmp/c", tunnelOnly: true).suffix(4)
+                == ["-N", "-o", "RemoteCommand=none", "10.0.1.13"])
+    }
+
+    @Test func refusalsAreExplained() {
+        let failed = "mux_client_forward: forwarding request failed: Port forwarding failed\nmuxclient: master forward request failed"
+        #expect(ConnectionStore.explain(failed, for: PortForward(listenPort: 8080))
+                == "Port 8080 is already in use on this Mac.")
+        #expect(ConnectionStore.explain(failed, for: PortForward(kind: .remote, listenPort: 9000))
+                .hasPrefix("The server would not listen on port 9000"))
+        #expect(ConnectionStore.explain("Control socket connect(/x): No such file or directory", for: PortForward())
+                == "Control socket connect(/x): No such file or directory")
     }
 
     @Test func incompleteForwardsAreRefused() throws {
@@ -257,7 +277,7 @@ struct SSHLaunchTests {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: SSHLaunch.executable)
-        process.arguments = ["-G"] + plan.arguments(configPath: config.path)
+        process.arguments = ["-G", "-F", config.path] + plan.forwards.flatMap(\.arguments) + [plan.target.alias]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = Pipe()

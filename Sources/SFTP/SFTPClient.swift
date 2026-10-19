@@ -34,7 +34,10 @@ struct SFTPClient: Equatable, Sendable {
     /// remote command".
     private var sharedOptions: [String] {
         ["-F", configPath, "-o", "ControlPath=\(controlPath)", "-o", "ControlMaster=no",
-         "-o", "BatchMode=yes", "-o", "RemoteCommand=none", "-o", "RequestTTY=no"]
+         "-o", "BatchMode=yes", "-o", "RemoteCommand=none", "-o", "RequestTTY=no",
+         // A user's config may name tunnels; a client joining the master
+         // would ask it for them again.
+         "-o", "ClearAllForwardings=yes"]
     }
 
     // MARK: - Operations

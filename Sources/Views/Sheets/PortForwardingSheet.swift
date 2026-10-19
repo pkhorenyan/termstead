@@ -17,10 +17,9 @@ struct PortForwardingSheet: View {
 
     @State private var forwards: [PortForward] = []
     @State private var didLoad = false
-    /// Tunnels with a stop or start on its way to ssh.
-    @State private var busy: Set<UUID> = []
-    /// What ssh said when it refused to stop or start a tunnel.
-    @State private var refusals: [UUID: String] = [:]
+    /// What "Import from ~/.ssh/config" found, or that it found nothing.
+    @State private var importNote: String?
+    @State private var isImporting = false
 
     private var problem: String? {
         for (index, forward) in kept.enumerated() {
@@ -80,6 +79,20 @@ struct PortForwardingSheet: View {
                     .labelStyle(InlineIconLabelStyle(spacing: 6, iconSize: 11))
             }
             .buttonStyle(DashedButtonStyle(theme: theme, fontSize: 12.5))
+
+            HStack(spacing: 8) {
+                Button("Import from ~/.ssh/config", action: importFromConfig)
+                    .buttonStyle(.plain)
+                    .font(SBFont.ui(12))
+                    .foregroundStyle(theme.accent.color)
+                    .disabled(isImporting)
+                if let importNote {
+                    Text(importNote)
+                        .font(SBFont.ui(12))
+                        .foregroundStyle(theme.textMuted.color)
+                }
+            }
+            .padding(.top, 2)
         }
     }
 
@@ -154,28 +167,15 @@ struct PortForwardingSheet: View {
     /// Nothing while the session is not connected.
     @ViewBuilder
     private func liveState(_ forward: PortForward, index: Int) -> some View {
-        if let holder = connectionStore.forwardHolder(of: sessionID) {
+        if connectionStore.forwardHolder(of: sessionID) != nil {
             HStack(spacing: 8) {
-                if !holder.carriesForward(forward.id) || forward != saved(forward.id) {
-                    Text("Changed since the session connected: applies on reconnect")
-                        .font(SBFont.ui(12))
-                        .foregroundStyle(theme.textMuted.color)
-                } else {
-                    let running = connectionStore.isForwardRunning(forward.id, of: sessionID)
-                    StatusDot(color: (running ? theme.accent : theme.textFaint).color, size: 7)
-                    Text(running ? "Running" : "Stopped")
-                        .font(SBFont.ui(12.5, .medium))
-                        .foregroundStyle((running ? theme.text : theme.textMuted).color)
-                    if let refusal = refusals[forward.id] {
-                        Text(refusal)
-                            .font(SBFont.ui(12))
-                            .foregroundStyle(theme.ansiRed.color)
-                            .lineLimit(2)
-                            .help(refusal)
-                    }
+                if let state = connectionStore.forwardState(forward.id, of: sessionID),
+                   forward == saved(forward.id) {
+                    ForwardStateLabel(state: state)
                     Spacer(minLength: 0)
+                    let running = state == .running || state == .opening
                     Button {
-                        toggle(forward.id, running: !running)
+                        connectionStore.setForward(forward.id, of: sessionID, running: !running)
                     } label: {
                         Label(running ? "Stop" : "Start",
                               systemImage: running ? "stop.fill" : "play.fill")
@@ -183,8 +183,12 @@ struct PortForwardingSheet: View {
                     }
                     .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26,
                                                       horizontalPadding: 10, fontSize: 12, filled: true))
-                    .disabled(busy.contains(forward.id))
+                    .disabled(state == .opening)
                     .accessibilityLabel("\(running ? "Stop" : "Start") port forward \(index + 1)")
+                } else {
+                    Text("Changed since the session connected: applies on reconnect")
+                        .font(SBFont.ui(12))
+                        .foregroundStyle(theme.textMuted.color)
                 }
             }
             .padding(.leading, 30)
@@ -196,13 +200,23 @@ struct PortForwardingSheet: View {
         sessionStore.session(sessionID)?.forwards.first { $0.id == id }
     }
 
-    private func toggle(_ id: UUID, running: Bool) {
-        busy.insert(id)
-        refusals[id] = nil
+    /// Adds the tunnels the user's `~/.ssh/config` gives this host. Termstead
+    /// no longer lets ssh open those by itself (`ClearAllForwardings`), so
+    /// this is how a session imported earlier gets them back.
+    private func importFromConfig() {
+        guard let host = sessionStore.session(sessionID)?.host else { return }
+        isImporting = true
         Task {
-            let problem = await connectionStore.setForward(id, of: sessionID, running: running)
-            busy.remove(id)
-            refusals[id] = problem
+            let found = await Task.detached { SSHConfigImport.forwards(forHost: host) }.value
+            isImporting = false
+            let fresh = found.filter { candidate in
+                !forwards.contains { $0.kind == candidate.kind && $0.listenPort == candidate.listenPort }
+            }
+            forwards.removeAll(where: \.isBlank)
+            forwards += fresh
+            importNote = fresh.isEmpty
+                ? "~/.ssh/config has no tunnels for \(host) that are not here already."
+                : "Added \(fresh.count) from ~/.ssh/config. Save to keep them."
         }
     }
 
@@ -269,5 +283,46 @@ struct PortForwardingSheet: View {
         sessionStore.applySessionEdits(originalID: sessionID, updated: session, parentID: nil)
         close()
         if thenReconnect { connectionStore.reconnect(sessionID: sessionID, in: sessionStore) }
+    }
+}
+
+/// A tunnel's state as the forms and the status bar show it.
+struct ForwardStateLabel: View {
+    @Environment(\.theme) private var theme
+    var state: ForwardState
+
+    var body: some View {
+        HStack(spacing: 6) {
+            StatusDot(color: color.color, size: 7)
+            Text(title)
+                .font(SBFont.ui(12.5, .medium))
+                .foregroundStyle((state == .running ? theme.text : theme.textMuted).color)
+            if case .failed(let reason) = state {
+                Text(reason)
+                    .font(SBFont.ui(12))
+                    .foregroundStyle(theme.ansiRed.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(reason)
+            }
+        }
+    }
+
+    private var title: String {
+        switch state {
+        case .opening: "Opening…"
+        case .running: "Running"
+        case .stopped: "Stopped"
+        case .failed: "Failed:"
+        }
+    }
+
+    private var color: RGB {
+        switch state {
+        case .running: theme.accent
+        case .opening: theme.ansiYellow
+        case .stopped: theme.textFaint
+        case .failed: theme.ansiRed
+        }
     }
 }

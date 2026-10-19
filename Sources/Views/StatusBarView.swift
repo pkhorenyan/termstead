@@ -51,6 +51,8 @@ struct StatusBarView: View {
                         .layoutPriority(2)
                 }
 
+                TunnelStatusItem()
+
                 if themeStore.showServerLoad, let load = tab.serverLoad {
                     ServerLoadView(load: load, theme: theme)
                         // Offered room before the address, which truncates.
@@ -68,6 +70,8 @@ struct StatusBarView: View {
                 Text("No active connections")
                 Spacer(minLength: 0)
                 unsavedNote
+                // Tunnel-only connections have no tab, so they show here too.
+                TunnelStatusItem()
             }
         }
         .font(SBFont.ui(11.5))

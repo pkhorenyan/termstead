@@ -52,6 +52,8 @@ final class Connection: Identifiable {
     @ObservationIgnored private var loadWatch: ServerLoadWatch?
     /// ssh has logged in to the target (see `watchForLogin`).
     private(set) var isLoggedIn = false
+    /// It got that far on this run, even if it has ended since.
+    @ObservationIgnored private(set) var didLogIn = false
 
     @ObservationIgnored let terminalView: SSHTerminalView
     @ObservationIgnored private var relay: ProcessRelay?
@@ -62,24 +64,30 @@ final class Connection: Identifiable {
     @ObservationIgnored private var loginWatch: (any DispatchSourceFileSystemObject)?
     /// Called each time ssh has logged in to the target — see `watchForLogin`.
     @ObservationIgnored var onLogin: (@MainActor () -> Void)?
-    @ObservationIgnored private var plan: SSHLaunchPlan?
+    /// What the tab last connected with.
+    @ObservationIgnored private(set) var plan: SSHLaunchPlan?
+    /// ssh with `-N`: the session's tunnels and no shell. Kept out of the tab
+    /// strip (`ConnectionStore.tunnels`) unless it needs the user.
+    let isTunnelOnly: Bool
     @ObservationIgnored private var didClose = false
 
     /// A session's tunnels are opened by one of its tabs at a time: a second
     /// ssh asking for the same ports gets "Address already in use" for each.
-    /// This tab's ssh has them open (or is asking its master for them).
+    /// This tab has them: `ConnectionStore.openForwards` opens them over its
+    /// connection once it is logged in.
     private(set) var holdsForwards = false
-    /// Whether this tab may open the tunnels: no other tab of its session
+    /// Whether this tab may take the tunnels: no other tab of its session
     /// holds them. Asked by `ConnectionStore`, which sees every tab.
     @ObservationIgnored var mayForward: (Connection) -> Bool = { _ in true }
-    /// Tunnels the user stopped. They stay down when another tab takes over.
-    @ObservationIgnored var isForwardStopped: (UUID) -> Bool = { _ in false }
+    /// Told when ssh ends, before the tab is closed or reconnected.
+    @ObservationIgnored var onEnded: (() -> Void)?
     /// Told when this tab stops holding the tunnels, so another can take them.
     @ObservationIgnored var onForwardsReleased: (() -> Void)?
 
     init(sessionID: String?, title: String, address: String, keyDescription: String,
-         keychain: KeychainStore = .shared) {
+         keychain: KeychainStore = .shared, isTunnelOnly: Bool = false) {
         self.keychain = keychain
+        self.isTunnelOnly = isTunnelOnly
         self.sessionID = sessionID
         self.title = title
         self.address = address
@@ -108,15 +116,12 @@ final class Connection: Identifiable {
         guard !didClose else { return }
         self.plan = plan
         isLoggedIn = false
+        didLogIn = false
         stopLoadWatch()
         serverLoad = nil
         removeWorkDirectory()
 
-        // `plan` keeps the tunnels, so a tab started without them can still
-        // take them over later (`takeOverForwards`).
-        var launched = plan
         holdsForwards = !plan.forwards.isEmpty && mayForward(self)
-        launched.forwards = holdsForwards ? plan.forwards.filter { !isForwardStopped($0.id) } : []
         if !plan.forwards.isEmpty && !holdsForwards {
             terminalView.feed(text: "\u{1b}[2mPort forwarding is open in another tab of this session; this tab takes it over if that one closes.\u{1b}[0m\r\n")
         }
@@ -140,7 +145,8 @@ final class Connection: Identifiable {
             state = .running
             let control = directory.appendingPathComponent("cm").path
             terminalView.startProcess(executable: SSHLaunch.executable,
-                                      args: launched.arguments(configPath: configURL.path, controlPath: control),
+                                      args: plan.arguments(configPath: configURL.path, controlPath: control,
+                                                           tunnelOnly: isTunnelOnly),
                                       environment: Self.environment(extra: extra),
                                       execName: "ssh")
             watchForExit(of: terminalView.process.shellPid)
@@ -264,37 +270,18 @@ final class Connection: Identifiable {
         loginWatch?.cancel()
         loginWatch = nil
         isLoggedIn = true
+        didLogIn = true
         onLogin?()
         updateLoadWatch()
-        // The tab that held them may have closed while this one logged in.
-        takeOverForwards()
     }
 
-    /// Opens the session's tunnels over this tab's running connection, with
-    /// `ssh -O forward` to its master — no new login, and the shell carries on.
-    func takeOverForwards() {
+    /// Takes the session's tunnels when no other tab has them: the one that
+    /// had them closed, perhaps while this one was logging in.
+    func claimForwards() -> Bool {
         guard !didClose, isLoggedIn, state.isRunning, !holdsForwards,
-              let plan, !plan.forwards.isEmpty, mayForward(self) else { return }
-        // Claimed at once: two tabs must not both ask while the first answer
-        // is on its way.
+              let plan, !plan.forwards.isEmpty, mayForward(self) else { return false }
         holdsForwards = true
-        let running = plan.forwards.filter { !isForwardStopped($0.id) }
-        guard !running.isEmpty else { return }
-        multiplex("forward", running.flatMap(\.arguments)) { [weak self] problem in
-            guard let self, let problem, holdsForwards else { return }
-            holdsForwards = false
-            terminalView.feed(text: "\r\n\u{1b}[31mCould not take over port forwarding: \(problem)\u{1b}[0m\r\n")
-        }
-    }
-
-    /// Stops one of the tunnels this tab holds (`ssh -O cancel`), or opens it
-    /// again. `done` gets ssh's complaint, or `nil` once it is done.
-    func setForward(_ id: UUID, running: Bool, done: @escaping @MainActor (String?) -> Void) {
-        guard holdsForwards, isLoggedIn, state.isRunning else { return done("The session is not connected.") }
-        guard let forward = plan?.forwards.first(where: { $0.id == id }) else {
-            return done("Added after the session connected: reconnect to open it.")
-        }
-        multiplex(running ? "forward" : "cancel", forward.arguments, done: done)
+        return true
     }
 
     /// The tunnel was in the settings this tab connected with.
@@ -302,13 +289,19 @@ final class Connection: Identifiable {
         plan?.forwards.contains { $0.id == id } ?? false
     }
 
-    /// Runs `ssh -O <operation>` against this tab's connection master.
-    private func multiplex(_ operation: String, _ arguments: [String],
+    /// Runs `ssh -O <operation>` against this tab's connection master, and
+    /// hands `done` ssh's complaint, or `nil` once it is done.
+    ///
+    /// `-F /dev/null`: a client asking the master for a tunnel sends every
+    /// tunnel its own config names too, and `ClearAllForwardings` would clear
+    /// the one asked for along with them. It needs nothing from a config but
+    /// the socket.
+    func multiplex(_ operation: String, _ arguments: [String],
                            done: @escaping @MainActor (String?) -> Void) {
         guard let client = sftp else { return done("The session is not connected.") }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: SSHLaunch.executable)
-        process.arguments = ["-F", client.configPath, "-o", "ControlPath=\(client.controlPath)",
+        process.arguments = ["-F", "/dev/null", "-o", "ControlPath=\(client.controlPath)",
                              "-O", operation] + arguments + [client.alias]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -370,6 +363,7 @@ final class Connection: Identifiable {
         state = .exited(code: exitCode)
         isLoggedIn = false
         releaseForwards()
+        onEnded?()
         stopLoadWatch()
         serverLoad = nil
         removeWorkDirectory()

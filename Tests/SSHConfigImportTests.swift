@@ -104,6 +104,34 @@ struct SSHConfigImportTests {
         #expect(resolved.port == 2222)
     }
 
+    /// The config's tunnels become the session's, from `ssh -G`'s own form;
+    /// sockets and reverse SOCKS have no field and are left out.
+    @Test func forwardsComeAlongFromTheConfig() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("sb-import-fwd-\(UUID().uuidString)")
+        try """
+        Host tunnels
+          HostName 10.0.0.5
+          LocalForward 8080 db:5432
+          LocalForward 127.0.0.1:8443 [fe80::1]:443
+          RemoteForward 0.0.0.0:9001 localhost:3001
+          RemoteForward 1081
+          DynamicForward 1080
+          LocalForward 7000 /tmp/sock
+        """.write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let found = SSHConfigImport.forwards(forHost: "tunnels", configPath: file.path)
+        let shapes = found.map { "\($0.kind.rawValue) \($0.bindAddress)|\($0.listenPort ?? 0) \($0.destinationHost):\($0.destinationPort ?? 0)" }
+        #expect(Set(shapes) == [
+            "local |8080 db:5432",
+            "local 127.0.0.1|8443 fe80::1:443",
+            "remote 0.0.0.0|9001 localhost:3001",
+            "dynamic |1080 localhost:0",
+        ])
+        let host = try #require(SSHConfigImport.resolve(["tunnels"], configPath: file.path).first)
+        #expect(host.session.forwards.count == 4)
+    }
+
     @MainActor
     @Test func importAddsNewHostsOnceIntoTheirGroup() {
         let store = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])

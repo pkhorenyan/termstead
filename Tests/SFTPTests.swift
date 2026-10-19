@@ -130,7 +130,7 @@ struct SFTPListingTests {
     @Test func terminalArgumentsShareTheConnection() throws {
         let plan = try SSHLaunch.plan(forAddress: "deploy@web")
         let arguments = plan.arguments(configPath: "/tmp/c", controlPath: "/tmp/sb-1/cm")
-        #expect(arguments == ["-F", "/tmp/c", "-o", "ServerAliveInterval=30",
+        #expect(arguments == ["-F", "/tmp/c", "-o", "ServerAliveInterval=30", "-o", "ClearAllForwardings=yes",
                               "-o", "ControlMaster=auto", "-o", "ControlPath=/tmp/sb-1/cm",
                               "-o", "ControlPersist=no", plan.target.alias])
     }

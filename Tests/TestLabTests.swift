@@ -140,14 +140,15 @@ final class TestLabTests {
     /// from app, middle's; the Files tab still joins the connection, its
     /// config untouched by the tunnels.
     @Test func localForwardThroughAJump() async throws {
-        try await expectShell(on: "lab-app-tunnels", reaching: "app") { connection in
-            #expect(try await Self.exchange(port: 28080, sending: "GET / HTTP/1.0\r\n\r\n")
-                .contains("Hello from app"))
-            #expect(try await Self.exchange(port: 28081, sending: "GET / HTTP/1.0\r\n\r\n")
-                .contains("Hello from middle"))
-            let client = try #require(connection.sftp)
-            #expect(try await client.home() == "/home/lab")
-        }
+        let store = ConnectionStore()
+        let connection = try tab(in: store, tunnelsSession())
+        defer { store.close(connection.id) }
+        // Opened just after login, over the master.
+        try await waitFor { await Self.get(28081).contains("Hello from middle") }
+        #expect(await Self.get(28080).contains("Hello from app"))
+        #expect(await Self.get(28081).contains("Hello from middle"))
+        let client = try #require(connection.sftp)
+        #expect(try await client.home() == "/home/lab")
     }
 
     /// A second tab of the session leaves the tunnels to the first, without
@@ -190,55 +191,168 @@ final class TestLabTests {
         #expect(moved.contains("Hello from app"), "the tunnel did not move to the second tab")
     }
 
-    /// A tunnel stops and starts on the live connection, the shell untouched,
+    // MARK: - Tunnels on a live connection
+
+    private func tunnelsSession(_ change: (inout Session) -> Void = { _ in }) -> Session {
+        var session = sessions["lab-app-tunnels"]!
+        change(&session)
+        return session
+    }
+
+    private static func get(_ port: UInt16) async -> String {
+        (try? await exchange(port: port, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
+    }
+
+    private func waitFor(_ condition: () async -> Bool) async throws {
+        for _ in 0..<200 where !(await condition()) { try await Task.sleep(for: .milliseconds(50)) }
+    }
+
+    private func tab(in store: ConnectionStore, _ session: Session) throws -> Connection {
+        let connection = Connection(sessionID: session.id, title: "", address: "",
+                                    keyDescription: "", keychain: keychain)
+        store.add(connection)
+        connection.start(try plan(session.id))
+        return connection
+    }
+
+    /// A tunnel stops and starts on the live connection, the others untouched,
     /// and a stopped one stays down when another tab takes the tunnels over.
     @Test func aTunnelStopsAndStartsAgain() async throws {
         let store = ConnectionStore()
-        let session = sessions["lab-app-tunnels"]!
+        let session = tunnelsSession()
         let web = session.forwards[0].id
-        func open() throws -> Connection {
-            let connection = Connection(sessionID: session.id, title: "", address: "",
-                                        keyDescription: "", keychain: keychain)
-            store.add(connection)
-            connection.start(try plan(session.id))
-            return connection
-        }
-        func page() async -> String {
-            (try? await Self.exchange(port: 28080, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
-        }
-        func middle() async -> String {
-            (try? await Self.exchange(port: 28081, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
-        }
-        func waitFor(_ condition: () async -> Bool) async throws {
-            for _ in 0..<200 where !(await condition()) { try await Task.sleep(for: .milliseconds(50)) }
-        }
-
-        let first = try open()
+        let first = try tab(in: store, session)
         defer { store.close(first.id) }
-        try await waitFor { store.forwardHolder(of: session.id) != nil }
-        try await waitFor { await page().contains("Hello from app") }
-        #expect(store.isForwardRunning(web, of: session.id))
+        try await waitFor { store.forwardState(web, of: session.id) == .running }
+        #expect(await Self.get(28080).contains("Hello from app"))
 
-        #expect(await store.setForward(web, of: session.id, running: false) == nil)
-        #expect(!store.isForwardRunning(web, of: session.id))
-        #expect(await page().isEmpty, "the stopped tunnel still answers")
-        #expect(await middle().contains("Hello from middle"), "the other tunnels must stay up")
+        store.setForward(web, of: session.id, running: false)
+        #expect(store.forwardState(web, of: session.id) == .stopped)
+        try await waitFor { await Self.get(28080).isEmpty }
+        #expect(await Self.get(28080).isEmpty, "the stopped tunnel still answers")
+        #expect(await Self.get(28081).contains("Hello from middle"), "the other tunnels must stay up")
 
-        #expect(await store.setForward(web, of: session.id, running: true) == nil)
-        try await waitFor { await page().contains("Hello from app") }
-        #expect(await page().contains("Hello from app"))
+        store.setForward(web, of: session.id, running: true)
+        try await waitFor { store.forwardState(web, of: session.id) == .running }
+        #expect(await Self.get(28080).contains("Hello from app"))
 
         // Stopped again, then handed to a second tab: it stays stopped there.
-        #expect(await store.setForward(web, of: session.id, running: false) == nil)
-        let second = try open()
+        store.setForward(web, of: session.id, running: false)
+        let second = try tab(in: store, session)
         defer { store.close(second.id) }
         try await waitFor { screen(second).contains("lab@app") }
         store.close(first.id)
         try await waitFor { store.forwardHolder(of: session.id) === second }
-        try await waitFor { await middle().contains("Hello from middle") }
-        #expect(await middle().contains("Hello from middle"))
-        #expect(await page().isEmpty)
-        #expect(!store.isForwardRunning(web, of: session.id))
+        try await waitFor { await Self.get(28081).contains("Hello from middle") }
+        #expect(await Self.get(28081).contains("Hello from middle"))
+        #expect(await Self.get(28080).isEmpty)
+        #expect(store.forwardState(web, of: session.id) == .stopped)
+    }
+
+    /// Listens on 127.0.0.1 and ::1, as ssh does for "localhost". Retries
+    /// while the previous test's ssh lets go of the port.
+    private static func takePort(_ port: UInt16) async throws -> [Int32] {
+        var sockets: [Int32] = []
+        for family in [AF_INET, AF_INET6] {
+            let fd = socket(family, SOCK_STREAM, 0)
+            var yes: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+            if family == AF_INET6 {
+                setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, socklen_t(MemoryLayout<Int32>.size))
+            }
+            var bound: Int32 = -1
+            for _ in 0..<100 {
+                if family == AF_INET {
+                    var address = sockaddr_in()
+                    address.sin_family = sa_family_t(AF_INET)
+                    address.sin_port = port.bigEndian
+                    address.sin_addr.s_addr = inet_addr("127.0.0.1")
+                    bound = withUnsafePointer(to: &address) {
+                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                            bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                        }
+                    }
+                } else {
+                    var address = sockaddr_in6()
+                    address.sin6_family = sa_family_t(AF_INET6)
+                    address.sin6_port = port.bigEndian
+                    address.sin6_addr = in6addr_loopback
+                    bound = withUnsafePointer(to: &address) {
+                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                            bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size))
+                        }
+                    }
+                }
+                if bound == 0 { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            try #require(bound == 0 && listen(fd, 1) == 0, "could not take port \(port) for the test")
+            sockets.append(fd)
+        }
+        return sockets
+    }
+
+    /// A port something else has is a failed tunnel with the reason, and the
+    /// rest open regardless.
+    @Test func aTakenPortIsReported() async throws {
+        let blockers = try await Self.takePort(28080)
+        defer { blockers.forEach { close($0) } }
+
+        let store = ConnectionStore()
+        let session = tunnelsSession()
+        let connection = try tab(in: store, session)
+        defer { store.close(connection.id) }
+        let web = session.forwards[0].id, middle = session.forwards[1].id
+        try await waitFor {
+            if case .failed = store.forwardState(web, of: session.id) { return true }
+            return false
+        }
+        #expect(store.forwardState(web, of: session.id) == .failed("Port 28080 is already in use on this Mac."))
+        try await waitFor { store.forwardState(middle, of: session.id) == .running }
+        #expect(await Self.get(28081).contains("Hello from middle"))
+    }
+
+    /// "Start Tunnels Only": the tunnels on a connection with no shell and no tab.
+    @Test func tunnelsWithoutATab() async throws {
+        let store = ConnectionStore()
+        let session = tunnelsSession()
+        let connection = try #require(store.startTunnels(for: session, plan: try plan(session.id),
+                                                         keychain: keychain))
+        defer { store.stopTunnels(sessionID: session.id) }
+        try await waitFor { await Self.get(28080).contains("Hello from app") }
+        #expect(await Self.get(28080).contains("Hello from app"))
+        #expect(store.connections.isEmpty, "a tunnel-only connection became a tab")
+        #expect(store.tunnels.first === connection)
+        #expect(store.sessionsWithTunnels == [session.id])
+
+        // A tab of the session now leaves the tunnels where they are.
+        let terminal = try tab(in: store, session)
+        defer { store.close(terminal.id) }
+        try await waitFor { screen(terminal).contains("lab@app") }
+        #expect(!terminal.holdsForwards)
+
+        store.stopTunnels(sessionID: session.id)
+        // ...and takes them over once the tunnel-only connection is gone.
+        try await waitFor { store.forwardHolder(of: session.id) === terminal }
+        try await waitFor { await Self.get(28080).contains("Hello from app") }
+        #expect(await Self.get(28080).contains("Hello from app"))
+    }
+
+    /// A tunnel named in the user's own config is not opened behind
+    /// Termstead's back: it could neither show it nor stop it.
+    @Test func theConfigsOwnTunnelsAreCleared() async throws {
+        let store = ConnectionStore()
+        let connection = Connection(sessionID: "lab-direct", title: "", address: "",
+                                    keyDescription: "", keychain: keychain)
+        store.add(connection)
+        defer { store.close(connection.id) }
+        var withTunnel = try plan("lab-direct")
+        withTunnel.config = "Host *\n  LocalForward 28090 localhost:80\n\n" + withTunnel.config
+        connection.start(withTunnel)
+        try await waitFor { connection.isLoggedIn }
+        #expect(connection.isLoggedIn)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await Self.get(28090).isEmpty, "the config's LocalForward was opened")
     }
 
     /// Sends `request` to 127.0.0.1:`port` and reads the reply until the

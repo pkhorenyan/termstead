@@ -38,11 +38,16 @@ struct SSHLaunchPlan: Equatable, Sendable {
     var config: String
     /// One of the session's tunnels as ssh is told it: `-L spec` and so on.
     struct Forward: Equatable, Sendable {
-        var id: UUID
+        var forward: PortForward
         var arguments: [String]
+
+        var id: UUID { forward.id }
     }
 
-    /// For the terminal's ssh only.
+    /// Opened once the terminal's ssh has logged in, one by one over its
+    /// connection master (`ConnectionStore.openForwards`) — not on its
+    /// command line, where a port already taken was only a warning in the
+    /// terminal and every tunnel looked alike.
     var forwards: [Forward] = []
 
     /// Arguments for `/usr/bin/ssh`, given where `config` was written.
@@ -53,16 +58,21 @@ struct SSHLaunchPlan: Equatable, Sendable {
     /// than into the config because ssh does not pass `-o` on to the ssh it
     /// starts for each `ProxyJump` hop, so only the target shares — and the
     /// config, which `sftp` reads too, cannot make `sftp` a master itself.
-    func arguments(configPath: String, controlPath: String? = nil) -> [String] {
-        var arguments = ["-F", configPath, "-o", "ServerAliveInterval=30"]
+    ///
+    /// `ClearAllForwardings` drops the tunnels a user's `~/.ssh/config`
+    /// would open: Termstead could neither show nor stop them, and a second
+    /// tab of the session failed on each one. Import puts them into the
+    /// session instead (`SSHConfigImport.forwards`).
+    ///
+    /// `tunnelOnly` is ssh's `-N`: the tunnels and no shell.
+    func arguments(configPath: String, controlPath: String? = nil, tunnelOnly: Bool = false) -> [String] {
+        var arguments = ["-F", configPath, "-o", "ServerAliveInterval=30", "-o", "ClearAllForwardings=yes"]
         if let controlPath {
             arguments += ["-o", "ControlMaster=auto", "-o", "ControlPath=\(controlPath)",
                           "-o", "ControlPersist=no"]
         }
-        // On the command line, not in the config: `sftp` and the server-load
-        // channel read the config too, and would ask the master for the same
-        // tunnels again.
-        return arguments + forwards.flatMap(\.arguments) + [target.alias]
+        if tunnelOnly { arguments += ["-N", "-o", "RemoteCommand=none"] }
+        return arguments + [target.alias]
     }
 }
 
@@ -171,7 +181,7 @@ enum SSHLaunch {
                                   auth: targetAuth, passwordAccount: targetPassword)
         var plan = assemble(hops: hops, target: target)
         plan.forwards = try session.forwards.enumerated().map { index, forward in
-            SSHLaunchPlan.Forward(id: forward.id, arguments: try forwardArguments(forward, index: index))
+            SSHLaunchPlan.Forward(forward: forward, arguments: try forwardArguments(forward, index: index))
         }
         return plan
     }
