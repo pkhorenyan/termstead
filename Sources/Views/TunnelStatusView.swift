@@ -61,14 +61,18 @@ private struct TunnelList: View {
     private func section(_ id: String) -> some View {
         let forwards = connectionStore.launchedForwards(of: id)
         return VStack(alignment: .leading, spacing: 8) {
+            // The buttons start over the state column, as the rows' Stop
+            // follows their state.
             HStack(spacing: 8) {
                 Text(id)
                     .font(SBFont.ui(13, .semibold))
                     .foregroundStyle(theme.text.color)
                     .lineLimit(1)
-                Spacer(minLength: 0)
-                small("Stop All") { connectionStore.stopTunnels(sessionID: id) }
+                    .frame(width: Self.summaryWidth, alignment: .leading)
                 small("Edit…") { appState.route = .portForwarding(sessionID: id) }
+                    .frame(width: Self.stateWidth, alignment: .leading)
+                small("Stop All") { connectionStore.stopTunnels(sessionID: id) }
+                Spacer(minLength: 0)
             }
 
             ForEach(forwards) { forward in
@@ -87,7 +91,7 @@ private struct TunnelList: View {
                     .font(SBFont.mono(12))
                     .foregroundStyle(theme.textSecondary.color)
                     .lineLimit(1)
-                    .frame(width: 210, alignment: .leading)
+                    .frame(width: Self.summaryWidth, alignment: .leading)
                 if let state {
                     ForwardStateLabel(state: state, showsReason: false)
                         .frame(width: Self.stateWidth, alignment: .leading)
@@ -125,10 +129,13 @@ private struct TunnelList: View {
                     .font(SBFont.ui(11.5))
                     .foregroundStyle(theme.ansiRed.color)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 218)
+                    .padding(.leading, Self.summaryWidth + 8)
             }
         }
     }
+
+    /// The tunnel's own column, "server 29000 → localhost:2280" included.
+    private static let summaryWidth: CGFloat = 210
 
     /// Wide enough for "● Opening…", the longest state.
     private static let stateWidth: CGFloat = 92
