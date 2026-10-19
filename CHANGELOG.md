@@ -13,6 +13,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   set up from a session's context menu (Port Forwarding…) in the sidebar or
   on its tab. They open with the session's terminal, through its jump
   hosts, and close with it.
+- A right-click on the sidebar's empty space opens a menu: New Session,
+  New Group, Quick Connect and Import from ~/.ssh/config.
 
 ### Fixed
 

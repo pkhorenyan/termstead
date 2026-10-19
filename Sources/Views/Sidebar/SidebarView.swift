@@ -183,6 +183,8 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .contextMenu { blankAreaMenu }
     }
 
     /// What the Sessions tab lists, top to bottom.
@@ -282,6 +284,21 @@ struct SidebarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
+        // The rows' own menus win over this one; it answers everywhere else,
+        // the empty space under the last row included.
+        .contextMenu { blankAreaMenu }
+    }
+
+    @ViewBuilder
+    private var blankAreaMenu: some View {
+        Button("New Session…") { appState.route = .newSession(parentGroupID: nil) }
+        Button("New Group…") { appState.route = .newGroup(parentGroupID: nil) }
+        Button("Quick Connect…") { appState.route = .quickConnect }
+        Divider()
+        Button("Import from ~/.ssh/config") {
+            Task { await appState.importSSHConfig(into: sessionStore) }
+        }
+        .disabled(appState.isImporting)
     }
 
     /// The list is read when the key arrives, not when the view was drawn:
