@@ -55,7 +55,15 @@ final class TestLabTests {
     /// The app's plan, with the test's own known_hosts on top so the real one
     /// is never touched. The agent is left out so only the chosen key is used.
     private func plan(_ id: String) throws -> SSHLaunchPlan {
-        var plan = try SSHLaunch.plan(for: sessions[id]!, sessions: sessions)
+        // Tunnels 20000 ports up, so a tab of the same session left open in
+        // a running Termstead cannot hold the ports the test reads.
+        var session = sessions[id]!
+        session.forwards = session.forwards.map { forward in
+            var moved = forward
+            moved.listenPort = forward.listenPort.map { $0 + 20000 }
+            return moved
+        }
+        var plan = try SSHLaunch.plan(for: session, sessions: sessions)
         plan.config = """
         Host *
           StrictHostKeyChecking accept-new
@@ -133,13 +141,53 @@ final class TestLabTests {
     /// config untouched by the tunnels.
     @Test func localForwardThroughAJump() async throws {
         try await expectShell(on: "lab-app-tunnels", reaching: "app") { connection in
-            #expect(try await Self.exchange(port: 8080, sending: "GET / HTTP/1.0\r\n\r\n")
+            #expect(try await Self.exchange(port: 28080, sending: "GET / HTTP/1.0\r\n\r\n")
                 .contains("Hello from app"))
-            #expect(try await Self.exchange(port: 8081, sending: "GET / HTTP/1.0\r\n\r\n")
+            #expect(try await Self.exchange(port: 28081, sending: "GET / HTTP/1.0\r\n\r\n")
                 .contains("Hello from middle"))
             let client = try #require(connection.sftp)
             #expect(try await client.home() == "/home/lab")
         }
+    }
+
+    /// A second tab of the session leaves the tunnels to the first, without
+    /// "Address already in use", and takes them over when the first closes.
+    @Test func aSecondTabLeavesTheTunnelsToTheFirst() async throws {
+        let store = ConnectionStore()
+        func open() throws -> Connection {
+            let connection = Connection(sessionID: "lab-app-tunnels", title: "", address: "",
+                                        keyDescription: "", keychain: keychain)
+            store.add(connection)
+            connection.start(try plan("lab-app-tunnels"))
+            return connection
+        }
+        func page() async -> String {
+            (try? await Self.exchange(port: 28080, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
+        }
+        func waitFor(_ condition: () async -> Bool) async throws {
+            for _ in 0..<200 where !(await condition()) { try await Task.sleep(for: .milliseconds(50)) }
+        }
+
+        let first = try open()
+        defer { store.close(first.id) }
+        try await waitFor { await page().contains("Hello from app") }
+        #expect(first.holdsForwards)
+
+        let second = try open()
+        defer { store.close(second.id) }
+        try await waitFor { screen(second).contains("lab@app") }
+        #expect(screen(second).contains("lab@app"), "\(screen(second))")
+        #expect(!second.holdsForwards)
+        #expect(!screen(second).contains("Address already in use"), "\(screen(second))")
+
+        store.close(first.id)
+        try await waitFor {
+            guard second.holdsForwards else { return false }
+            return await page().contains("Hello from app")
+        }
+        #expect(second.holdsForwards, "\(screen(second))")
+        let moved = await page()
+        #expect(moved.contains("Hello from app"), "the tunnel did not move to the second tab")
     }
 
     /// Sends `request` to 127.0.0.1:`port` and reads the reply until the

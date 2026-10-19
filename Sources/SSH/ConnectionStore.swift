@@ -357,6 +357,17 @@ final class ConnectionStore {
             guard let self, let connection else { return }
             self.broadcast(data, from: connection)
         }
+        connection.mayForward = { [weak self] asking in
+            guard let self, let session = asking.sessionID else { return true }
+            return !connections.contains { $0 !== asking && $0.sessionID == session && $0.holdsForwards }
+        }
+        connection.onForwardsReleased = { [weak self, weak connection] in
+            guard let self, let session = connection?.sessionID else { return }
+            for other in connections where other !== connection && other.sessionID == session {
+                other.takeOverForwards()
+                if other.holdsForwards { break }
+            }
+        }
         connection.pane = focusedPane
         connections.append(connection)
         activeID = connection.id

@@ -64,6 +64,16 @@ final class Connection: Identifiable {
     @ObservationIgnored private var plan: SSHLaunchPlan?
     @ObservationIgnored private var didClose = false
 
+    /// A session's tunnels are opened by one of its tabs at a time: a second
+    /// ssh asking for the same ports gets "Address already in use" for each.
+    /// This tab's ssh has them open (or is asking its master for them).
+    private(set) var holdsForwards = false
+    /// Whether this tab may open the tunnels: no other tab of its session
+    /// holds them. Asked by `ConnectionStore`, which sees every tab.
+    @ObservationIgnored var mayForward: (Connection) -> Bool = { _ in true }
+    /// Told when this tab stops holding the tunnels, so another can take them.
+    @ObservationIgnored var onForwardsReleased: (() -> Void)?
+
     init(sessionID: String?, title: String, address: String, keyDescription: String,
          keychain: KeychainStore = .shared) {
         self.keychain = keychain
@@ -99,6 +109,15 @@ final class Connection: Identifiable {
         serverLoad = nil
         removeWorkDirectory()
 
+        // `plan` keeps the tunnels, so a tab started without them can still
+        // take them over later (`takeOverForwards`).
+        var launched = plan
+        holdsForwards = !plan.forwards.isEmpty && mayForward(self)
+        if !holdsForwards { launched.forwards = [] }
+        if !plan.forwards.isEmpty && !holdsForwards {
+            terminalView.feed(text: "\u{1b}[2mPort forwarding is open in another tab of this session; this tab takes it over if that one closes.\u{1b}[0m\r\n")
+        }
+
         do {
             let directory = try Self.makeWorkDirectory()
             workDirectory = directory
@@ -118,7 +137,7 @@ final class Connection: Identifiable {
             state = .running
             let control = directory.appendingPathComponent("cm").path
             terminalView.startProcess(executable: SSHLaunch.executable,
-                                      args: plan.arguments(configPath: configURL.path, controlPath: control),
+                                      args: launched.arguments(configPath: configURL.path, controlPath: control),
                                       environment: Self.environment(extra: extra),
                                       execName: "ssh")
             watchForExit(of: terminalView.process.shellPid)
@@ -161,8 +180,31 @@ final class Connection: Identifiable {
         browser?.stop()
         exitWatch?.cancel()
         exitWatch = nil
+        let pid = terminalView.process.shellPid
         if state.isRunning { terminalView.terminate() }
         removeWorkDirectory()
+        releaseForwards(afterExitOf: state.isRunning ? pid : 0)
+    }
+
+    /// The ports stay bound until ssh has actually gone, a moment after the
+    /// hang-up; another tab asking for them sooner is refused.
+    private func releaseForwards(afterExitOf pid: pid_t) {
+        guard holdsForwards, pid > 0 else { return releaseForwards() }
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
+        // The source holds the tab until it fires; cancelling breaks the cycle.
+        source.setEventHandler {
+            MainActor.assumeIsolated {
+                source.cancel()
+                self.releaseForwards()
+            }
+        }
+        exitWatch = source
+        source.resume()
+        // Gone before the watch began.
+        if kill(pid, 0) != 0 {
+            source.cancel()
+            releaseForwards()
+        }
     }
 
     func fail(_ message: String) {
@@ -221,6 +263,45 @@ final class Connection: Identifiable {
         isLoggedIn = true
         onLogin?()
         updateLoadWatch()
+        // The tab that held them may have closed while this one logged in.
+        takeOverForwards()
+    }
+
+    /// Opens the session's tunnels over this tab's running connection, with
+    /// `ssh -O forward` to its master — no new login, and the shell carries on.
+    func takeOverForwards() {
+        guard !didClose, isLoggedIn, state.isRunning, !holdsForwards,
+              let plan, !plan.forwards.isEmpty, mayForward(self), let client = sftp else { return }
+        // Claimed at once: two tabs must not both ask while the first answer
+        // is on its way.
+        holdsForwards = true
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: SSHLaunch.executable)
+        process.arguments = ["-F", client.configPath, "-o", "ControlPath=\(client.controlPath)",
+                             "-O", "forward"] + plan.forwards + [client.alias]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let errors = Pipe()
+        process.standardError = errors
+        process.terminationHandler = { [weak self] finished in
+            let succeeded = finished.terminationStatus == 0
+            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, !succeeded, self.holdsForwards else { return }
+                    self.holdsForwards = false
+                    self.terminalView.feed(text: "\r\n\u{1b}[31mCould not take over port forwarding: \(message)\u{1b}[0m\r\n")
+                }
+            }
+        }
+        do { try process.run() } catch { holdsForwards = false }
+    }
+
+    private func releaseForwards() {
+        guard holdsForwards else { return }
+        holdsForwards = false
+        onForwardsReleased?()
     }
 
     /// Starts or stops reading the server's load to match `watchesLoad`. It
@@ -261,6 +342,7 @@ final class Connection: Identifiable {
         exitWatch = nil
         state = .exited(code: exitCode)
         isLoggedIn = false
+        releaseForwards()
         stopLoadWatch()
         serverLoad = nil
         removeWorkDirectory()
