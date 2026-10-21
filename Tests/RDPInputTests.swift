@@ -174,3 +174,71 @@ struct RDPTypingTests {
         return [pixel[0], pixel[1], pixel[2]]
     }
 }
+
+/// The desktop's size against the tab's.
+struct RDPSizeTests {
+    private func options(sharp: Bool = true, display: RDPOptions.Display = .fitTab) -> RDPOptions {
+        var options = RDPOptions()
+        options.sharpOnRetina = sharp
+        options.display = display
+        return options
+    }
+
+    @Test func aRetinaTabIsTwiceItsPointsAt200Percent() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 1001, height: 700), screenScale: 2, options: options())
+        #expect(fit.width == 2002 && fit.height == 1400 && fit.scale == 200)
+    }
+
+    @Test func notSharpIsAPixelAPoint() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 1001, height: 700), screenScale: 2, options: options(sharp: false))
+        // Even, as RDP wants.
+        #expect(fit.width == 1000 && fit.height == 700 && fit.scale == 100)
+    }
+
+    @Test func aPlainScreenIsAPixelAPointEvenWhenSharp() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 900, height: 600), screenScale: 1, options: options())
+        #expect(fit.width == 900 && fit.height == 600 && fit.scale == 100)
+    }
+
+    @Test func aFixedSizeStaysFixed() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 300, height: 200), screenScale: 2,
+                                 options: options(display: .fixed(width: 1920, height: 1080)))
+        #expect(fit.width == 1920 && fit.height == 1080)
+    }
+
+    @Test func aTinyTabIsHeldToWhatRDPTakes() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 50, height: 9000), screenScale: 1, options: options())
+        #expect(fit.width == 200 && fit.height == 8192)
+    }
+}
+
+/// Resizing a tab resizes the lab's desktop, through Display Control.
+@MainActor
+@Suite(.serialized, .enabled(if: TestLabRDP.isUp, "the lab's RDP server is not running (TestLab/lab.sh up)"))
+struct RDPResizeTests {
+    @Test func theDesktopFollowsTheTab() async throws {
+        let desktop = RDPDesktop()
+        var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+        launch.options.sound = false
+        var tab = CGSize(width: 800, height: 600)
+        desktop.availableSize = { (tab, 1) }
+        desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+        await wait(upTo: 20) { desktop.phase == .showing }
+        try #require(desktop.size == CGSize(width: 800, height: 600))
+        // The display channel comes up a moment after the desktop does.
+        try await Task.sleep(for: .seconds(2))
+
+        tab = CGSize(width: 1024, height: 700)
+        desktop.tabSizeChanged()
+        await wait(upTo: 15) { desktop.size == CGSize(width: 1024, height: 700) }
+        #expect(desktop.size == CGSize(width: 1024, height: 700))
+        desktop.stop()
+    }
+
+    private func wait(upTo seconds: Double, until done: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done(), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+}

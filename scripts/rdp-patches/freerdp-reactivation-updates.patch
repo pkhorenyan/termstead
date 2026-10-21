@@ -1,0 +1,48 @@
+--- a/libfreerdp/core/update.c
++++ b/libfreerdp/core/update.c
+@@ -459,6 +459,18 @@
+ 	Stream_Read_UINT32(s, play_sound->duration);  /* duration (4 bytes) */
+ 	Stream_Read_UINT32(s, play_sound->frequency); /* frequency (4 bytes) */
+ 	return TRUE;
++}
++
++/* Termstead: xrdp starts drawing again before the client has finished the
++ * finalization of a deactivation-reactivation (a resize), and the strict
++ * check below ended the session about one time in two. The desktop already
++ * has its new size by then (DesktopResize runs before finalization), so
++ * those updates are drawn instead. */
++static BOOL update_may_receive(rdpRdp* rdp)
++{
++	if (rdp->was_deactivated && (rdp_get_state(rdp) >= CONNECTION_STATE_FINALIZATION_SYNC))
++		return TRUE;
++	return rdp_has_reached_state(rdp, CONNECTION_STATE_ACTIVE);
+ }
+ 
+ BOOL update_recv_play_sound(rdpUpdate* update, wStream* s)
+@@ -467,7 +479,7 @@
+ 
+ 	WINPR_ASSERT(update);
+ 
+-	if (!rdp_has_reached_state(update->context->rdp, CONNECTION_STATE_ACTIVE))
++	if (!update_may_receive(update->context->rdp))
+ 		return FALSE;
+ 
+ 	if (!update_read_play_sound(s, &play_sound))
+@@ -869,7 +881,7 @@
+ 	rdpContext* context = update->context;
+ 	rdpPointerUpdate* pointer = update->pointer;
+ 
+-	if (!rdp_has_reached_state(update->context->rdp, CONNECTION_STATE_ACTIVE))
++	if (!update_may_receive(update->context->rdp))
+ 		return FALSE;
+ 
+ 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 2 + 2))
+@@ -968,7 +980,7 @@
+ 
+ 	WINPR_ASSERT(context);
+ 
+-	if (!rdp_has_reached_state(update->context->rdp, CONNECTION_STATE_ACTIVE))
++	if (!update_may_receive(update->context->rdp))
+ 		return FALSE;
+ 
+ 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 2))

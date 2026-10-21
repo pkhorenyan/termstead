@@ -25,8 +25,11 @@ DOWNLOADS="$HOME/Library/Caches/Termstead-rdp-deps"
 WORK=/tmp/termstead-rdp-deps
 OUT="$ROOT/Vendor/rdp"
 STAMP="$OUT/.versions"
-# The script's own hash too: a changed flag means another build.
-WANT="openssl-$OPENSSL_VERSION freerdp-$FREERDP_VERSION macos-$MACOS_MIN script-$(shasum -a 256 "$0" | cut -c1-12)"
+# Patches to FreeRDP, applied in name order; each says why at its top.
+PATCHES="$ROOT/scripts/rdp-patches"
+# The script's and the patches' hashes too: a changed flag or patch means
+# another build.
+WANT="openssl-$OPENSSL_VERSION freerdp-$FREERDP_VERSION macos-$MACOS_MIN script-$(cat "$0" "$PATCHES"/*.patch | shasum -a 256 | cut -c1-12)"
 JOBS="$(sysctl -n hw.ncpu)"
 
 if [[ "${1:-}" == "--clean" ]]; then
@@ -56,6 +59,9 @@ fetch() {
 
 fetch "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" "$OPENSSL_SHA256"
 fetch "https://github.com/FreeRDP/FreeRDP/releases/download/$FREERDP_VERSION/freerdp-$FREERDP_VERSION.tar.gz" "$FREERDP_SHA256"
+for patch in "$PATCHES"/freerdp-*.patch; do
+    patch -s -p1 -d "$WORK/src/freerdp-$FREERDP_VERSION" <"$patch"
+done
 
 export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN"
 

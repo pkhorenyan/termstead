@@ -1,4 +1,5 @@
 #include "rdp_bridge.h"
+#include "rdp_log.h"
 
 // FreeRDP's headers warn about their own deprecated types and more; that is
 // theirs to fix, and must not break a build that allows no warnings.
@@ -21,6 +22,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+static BOOL tsr_log(const wLogMessage* message)
+{
+	tsr_log_line(message->Level >= WLOG_ERROR, message->FunctionName, message->TextString);
+	return TRUE;
+}
 
 struct tsr_session {
 	tsr_callbacks callbacks;
@@ -224,7 +231,16 @@ static bool set_string(rdpSettings* settings, FreeRDP_Settings_Keys_String key, 
 
 tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 {
-	WLog_SetLogLevel(WLog_GetRoot(), WLOG_WARN);
+	// Warnings and errors to the unified log: an XPC service's stderr goes
+	// nowhere, and the sandbox keeps the old syslog out.
+	// `log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
+	wLog* root = WLog_GetRoot();
+	if (WLog_SetLogAppenderType(root, WLOG_APPENDER_CALLBACK)) {
+		wLogCallbacks forward = { 0 };
+		forward.message = tsr_log;
+		(void)WLog_ConfigureAppender(WLog_GetLogAppender(root), "callbacks", &forward);
+	}
+	WLog_SetLogLevel(root, WLOG_WARN);
 
 	tsr_session* session = calloc(1, sizeof(tsr_session));
 	if (!session)

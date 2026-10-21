@@ -43,6 +43,12 @@ final class RDPDesktop {
     @ObservationIgnored let view = RDPDesktopView()
     @ObservationIgnored private var engine: RDPEngineConnection?
     @ObservationIgnored private var attempt = 0
+    /// What the session looks like, from its settings when it opened.
+    @ObservationIgnored private var options = RDPOptions()
+    @ObservationIgnored private var pendingResize: Task<Void, Never>?
+    /// How long the tab's size must hold before the desktop follows it.
+    /// Longer than a terminal's: the server redraws the whole screen.
+    static let resizeDelay: Duration = .milliseconds(300)
     /// Lines for the tab's terminal, which shows what happened until the
     /// desktop is up and again once it has gone.
     @ObservationIgnored var log: ((String) -> Void)?
@@ -118,6 +124,7 @@ final class RDPDesktop {
                          attempt current: Int) async {
         let (width, height, scale) = await desktopSize(for: launch.options)
         guard current == attempt else { return }
+        options = launch.options
         let socket: FileHandle
         do {
             socket = try await open()
@@ -167,6 +174,31 @@ final class RDPDesktop {
         engine.connect(settings, socket: socket)
     }
 
+    // MARK: - Size
+
+    /// The tab changed size, or moved to a screen of another scale. A
+    /// desktop that fits its tab follows once the size holds still; one of
+    /// a fixed size is only scaled.
+    func tabSizeChanged() {
+        guard phase == .showing, options.display == .fitTab else { return }
+        pendingResize?.cancel()
+        pendingResize = Task { [weak self] in
+            try? await Task.sleep(for: Self.resizeDelay)
+            guard !Task.isCancelled else { return }
+            self?.resizeToFit()
+        }
+    }
+
+    private func resizeToFit() {
+        guard phase == .showing, let engine, let available = availableSize() else { return }
+        let fit = Self.fit(points: available.size, screenScale: available.scale, options: options)
+        guard CGSize(width: fit.width, height: fit.height) != size else { return }
+        // The server answers with a desktop of the new size, as a new
+        // surface; a server without Display Control ignores it, and the
+        // picture is scaled instead.
+        engine.resize(width: fit.width, height: fit.height, desktopScale: fit.scale)
+    }
+
     private func end(_ reason: String) {
         engine?.close()
         engine = nil
@@ -176,32 +208,36 @@ final class RDPDesktop {
         onEnded?(reason)
     }
 
-    /// The tab's size in pixels, or the fixed size the session asks for.
-    /// A tab just opened may not be laid out yet; it gets a moment.
+    /// The size to log in at. A tab just opened may not be laid out yet; it
+    /// gets a moment.
     private func desktopSize(for options: RDPOptions) async -> (width: Int, height: Int, scale: Int) {
         var available = availableSize()
         for _ in 0..<20 where available == nil {
             try? await Task.sleep(for: .milliseconds(50))
             available = availableSize()
         }
-        let screenScale = available?.scale ?? NSScreen.main?.backingScaleFactor ?? 1
+        return Self.fit(points: available?.size ?? CGSize(width: 1280, height: 800),
+                        screenScale: available?.scale ?? NSScreen.main?.backingScaleFactor ?? 1,
+                        options: options)
+    }
+
+    /// The desktop for a tab of `points`: its pixels on a Retina screen with
+    /// Windows at 200%, so text keeps its size and is sharp; one pixel a
+    /// point otherwise. A fixed size is the session's own, scaled to fit.
+    /// RDP takes an even width, and nothing outside 200…8192.
+    nonisolated static func fit(points: CGSize, screenScale: CGFloat,
+                                options: RDPOptions) -> (width: Int, height: Int, scale: Int) {
         let sharp = options.sharpOnRetina && screenScale >= 2
         let scale = sharp ? 200 : 100
         switch options.display {
         case .fixed(let width, let height):
             return (width, height, scale)
         case .fitTab:
-            let points = available?.size ?? CGSize(width: 1280, height: 800)
             let factor = sharp ? screenScale : 1
-            return Self.even(points.width * factor, points.height * factor, scale: scale)
+            let width = min(max(Int(points.width * factor), 200), 8192) & ~1
+            let height = min(max(Int(points.height * factor), 200), 8192)
+            return (width, height, scale)
         }
-    }
-
-    /// RDP takes an even width, and nothing outside 200…8192.
-    private static func even(_ width: CGFloat, _ height: CGFloat, scale: Int) -> (Int, Int, Int) {
-        let w = min(max(Int(width), 200), 8192) & ~1
-        let h = min(max(Int(height), 200), 8192)
-        return (w, h, scale)
     }
 }
 
@@ -254,6 +290,13 @@ final class RDPDesktopView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         layer?.contentsScale = window?.backingScaleFactor ?? 1
+        desktop?.tabSizeChanged()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { desktop?.tabSizeChanged() }
     }
 
     override func viewDidMoveToWindow() {
