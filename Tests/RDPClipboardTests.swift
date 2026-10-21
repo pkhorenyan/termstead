@@ -108,7 +108,10 @@ struct RDPClipboardTests {
         desktop.stop()
     }
 
-    /// A password manager's copy goes over on ⌘V only.
+    /// A password manager's copy goes over on ⌘V only. Without the keys
+    /// ⌘V presses: they land in whatever has the focus in the lab user's
+    /// desktop, which outlives the test (a Ctrl+V once left Thunar showing
+    /// an error there).
     @Test func aConcealedCopyWaitsForPaste() async throws {
         let pasteboard = NSPasteboard(name: .init("termstead-test-\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }
@@ -120,7 +123,7 @@ struct RDPClipboardTests {
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
         #expect(try await serverText(expecting: secret, for: 3) != secret)
 
-        desktop.perform(.paste)
+        desktop.offerForPaste()
         #expect(try await serverText(expecting: secret, for: 5) == secret)
         desktop.stop()
     }

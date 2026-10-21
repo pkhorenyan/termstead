@@ -152,7 +152,7 @@ final class RDPDesktop {
     func perform(_ command: RDPKeyboard.EditCommand) {
         guard phase == .showing else { return }
         if command == .paste, options.clipboard {
-            offerClipboard(paste: true)
+            offerForPaste()
             // The clipboard and the keys share the connection but not a
             // queue on the server: give it the text before the keys.
             Task { [weak self] in
@@ -403,6 +403,11 @@ final class RDPDesktop {
     func keyboardArrived() {
         guard phase == .showing, options.clipboard else { return }
         offerClipboard()
+    }
+
+    /// What ⌘V hands the server before the keys: whatever may go, now.
+    func offerForPaste() {
+        offerClipboard(paste: true)
     }
 
     /// `paste`: ⌘V in the desktop, which offers whatever may go, now.
