@@ -151,7 +151,12 @@ final class RDPTunnelTests {
     /// agent, as `TestLabTests` has it.
     private func open(_ id: String) throws -> Connection {
         let sessions = Dictionary(uniqueKeysWithValues: lab.sessions.map { ($0.id, $0) })
-        let session = try #require(sessions[id])
+        return try open(try #require(sessions[id]))
+    }
+
+    private func open(_ session: Session) throws -> Connection {
+        let id = session.id
+        let sessions = Dictionary(uniqueKeysWithValues: lab.sessions.map { ($0.id, $0) })
         var plan = try SSHLaunch.plan(forDesktop: session, sessions: sessions)
         plan.config = """
         Host *
@@ -179,6 +184,21 @@ final class RDPTunnelTests {
         #expect(tab.isLoggedIn)
         // The tunnel's ssh is no shell: nothing for the Files tab.
         #expect(tab.plan?.target.host == "127.0.0.1")
+        tab.close()
+    }
+
+    /// Two hops, the second typed out: ssh reaches `middle` through the
+    /// bastion, and the desktop is forwarded from there.
+    @Test func theDesktopComesThroughTwoJumpHosts() async throws {
+        var session = try #require(lab.sessions.first { $0.id == "lab-rdp-via-bastion" })
+        session.id = "lab-rdp-2-jumps"
+        session.jumps = [JumpHost(host: "lab-bastion"),
+                         JumpHost(host: "middle", user: "lab", port: 22, auth: .key, keyPath: "~/.ssh/termstead-lab")]
+        let tab = try open(session)
+        let desktop = try #require(tab.desktop)
+        await TestLabRDP.waitUntilShowing(desktop, seconds: 45)
+        #expect(desktop.phase == .showing)
+        #expect(tab.plan?.target.host == "middle")
         tab.close()
     }
 

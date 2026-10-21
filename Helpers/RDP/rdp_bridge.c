@@ -42,11 +42,13 @@ struct tsr_session {
 	tsr_callbacks callbacks;
 	rdpContext* context;
 	int socket;
+	/// The channels, and what is on offer through the clipboard one. Used
+	/// from XPC's queues and dropped on the session's thread as it ends, so
+	/// both happen under `channel_lock`: a channel used just as the session
+	/// ended was used after it was freed.
+	pthread_mutex_t channel_lock;
 	DispClientContext* disp;
 	CliprdrClientContext* cliprdr;
-	/// This Mac's clipboard text, offered to the server: set from an XPC
-	/// queue, read on the clipboard channel's thread.
-	pthread_mutex_t clipboard_lock;
 	char* local_text;
 	FILEDESCRIPTORW* local_files;
 	uint32_t local_file_count;
@@ -55,6 +57,11 @@ struct tsr_session {
 	/// clipboard channel's thread only.
 	UINT32 server_file_format;
 	UINT32 pending_format;
+	/// Copied again before the answer to the last request came: that answer
+	/// belongs to the copy before, and `next_format` (0 for none) is asked
+	/// for once it is in. Taken as this copy's, a file list became text.
+	bool pending_stale;
+	UINT32 next_format;
 	char* reason;
 	/// The last pointer id given out; on the session's thread only.
 	int32_t last_pointer;
@@ -177,10 +184,10 @@ static UINT tsr_send_format_list(CliprdrClientContext* cliprdr, bool text, bool 
 
 static UINT tsr_send_current_format_list(tsr_session* session, CliprdrClientContext* cliprdr)
 {
-	pthread_mutex_lock(&session->clipboard_lock);
+	pthread_mutex_lock(&session->channel_lock);
 	const bool text = session->local_text != NULL;
 	const bool files = session->local_file_count > 0;
-	pthread_mutex_unlock(&session->clipboard_lock);
+	pthread_mutex_unlock(&session->channel_lock);
 	return tsr_send_format_list(cliprdr, text, files);
 }
 
@@ -240,11 +247,17 @@ static UINT tsr_server_format_list(CliprdrClientContext* cliprdr, const CLIPRDR_
 		else if (format->formatName && strcmp(format->formatName, TSR_FILE_FORMAT_NAME) == 0)
 			session->server_file_format = format->formatId;
 	}
+	UINT32 wanted = 0;
 	if (session->server_file_format && session->callbacks.server_files)
-		return tsr_request_format(session, cliprdr, session->server_file_format);
-	if (text)
-		return tsr_request_format(session, cliprdr, CF_UNICODETEXT);
-	return CHANNEL_RC_OK;
+		wanted = session->server_file_format;
+	else if (text)
+		wanted = CF_UNICODETEXT;
+	if (session->pending_format) {
+		session->pending_stale = true;
+		session->next_format = wanted;
+		return CHANNEL_RC_OK;
+	}
+	return wanted ? tsr_request_format(session, cliprdr, wanted) : CHANNEL_RC_OK;
 }
 
 static UINT tsr_server_format_list_response(CliprdrClientContext* cliprdr,
@@ -301,6 +314,12 @@ static UINT tsr_server_format_data_response(CliprdrClientContext* cliprdr,
 	tsr_session* session = (tsr_session*)cliprdr->custom;
 	const UINT32 format = session->pending_format;
 	session->pending_format = 0;
+	if (session->pending_stale) {
+		session->pending_stale = false;
+		const UINT32 next = session->next_format;
+		session->next_format = 0;
+		return next ? tsr_request_format(session, cliprdr, next) : CHANNEL_RC_OK;
+	}
 	if ((response->common.msgFlags & CB_RESPONSE_FAIL) || !response->requestedFormatData)
 		return CHANNEL_RC_OK;
 	if (format && format == session->server_file_format) {
@@ -331,7 +350,7 @@ static UINT tsr_server_format_data_request(CliprdrClientContext* cliprdr,
 	response.common.msgFlags = CB_RESPONSE_FAIL;
 	BYTE* data = NULL;
 	UINT32 length = 0;
-	pthread_mutex_lock(&session->clipboard_lock);
+	pthread_mutex_lock(&session->channel_lock);
 	if (request->requestedFormatId == CF_UNICODETEXT && session->local_text) {
 		size_t units = 0;
 		data = (BYTE*)ConvertUtf8ToWCharAlloc(session->local_text, &units);
@@ -343,7 +362,7 @@ static UINT tsr_server_format_data_request(CliprdrClientContext* cliprdr,
 			data = NULL;
 		}
 	}
-	pthread_mutex_unlock(&session->clipboard_lock);
+	pthread_mutex_unlock(&session->channel_lock);
 	if (data) {
 		response.common.msgFlags = CB_RESPONSE_OK;
 		response.common.dataLen = length;
@@ -373,14 +392,14 @@ static UINT tsr_server_file_contents_request(CliprdrClientContext* cliprdr,
                                              const CLIPRDR_FILE_CONTENTS_REQUEST* request)
 {
 	tsr_session* session = (tsr_session*)cliprdr->custom;
-	pthread_mutex_lock(&session->clipboard_lock);
+	pthread_mutex_lock(&session->channel_lock);
 	const bool known = request->listIndex < session->local_file_count;
 	uint64_t size = 0;
 	if (known) {
 		const FILEDESCRIPTORW* d = &session->local_files[request->listIndex];
 		size = ((uint64_t)d->nFileSizeHigh << 32) | d->nFileSizeLow;
 	}
-	pthread_mutex_unlock(&session->clipboard_lock);
+	pthread_mutex_unlock(&session->channel_lock);
 	if (!known)
 		return tsr_send_file_contents(cliprdr, request->streamId, NULL, 0);
 	if (request->dwFlags & FILECONTENTS_SIZE) {
@@ -421,9 +440,9 @@ static void tsr_attach_clipboard(tsr_session* session, CliprdrClientContext* cli
 	cliprdr->ServerFormatDataResponse = tsr_server_format_data_response;
 	cliprdr->ServerFileContentsRequest = tsr_server_file_contents_request;
 	cliprdr->ServerFileContentsResponse = tsr_server_file_contents_response;
-	pthread_mutex_lock(&session->clipboard_lock);
+	pthread_mutex_lock(&session->channel_lock);
 	session->cliprdr = cliprdr;
-	pthread_mutex_unlock(&session->clipboard_lock);
+	pthread_mutex_unlock(&session->channel_lock);
 }
 
 /// A file as the server's Explorer takes it. False for a name too long for
@@ -462,36 +481,29 @@ bool tsr_set_clipboard(tsr_session* session, const char* text, const tsr_file* f
 			}
 		}
 	}
-	pthread_mutex_lock(&session->clipboard_lock);
+	pthread_mutex_lock(&session->channel_lock);
 	free(session->local_text);
 	session->local_text = text ? strdup(text) : NULL;
 	free(session->local_files);
 	session->local_files = descriptors;
 	session->local_file_count = (uint32_t)count;
-	CliprdrClientContext* cliprdr = session->cliprdr;
-	pthread_mutex_unlock(&session->clipboard_lock);
-	if (cliprdr)
-		(void)tsr_send_format_list(cliprdr, text != NULL, count > 0);
+	if (session->cliprdr)
+		(void)tsr_send_format_list(session->cliprdr, text != NULL, count > 0);
+	pthread_mutex_unlock(&session->channel_lock);
 	return true;
 }
 
 void tsr_file_data_reply(tsr_session* session, uint32_t stream, const uint8_t* data, size_t length)
 {
-	pthread_mutex_lock(&session->clipboard_lock);
-	CliprdrClientContext* cliprdr = session->cliprdr;
-	pthread_mutex_unlock(&session->clipboard_lock);
-	if (cliprdr)
-		(void)tsr_send_file_contents(cliprdr, stream, data, (UINT32)length);
+	pthread_mutex_lock(&session->channel_lock);
+	if (session->cliprdr)
+		(void)tsr_send_file_contents(session->cliprdr, stream, data, (UINT32)length);
+	pthread_mutex_unlock(&session->channel_lock);
 }
 
 bool tsr_request_file_data(tsr_session* session, uint32_t stream, uint32_t index, uint64_t offset,
                            uint32_t length, bool size_only)
 {
-	pthread_mutex_lock(&session->clipboard_lock);
-	CliprdrClientContext* cliprdr = session->cliprdr;
-	pthread_mutex_unlock(&session->clipboard_lock);
-	if (!cliprdr)
-		return false;
 	CLIPRDR_FILE_CONTENTS_REQUEST request = { 0 };
 	request.common.msgType = CB_FILECONTENTS_REQUEST;
 	request.streamId = stream;
@@ -500,15 +512,22 @@ bool tsr_request_file_data(tsr_session* session, uint32_t stream, uint32_t index
 	request.nPositionLow = size_only ? 0 : (UINT32)offset;
 	request.nPositionHigh = size_only ? 0 : (UINT32)(offset >> 32);
 	request.cbRequested = size_only ? 8 : length;
-	return cliprdr->ClientFileContentsRequest(cliprdr, &request) == CHANNEL_RC_OK;
+	pthread_mutex_lock(&session->channel_lock);
+	const bool sent = session->cliprdr &&
+	                  session->cliprdr->ClientFileContentsRequest(session->cliprdr, &request) ==
+	                      CHANNEL_RC_OK;
+	pthread_mutex_unlock(&session->channel_lock);
+	return sent;
 }
 
 static void tsr_channel_connected(void* context, const ChannelConnectedEventArgs* e)
 {
 	tsr_session* session = session_of((rdpContext*)context);
-	if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
+	if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0) {
+		pthread_mutex_lock(&session->channel_lock);
 		session->disp = (DispClientContext*)e->pInterface;
-	else if (strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0)
+		pthread_mutex_unlock(&session->channel_lock);
+	} else if (strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0)
 		tsr_attach_clipboard(session, (CliprdrClientContext*)e->pInterface);
 	else
 		freerdp_client_OnChannelConnectedEventHandler(context, e);
@@ -518,11 +537,13 @@ static void tsr_channel_disconnected(void* context, const ChannelDisconnectedEve
 {
 	tsr_session* session = session_of((rdpContext*)context);
 	if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0) {
+		pthread_mutex_lock(&session->channel_lock);
 		session->disp = NULL;
+		pthread_mutex_unlock(&session->channel_lock);
 	} else if (strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0) {
-		pthread_mutex_lock(&session->clipboard_lock);
+		pthread_mutex_lock(&session->channel_lock);
 		session->cliprdr = NULL;
-		pthread_mutex_unlock(&session->clipboard_lock);
+		pthread_mutex_unlock(&session->channel_lock);
 	} else {
 		freerdp_client_OnChannelDisconnectedEventHandler(context, e);
 	}
@@ -765,7 +786,7 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 		return NULL;
 	session->callbacks = *callbacks;
 	session->socket = params->socket;
-	pthread_mutex_init(&session->clipboard_lock, NULL);
+	pthread_mutex_init(&session->channel_lock, NULL);
 
 	RDP_CLIENT_ENTRY_POINTS entry = { 0 };
 	entry.Version = RDP_CLIENT_INTERFACE_VERSION;
@@ -888,7 +909,7 @@ void tsr_free(tsr_session* session)
 	free(session->reason);
 	free(session->local_text);
 	free(session->local_files);
-	pthread_mutex_destroy(&session->clipboard_lock);
+	pthread_mutex_destroy(&session->channel_lock);
 	free(session);
 }
 
@@ -921,9 +942,6 @@ bool tsr_send_mouse(tsr_session* session, uint16_t flags, uint16_t x, uint16_t y
 
 bool tsr_resize(tsr_session* session, uint32_t width, uint32_t height, uint32_t desktop_scale)
 {
-	DispClientContext* disp = session->disp;
-	if (!disp)
-		return false;
 	DISPLAY_CONTROL_MONITOR_LAYOUT layout = { 0 };
 	layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
 	// Even, and within what the protocol allows.
@@ -932,5 +950,9 @@ bool tsr_resize(tsr_session* session, uint32_t width, uint32_t height, uint32_t 
 	layout.Orientation = ORIENTATION_LANDSCAPE;
 	layout.DesktopScaleFactor = desktop_scale >= 100 ? desktop_scale : 100;
 	layout.DeviceScaleFactor = desktop_scale >= 180 ? 180 : desktop_scale >= 140 ? 140 : 100;
-	return disp->SendMonitorLayout(disp, 1, &layout) == CHANNEL_RC_OK;
+	pthread_mutex_lock(&session->channel_lock);
+	const bool sent = session->disp &&
+	                  session->disp->SendMonitorLayout(session->disp, 1, &layout) == CHANNEL_RC_OK;
+	pthread_mutex_unlock(&session->channel_lock);
+	return sent;
 }

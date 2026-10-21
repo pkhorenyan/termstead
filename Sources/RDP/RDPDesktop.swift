@@ -309,8 +309,6 @@ final class RDPDesktop {
         engine.connect(settings, socket: socket)
     }
 
-    /// Trusted by macOS for this host, or trusted by the user before, it
-    /// goes ahead; otherwise the tab asks.
     /// The server's reasons for ending a session (ERRINFO_*, in FreeRDP's
     /// error class 1), said the way someone at the Mac would. FreeRDP's own
     /// words for "logged off" misled: xrdp sends it when the same user
@@ -328,6 +326,8 @@ final class RDPDesktop {
         }
     }
 
+    /// Trusted by macOS for this host, or trusted by the user before, it
+    /// goes ahead; otherwise the tab asks.
     private func check(_ pem: String, for launch: RDPLaunch, attempt current: Int,
                        reply: @escaping @Sendable (Bool) -> Void) async {
         guard let certificate = RDPCertificate(pem: pem) else { return reply(false) }
@@ -395,8 +395,10 @@ final class RDPDesktop {
         seenChange = -1
         clipboardWatch = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.offerClipboard()
-                self?.fetchServerFilesIfAway()
+                // Gone without a stop: nothing left to watch for.
+                guard let self else { return }
+                await offerClipboard()
+                fetchServerFilesIfAway()
                 try? await Task.sleep(for: .seconds(1))
             }
         }

@@ -13,6 +13,9 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     private var session: OpaquePointer?
     private var surface: IOSurfaceRef?
     private var isStarted = false
+    /// The app let go before the session existed: it is stopped as soon as
+    /// it does, or it would log in and stay, with no one to show it to.
+    private var stopRequested = false
     /// Gives up the question the session's thread is waiting on, if any:
     /// a tab closed meanwhile must not leave that thread blocked for good.
     private var cancelQuestion: (() -> Void)?
@@ -142,6 +145,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     func disconnect() {
         lock.lock()
         let cancel = cancelQuestion
+        stopRequested = true
         lock.unlock()
         cancel?()
         withSession {
@@ -238,6 +242,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         lock.lock()
         session = created
         if let localClipboard { Self.offer(localClipboard.text, files: localClipboard.files, to: created) }
+        if stopRequested { tsr_stop(created) }
         lock.unlock()
 
         let reason = String(cString: tsr_run(created))

@@ -961,6 +961,14 @@ These have each cost real time. They are not hypothetical.
   from the client through FUSE, so the lab's container gets `/dev/fuse`.
   The lab tests files only; folders are covered by a test with a pretend
   server, and by Windows.
+- **FreeRDP's channels go away on the session's thread.** The clipboard
+  and Display Control are used from XPC's queues; a pointer read before
+  the session ended and used after was a use-after-free. They are used
+  and dropped under `channel_lock`. A clipboard data answer does not say
+  what it answers, so a copy made before the last answer came marks that
+  answer stale (`pending_stale`): taken as the new copy's, a file list
+  became text on the Mac. And a tab closed before the engine's session
+  existed must stop it once it does (`stopRequested`).
 - **A question the engine waits on must be cancellable.** FreeRDP's thread
   blocks in the callback until the app answers; closing the tab meanwhile
   left it blocked for good. `RDPEngine.disconnect` gives up the question.
