@@ -30,7 +30,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   once trusted. A certificate that changed is asked about as a change.
 - A login the session has no password for, or the server refuses, is asked
   for in the tab, with Save to Keychain.
-- Text copied on either side can be pasted on the other.
+- Text copied on either side can be pasted on the other. The Mac's
+  clipboard reaches a remote desktop only while you are typing in it, and
+  a password copied from a password manager only when you press ⌘V there.
 
 ## [0.6.0] - 2026-10-20
 

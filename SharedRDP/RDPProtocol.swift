@@ -94,8 +94,9 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
     func mouse(x: Int, y: Int, flags: Int)
     /// A new size for the desktop, through the Display Control channel.
     func resize(width: Int, height: Int, desktopScale: Int)
-    /// Text copied on this Mac, offered to the server's clipboard.
-    func clipboard(_ text: String)
+    /// Text copied on this Mac, offered to the server's clipboard; `nil`
+    /// withdraws it.
+    func clipboard(_ text: String?)
     func disconnect()
 }
 

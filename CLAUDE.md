@@ -360,7 +360,12 @@ read from there, never stored on `Session`.
   missing or refused is asked in the tab too, and can be saved to the
   Keychain under the session's password account.
 - **The clipboard** is text only, both ways, while "Share the clipboard" is
-  on; the Mac's pasteboard is looked at once a second.
+  on. The Mac's pasteboard is looked at once a second, but offered to the
+  server only while the keyboard is in the desktop (`RDPDesktopView.hasKeyboard`,
+  and again the moment it arrives): a desktop in a background tab never sees
+  what is copied elsewhere. Content marked transient or generated
+  (nspasteboard.org) is never offered; concealed — a password manager's —
+  only on ⌘V, so a password can still be pasted into a Windows login.
 - **FreeRDP's log** goes to the unified log:
   `/usr/bin/log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
   (in zsh, `log` alone is a shell builtin).

@@ -76,7 +76,7 @@ final class RDPEngineConnection {
         engine?.resize(width: width, height: height, desktopScale: desktopScale)
     }
 
-    func clipboard(_ text: String) {
+    func clipboard(_ text: String?) {
         engine?.clipboard(text)
     }
 

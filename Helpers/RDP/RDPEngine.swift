@@ -74,7 +74,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         withSession { tsr_resize($0, UInt32(clamping: width), UInt32(clamping: height), UInt32(clamping: desktopScale)) }
     }
 
-    func clipboard(_ text: String) {
+    func clipboard(_ text: String?) {
         lock.lock()
         defer { lock.unlock() }
         // Before the session exists, it waits for it.
