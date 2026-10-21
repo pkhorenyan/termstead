@@ -80,29 +80,40 @@ struct InsetNote: View {
 }
 
 /// Title, subtitle and a rule — shared by every sheet.
-struct SheetHeader: View {
+struct SheetHeader<Trailing: View>: View {
     @Environment(\.theme) private var theme
     var title: String
     var subtitle: String
     var horizontalPadding: CGFloat
+    /// Beside the title, at the trailing edge: the session form's SSH / RDP.
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(SBFont.ui(18, .semibold))
-                .foregroundStyle(theme.text.color)
-            Text(subtitle)
-                .font(SBFont.ui(13))
-                .foregroundStyle(theme.textFaint.color)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(SBFont.ui(18, .semibold))
+                    .foregroundStyle(theme.text.color)
+                Text(subtitle)
+                    .font(SBFont.ui(13))
+                    .foregroundStyle(theme.textFaint.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, horizontalPadding)
         // The form window's titlebar sits above this as safe area, so only a
         // small gap is needed; 22 was right for a sheet, which has no titlebar.
         .padding(.top, 4)
         .padding(.bottom, 16)
         .overlay(alignment: .bottom) { Divider1(theme.border) }
+    }
+}
+
+extension SheetHeader where Trailing == EmptyView {
+    init(title: String, subtitle: String, horizontalPadding: CGFloat) {
+        self.init(title: title, subtitle: subtitle, horizontalPadding: horizontalPadding) { EmptyView() }
     }
 }
 

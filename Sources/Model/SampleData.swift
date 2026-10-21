@@ -66,6 +66,8 @@ extension SessionStore {
     ///     127.0.0.1:2201 ─▶ direct
     ///     127.0.0.1:2202 ─▶ bastion ─▶ app              (lab-app-1-jump)
     ///                     bastion ─▶ middle ─▶ db     (lab-db-2-jumps, …-typed)
+    ///     127.0.0.1:3390 ─▶ rdp                        (lab-rdp; RDP)
+    ///                     bastion ─▶ rdp:3389         (lab-rdp-via-bastion)
     static func testLab() -> (group: SessionGroup, sessions: [Session]) {
         let key = "~/.ssh/termstead-lab"
         let sessions = [
@@ -112,17 +114,30 @@ extension SessionStore {
                                    PortForward(kind: .dynamic, listenPort: 1080),
                                    PortForward(kind: .remote, listenPort: 9000,
                                                destinationHost: "localhost", destinationPort: 8081)]),
+            // The lab's xrdp desktop, directly and through the bastion.
+            rdpSession(id: "lab-rdp", host: "127.0.0.1", port: 3390, jumps: []),
+            rdpSession(id: "lab-rdp-via-bastion", host: "rdp", port: 3389,
+                       jumps: [JumpHost(host: "lab-bastion")]),
         ]
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [
                 .session("lab-direct"), .session("lab-direct-password"), .session("lab-direct-passphrase"),
+                .session("lab-rdp"),
             ])),
             .group(SessionGroup(id: "testlab-jump", name: "Through jump hosts", colorID: "blue", children: [
                 .session("lab-bastion"), .session("lab-app-1-jump"), .session("lab-db-2-jumps"),
                 .session("lab-db-2-jumps-typed"), .session("lab-app-password"),
-                .session("lab-app-tunnels"),
+                .session("lab-app-tunnels"), .session("lab-rdp-via-bastion"),
             ])),
         ])
         return (group, sessions)
+    }
+
+    private static func rdpSession(id: String, host: String, port: Int, jumps: [JumpHost]) -> Session {
+        var session = Session(id: id, user: "lab", host: host, port: port, icon: .monitor,
+                              auth: .password, jumps: jumps)
+        session.kind = .rdp
+        session.rdp = RDPOptions()
+        return session
     }
 }

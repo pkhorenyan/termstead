@@ -24,6 +24,7 @@ struct SessionSheet: View {
 
     var mode: Mode
 
+    @State private var kind: SessionKind = .ssh
     @State private var name = ""
     @State private var host = ""
     @State private var port = "22"
@@ -45,6 +46,11 @@ struct SessionSheet: View {
     /// Edited in their own form (`PortForwardingSheet`); carried through a
     /// save here untouched.
     @State private var forwards: [PortForward] = []
+    @State private var rdp = RDPOptions()
+    /// The fixed size's fields, as typed; read into `rdp.display` on save.
+    @State private var displayChoice: DisplayChoice = .fitTab
+    @State private var fixedWidth = "1920"
+    @State private var fixedHeight = "1080"
     /// Keychain accounts that already hold something, looked up when the form
     /// opens. Only their existence is read — the secrets never enter the UI.
     @State private var storedAccounts: Set<String> = []
@@ -91,7 +97,11 @@ struct SessionSheet: View {
                 title: isEditing ? "Session settings" : "New session",
                 subtitle: "Saved to the sidebar. Passwords are stored in the macOS Keychain.",
                 horizontalPadding: 28
-            )
+            ) {
+                SegmentedPicker(options: SessionKind.allCases, selection: kindSelection,
+                                label: \.label, title: "Session type")
+                    .frame(width: 150)
+            }
 
             HStack(alignment: .top, spacing: 28) {
                 connectionColumn.frame(width: Self.columnWidth)
@@ -141,7 +151,7 @@ struct SessionSheet: View {
                     SBTextField(text: $host, placeholder: "10.0.1.14", font: SBFont.mono(13))
                 }
                 FormField(label: "Port") {
-                    SBTextField(text: $port, placeholder: "22", font: SBFont.mono(13))
+                    SBTextField(text: $port, placeholder: String(kind.defaultPort), font: SBFont.mono(13))
                 }
                 .frame(width: 84)
             }
@@ -322,22 +332,96 @@ struct SessionSheet: View {
         }
     }
 
+    /// Switching the type carries the port and the icon along while they
+    /// are still the other type's defaults; anything chosen by hand stays.
+    private var kindSelection: Binding<SessionKind> {
+        Binding(
+            get: { kind },
+            set: { new in
+                guard new != kind else { return }
+                if Int(port) == kind.defaultPort || port.isEmpty { port = String(new.defaultPort) }
+                if icon == kind.defaultIcon { icon = new.defaultIcon }
+                kind = new
+            }
+        )
+    }
+
     // MARK: - Right column
 
+    @ViewBuilder
     private var authenticationColumn: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                FormLabel("Authentication")
-                SegmentedPicker(options: SessionAuth.allCases,
-                                selection: $authMode,
-                                label: \.label,
-                                title: "Authentication method")
-            }
+        if kind == .rdp {
+            rdpColumn
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    FormLabel("Authentication")
+                    SegmentedPicker(options: SessionAuth.allCases,
+                                    selection: $authMode,
+                                    label: \.label,
+                                    title: "Authentication method")
+                }
 
-            if authMode == .key { keyFields } else { passwordFields }
+                if authMode == .key { keyFields } else { passwordFields }
+
+                jumpHostsSection
+            }
+        }
+    }
+
+    /// A remote desktop logs in with a password, optionally in a domain;
+    /// the jump hosts carry it over ssh as they would a shell.
+    private var rdpColumn: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            FormField(label: "Domain (optional)") {
+                SBTextField(text: $rdp.domain, placeholder: "CORP", font: SBFont.mono(13))
+            }
+            passwordFields
+
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    FormLabel("Display")
+                    SegmentedPicker(options: DisplayChoice.allCases, selection: $displayChoice,
+                                    label: \.label, title: "Display size")
+                }
+                if displayChoice == .fixed {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        FormField(label: "Width") {
+                            SBTextField(text: $fixedWidth, placeholder: "1920", font: SBFont.mono(13))
+                        }
+                        Text("×")
+                            .font(SBFont.ui(14))
+                            .foregroundStyle(theme.textMuted.color)
+                            .frame(height: 36)
+                        FormField(label: "Height") {
+                            SBTextField(text: $fixedHeight, placeholder: "1080", font: SBFont.mono(13))
+                        }
+                    }
+                }
+                checkbox("Sharp on Retina displays", isOn: $rdp.sharpOnRetina)
+                checkbox("Share the clipboard", isOn: $rdp.clipboard)
+                checkbox("Play sound", isOn: $rdp.sound)
+            }
 
             jumpHostsSection
         }
+    }
+
+    private func checkbox(_ title: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Text(title)
+                .font(SBFont.ui(13))
+                .foregroundStyle(theme.text.color)
+        }
+        .toggleStyle(.checkbox)
+        .tint(theme.accent.color)
+    }
+
+    /// The picker's two choices; a fixed size's numbers live in their fields.
+    enum DisplayChoice: String, CaseIterable, Identifiable {
+        case fitTab, fixed
+        var id: String { rawValue }
+        var label: String { self == .fitTab ? "Fit to tab" : "Fixed size" }
     }
 
     private var keyFields: some View {
@@ -369,13 +453,7 @@ struct SessionSheet: View {
     }
 
     private var keychainToggle: some View {
-        Toggle(isOn: $saveToKeychain) {
-            Text("Save to Keychain")
-                .font(SBFont.ui(13))
-                .foregroundStyle(theme.text.color)
-        }
-        .toggleStyle(.checkbox)
-        .tint(theme.accent.color)
+        checkbox("Save to Keychain", isOn: $saveToKeychain)
     }
 
     /// A password-like field that knows whether the Keychain already has a value
@@ -495,7 +573,7 @@ struct SessionSheet: View {
                 FormField(label: "Authentication") {
                     SegmentedPicker(options: JumpHost.Auth.allCases,
                                     selection: hop.auth,
-                                    label: \.shortLabel,
+                                    label: hopAuthLabel,
                                     title: "Auth for jump host \(index + 1)",
                                     height: 28, fontSize: 12.5,
                                     segmentCornerRadius: 6, cornerRadius: 9)
@@ -505,6 +583,13 @@ struct SessionSheet: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    /// A remote desktop's own login means nothing to ssh, so for RDP the
+    /// hop's first choice is ssh's default — or the saved session's, for a
+    /// hop named after one — rather than "the same as this session".
+    private func hopAuthLabel(_ auth: JumpHost.Auth) -> String {
+        kind == .rdp && auth == .session ? "Default" : auth.shortLabel
     }
 
     private static let hopNumberSize: CGFloat = 22
@@ -670,6 +755,7 @@ struct SessionSheet: View {
             name = ""
             host = ""
             user = NSUserName()
+            kind = .ssh
             port = "22"
             icon = .server
             colorID = nil
@@ -692,6 +778,13 @@ struct SessionSheet: View {
             keyPath = session.keyPath
             jumps = session.jumps
             forwards = session.forwards
+            kind = session.kind
+            rdp = session.rdp
+            if case .fixed(let width, let height) = session.rdp.display {
+                displayChoice = .fixed
+                fixedWidth = String(width)
+                fixedHeight = String(height)
+            }
         }
         refreshStoredAccounts()
     }
@@ -717,10 +810,10 @@ struct SessionSheet: View {
         }
         guard saveToKeychain else { return }
 
-        if authMode == .password, !password.isEmpty {
+        if authMode == .password || kind == .rdp, !password.isEmpty {
             keychain.set(password, for: SSHLaunch.sessionPasswordAccount(sessionID))
         }
-        if authMode == .key, !passphrase.isEmpty, let passphraseAccount {
+        if kind == .ssh, authMode == .key, !passphrase.isEmpty, let passphraseAccount {
             keychain.set(passphrase, for: passphraseAccount)
         }
         for hop in jumps where hop.auth == .password {
@@ -737,9 +830,10 @@ struct SessionSheet: View {
             id: trimmedName,
             user: user.trimmingCharacters(in: .whitespaces),
             host: host.trimmingCharacters(in: .whitespaces),
-            port: Int(port) ?? 22,
+            port: Int(port) ?? kind.defaultPort,
             icon: icon,
-            auth: authMode,
+            // A remote desktop always logs in with a password.
+            auth: kind == .rdp ? .password : authMode,
             keyPath: keyPath.trimmingCharacters(in: .whitespaces).isEmpty
                 ? Session.defaultKeyPath
                 : keyPath.trimmingCharacters(in: .whitespaces),
@@ -748,7 +842,12 @@ struct SessionSheet: View {
             jumps: jumps.filter { !$0.host.trimmingCharacters(in: .whitespaces).isEmpty },
             colorID: colorID
         )
-        session.forwards = forwards
+        session.kind = kind
+        if kind == .rdp {
+            session.rdp = rdpOptionsToSave
+        } else {
+            session.forwards = forwards
+        }
 
         var savedID: String?
         storeSecrets(for: trimmedName)
@@ -772,6 +871,23 @@ struct SessionSheet: View {
         } else {
             connectionStore.connect(sessionID: savedID, in: sessionStore, newTab: true)
         }
+    }
+
+    /// The display as chosen; a fixed size is held to what RDP servers take.
+    private var rdpOptionsToSave: RDPOptions {
+        var options = rdp
+        options.domain = rdp.domain.trimmingCharacters(in: .whitespaces)
+        switch displayChoice {
+        case .fitTab:
+            options.display = .fitTab
+        case .fixed:
+            func size(_ text: String, default value: Int) -> Int {
+                min(max(Int(text.filter(\.isNumber).prefix(5)) ?? value, 200), 8192)
+            }
+            options.display = .fixed(width: size(fixedWidth, default: 1920),
+                                     height: size(fixedHeight, default: 1080))
+        }
+        return options
     }
 
     private func applyPin(to id: String) {

@@ -112,6 +112,52 @@ struct PortForward: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+/// What a session opens: a shell over ssh, or a remote desktop.
+enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
+    case ssh, rdp
+
+    var id: String { rawValue }
+    var label: String { self == .ssh ? "SSH" : "RDP" }
+    var defaultPort: Int { self == .ssh ? 22 : 3389 }
+    /// What a new session of this kind starts out showing.
+    var defaultIcon: SessionIcon { self == .ssh ? .server : .monitor }
+}
+
+/// How an RDP session looks and what it shares. Only meaningful while the
+/// session's kind is `.rdp`.
+struct RDPOptions: Hashable, Codable, Sendable {
+    enum Display: Hashable, Codable, Sendable {
+        /// The remote desktop follows the tab's size, resized as the tab is.
+        case fitTab
+        /// A fixed resolution, scaled to fit the tab.
+        case fixed(width: Int, height: Int)
+    }
+
+    /// Empty for none: a local account, or a domain given as `DOMAIN\user`.
+    var domain = ""
+    var display: Display = .fitTab
+    /// The desktop at the screen's own pixels, scaled 200% so text keeps its
+    /// size; off, it is drawn at half the pixels and stretched.
+    var sharpOnRetina = true
+    /// Text copied on either side can be pasted on the other.
+    var clipboard = true
+    var sound = true
+
+    init() {}
+
+    /// Field by field, each optional: a file written before a field existed
+    /// still reads, with that field at its default.
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = RDPOptions()
+        domain = try values.decodeIfPresent(String.self, forKey: .domain) ?? defaults.domain
+        display = try values.decodeIfPresent(Display.self, forKey: .display) ?? defaults.display
+        sharpOnRetina = try values.decodeIfPresent(Bool.self, forKey: .sharpOnRetina) ?? defaults.sharpOnRetina
+        clipboard = try values.decodeIfPresent(Bool.self, forKey: .clipboard) ?? defaults.clipboard
+        sound = try values.decodeIfPresent(Bool.self, forKey: .sound) ?? defaults.sound
+    }
+}
+
 /// How a session proves who it is to the server.
 enum SessionAuth: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case password, key
@@ -146,10 +192,26 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     /// Tunnels opened with the shell. Optional for the same reason as
     /// `colorID`: older files have no such key; read it through `forwards`.
     var portForwards: [PortForward]? = nil
+    /// `nil` is ssh — every session saved before there was RDP. Read it
+    /// through `kind`.
+    var sessionKind: SessionKind? = nil
+    /// Read through `rdp`; `nil` until an RDP session is saved.
+    var rdpOptions: RDPOptions? = nil
 
     var forwards: [PortForward] {
         get { portForwards ?? [] }
         set { portForwards = newValue.isEmpty ? nil : newValue }
+    }
+
+    var kind: SessionKind {
+        get { sessionKind ?? .ssh }
+        // An ssh session writes no key at all, as before there were kinds.
+        set { sessionKind = newValue == .ssh ? nil : newValue }
+    }
+
+    var rdp: RDPOptions {
+        get { rdpOptions ?? RDPOptions() }
+        set { rdpOptions = newValue }
     }
 
     var address: String {

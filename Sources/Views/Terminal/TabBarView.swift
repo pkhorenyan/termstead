@@ -156,7 +156,9 @@ struct TabBarView: View {
             .disabled(tab.sessionID != nil && saved == nil)
         if let saved {
             Button("Session Settings…") { appState.route = .sessionSettings(id: saved.id) }
-            Button("Port Forwarding…") { appState.route = .portForwarding(sessionID: saved.id) }
+            if saved.kind == .ssh {
+                Button("Port Forwarding…") { appState.route = .portForwarding(sessionID: saved.id) }
+            }
             ForEach(Array(connectionStore.forwardingMenuItems(for: saved, in: sessionStore).enumerated()),
                     id: \.offset) { _, item in
                 Button(item.title, action: item.run)

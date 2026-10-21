@@ -81,6 +81,8 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
     case emptyHop(index: Int)
     case jumpLoop(String)
     case forward(index: Int, problem: String)
+    /// A hop named after a saved RDP session: it has no ssh to jump through.
+    case notSSH(String)
 
     var description: String {
         switch self {
@@ -92,6 +94,8 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
             "The jump chain goes through “\(name)” itself."
         case .forward(let index, let problem):
             "Port forward \(index + 1) \(problem)."
+        case .notSSH(let name):
+            "“\(name)” is an RDP session and cannot be a jump host."
         }
     }
 }
@@ -138,6 +142,7 @@ enum SSHLaunch {
                 // A hop named after a saved session connects the way that
                 // session does, unless the hop says otherwise.
                 guard saved.id != session.id else { throw SSHLaunchError.jumpLoop(saved.id) }
+                guard saved.kind == .ssh else { throw SSHLaunchError.notSSH(saved.id) }
                 let hopAuth: SSHEndpoint.Auth
                 let account: String
                 switch hop.auth {

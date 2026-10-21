@@ -277,7 +277,7 @@ extension ConnectionStore {
     /// "Start Port Forwarding" or "Stop Port Forwarding" for a session's
     /// context menu; nothing for a session with no tunnels.
     func forwardingMenuItems(for session: Session, in store: SessionStore) -> [(title: String, run: () -> Void)] {
-        guard !session.forwards.isEmpty else { return [] }
+        guard session.kind == .ssh, !session.forwards.isEmpty else { return [] }
         if isForwarding(session.id) {
             return [("Stop Port Forwarding", { [weak self] in self?.stopTunnels(sessionID: session.id) })]
         }

@@ -208,6 +208,11 @@ final class ConnectionStore {
                                     address: session.statusAddress,
                                     keyDescription: Self.keyDescription(for: session))
         add(connection)
+        guard session.kind == .ssh else {
+            // Until the RDP engine lands: never ssh to a desktop's port.
+            connection.fail("RDP sessions cannot be opened in this build yet.")
+            return
+        }
         do {
             connection.start(try Self.launchPlan(for: session, in: store))
         } catch {
@@ -387,9 +392,10 @@ final class ConnectionStore {
     /// How the tab logs in, for the status bar. The bare file name read as
     /// just another word ("termstead-lab" — a host? a user?), so it says "key".
     static func keyDescription(for session: Session) -> String {
-        switch session.auth {
-        case .password: "password"
-        case .key:
+        switch (session.kind, session.auth) {
+        case (.rdp, _): "RDP"
+        case (.ssh, .password): "password"
+        case (.ssh, .key):
             // An empty path leaves the choice to ssh: agent and default keys.
             session.keyPath.isEmpty ? "key: ssh default" : "key: " + (session.keyPath as NSString).lastPathComponent
         }

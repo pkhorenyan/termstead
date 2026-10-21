@@ -332,7 +332,10 @@ struct SessionRowView: View {
             Button("Duplicate", action: onDuplicate)
             actions.moveMenu(includingTopLevel: false)
             Button("Session Settings…", action: onOpenSettings)
-            Button("Port Forwarding…", action: onOpenForwards)
+            // A remote desktop has no ssh to carry tunnels.
+            if row.session.kind == .ssh {
+                Button("Port Forwarding…", action: onOpenForwards)
+            }
             ForEach(Array(forwardingItems.enumerated()), id: \.offset) { _, item in
                 Button(item.title, action: item.run)
             }
@@ -420,7 +423,10 @@ struct PinnedRowView: View {
             Divider()
             Button("Duplicate", action: onDuplicate)
             Button("Session Settings…", action: onOpenSettings)
-            Button("Port Forwarding…", action: onOpenForwards)
+            // A remote desktop has no ssh to carry tunnels.
+            if row.session.kind == .ssh {
+                Button("Port Forwarding…", action: onOpenForwards)
+            }
             ForEach(Array(forwardingItems.enumerated()), id: \.offset) { _, item in
                 Button(item.title, action: item.run)
             }
