@@ -87,6 +87,9 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
     func key(_ scancode: Int, extended: Bool, down: Bool)
     /// A character with no key behind it, by its UTF-16 unit.
     func unicode(_ character: Int, down: Bool)
+    /// The lock keys as they are here: on taking the keyboard, so Caps Lock
+    /// toggled in another app does not end up the other way round there.
+    func synchronize(capsLock: Bool)
     /// The pointer, in desktop pixels, with FreeRDP's PTR_FLAGS_*.
     func mouse(x: Int, y: Int, flags: Int)
     /// A new size for the desktop, through the Display Control channel.

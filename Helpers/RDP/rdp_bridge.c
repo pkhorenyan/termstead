@@ -367,6 +367,12 @@ bool tsr_send_unicode(tsr_session* session, uint16_t character, bool down)
 	                                                 down ? 0 : KBD_FLAGS_RELEASE, character);
 }
 
+bool tsr_send_sync(tsr_session* session, bool caps_lock)
+{
+	return freerdp_input_send_synchronize_event(session->context->input,
+	                                            caps_lock ? KBD_SYNC_CAPS_LOCK : 0);
+}
+
 bool tsr_send_mouse(tsr_session* session, uint16_t flags, uint16_t x, uint16_t y)
 {
 	return freerdp_input_send_mouse_event(session->context->input, flags, x, y);

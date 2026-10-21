@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import IOSurface
 import Observation
 
@@ -50,6 +51,46 @@ final class RDPDesktop {
     /// How big the tab is now, in points, and the screen's scale; `nil`
     /// while it has not been laid out.
     @ObservationIgnored var availableSize: () -> (size: CGSize, scale: CGFloat)? = { nil }
+    /// The layout the session starts with: the Mac's current one, as mstsc
+    /// does. Replaceable for a test, which must not depend on it.
+    @ObservationIgnored var keyboardLayout: () -> Int = RDPKeyboard.currentLayoutID
+
+    init() {
+        view.desktop = self
+    }
+
+    // MARK: - Input, from the view
+
+    func send(_ key: RDPKeyboard.Key, down: Bool) {
+        guard phase == .showing else { return }
+        engine?.key(Int(key.code), extended: key.extended, down: down)
+    }
+
+    func sendMouse(x: Int, y: Int, flags: Int) {
+        guard phase == .showing else { return }
+        engine?.mouse(x: x, y: y, flags: flags)
+    }
+
+    func synchronize(capsLock: Bool) {
+        guard phase == .showing else { return }
+        engine?.synchronize(capsLock: capsLock)
+    }
+
+    /// A key combination the Mac keeps for itself, pressed and let go.
+    func press(_ keys: [RDPKeyboard.Key]) {
+        for key in keys { send(key, down: true) }
+        for key in keys.reversed() { send(key, down: false) }
+    }
+
+    /// Session ▸ Send Ctrl+Alt+Del: on a Mac those keys never get there.
+    func sendControlAltDelete() {
+        press([RDPKeyboard.leftControl, RDPKeyboard.leftAlt, RDPKeyboard.delete])
+    }
+
+    /// Session ▸ Send Windows Key: Command stays with the Mac.
+    func sendWindowsKey() {
+        press([RDPKeyboard.leftWindows])
+    }
 
     /// Opens `socket` and logs in over it.
     func start(_ launch: RDPLaunch, socket: @escaping @MainActor () async throws -> FileHandle) {
@@ -96,6 +137,7 @@ final class RDPDesktop {
         settings.width = width
         settings.height = height
         settings.desktopScale = scale
+        settings.keyboardLayout = keyboardLayout()
         settings.clipboard = launch.options.clipboard
         settings.sound = launch.options.sound
 
@@ -106,6 +148,7 @@ final class RDPDesktop {
             size = CGSize(width: width, height: height)
             view.show(surface)
             phase = .showing
+            view.synchronizeLocks()
         }
         engine.onChange = { [weak self] _ in
             guard let self, current == attempt else { return }
@@ -162,10 +205,17 @@ final class RDPDesktop {
     }
 }
 
-/// Shows the engine's IOSurface: the layer's contents are the surface
-/// itself, so a frame is never copied on this side either.
+/// Shows the engine's IOSurface, and takes the keyboard and mouse for it.
+/// The layer's contents are the surface itself, so a frame is never copied
+/// on this side either.
 final class RDPDesktopView: NSView {
+    weak var desktop: RDPDesktop?
     private var surface: IOSurface?
+    /// Keys down on the remote side, so none is left held there when the
+    /// keyboard goes elsewhere — ⌘Tab away mid-Alt, say.
+    private var pressed: Set<RDPKeyboard.Key> = []
+    private var wheel = RDPPointer.Wheel()
+    private var horizontalWheel = RDPPointer.Wheel()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -177,9 +227,10 @@ final class RDPDesktopView: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     func show(_ surface: IOSurface?) {
         self.surface = surface
@@ -203,5 +254,123 @@ final class RDPDesktopView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         layer?.contentsScale = window?.backingScaleFactor ?? 1
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowResignedKey),
+                                                   name: NSWindow.didResignKeyNotification, object: window)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self))
+    }
+
+    // MARK: - Keyboard
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        synchronizeLocks()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        releaseAll()
+        return true
+    }
+
+    @objc private func windowResignedKey() {
+        releaseAll()
+    }
+
+    func synchronizeLocks() {
+        desktop?.synchronize(capsLock: NSEvent.modifierFlags.contains(.capsLock))
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // ⌘ shortcuts the menus did not take still belong to the Mac.
+        guard !event.modifierFlags.contains(.command) else { return }
+        send(event.keyCode, down: true)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        send(event.keyCode, down: false)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        if event.keyCode == UInt16(kVK_CapsLock) {
+            // A toggle: each change is one press of the key.
+            send(event.keyCode, down: true)
+            send(event.keyCode, down: false)
+        } else if let down = RDPKeyboard.modifierIsDown(keyCode: event.keyCode,
+                                                         flags: event.modifierFlags.rawValue) {
+            send(event.keyCode, down: down)
+        }
+    }
+
+    private func send(_ keyCode: UInt16, down: Bool) {
+        guard let key = RDPKeyboard.key(forKeyCode: keyCode) else { return }
+        if down { pressed.insert(key) } else { pressed.remove(key) }
+        desktop?.send(key, down: down)
+    }
+
+    private func releaseAll() {
+        for key in pressed { desktop?.send(key, down: false) }
+        pressed.removeAll()
+    }
+
+    // MARK: - Mouse
+
+    private func sendMouse(_ event: NSEvent, flags: Int) {
+        guard let surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let pixel = RDPPointer.pixel(at: point, desktop: CGSize(width: surface.width, height: surface.height),
+                                     bounds: bounds.size)
+        desktop?.sendMouse(x: pixel.x, y: pixel.y, flags: flags)
+    }
+
+    override func mouseMoved(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
+    override func mouseDragged(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
+    override func rightMouseDragged(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
+    override func otherMouseDragged(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        sendMouse(event, flags: RDPPointer.left | RDPPointer.down)
+    }
+    override func mouseUp(with event: NSEvent) { sendMouse(event, flags: RDPPointer.left) }
+    override func rightMouseDown(with event: NSEvent) { sendMouse(event, flags: RDPPointer.right | RDPPointer.down) }
+    override func rightMouseUp(with event: NSEvent) { sendMouse(event, flags: RDPPointer.right) }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return }
+        sendMouse(event, flags: RDPPointer.middle | RDPPointer.down)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return }
+        sendMouse(event, flags: RDPPointer.middle)
+    }
+
+    /// No menu of ours: the right button belongs to the remote desktop.
+    override func menu(for event: NSEvent) -> NSMenu? { nil }
+
+    override func scrollWheel(with event: NSEvent) {
+        let precise = event.hasPreciseScrollingDeltas
+        for step in wheel.steps(for: event.scrollingDeltaY, precise: precise) {
+            sendMouse(event, flags: RDPPointer.wheelFlags(step, horizontal: false))
+        }
+        // macOS's positive is towards the left; Windows' is to the right.
+        for step in horizontalWheel.steps(for: -event.scrollingDeltaX, precise: precise) {
+            sendMouse(event, flags: RDPPointer.wheelFlags(step, horizontal: true))
+        }
     }
 }

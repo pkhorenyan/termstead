@@ -72,6 +72,11 @@ struct TermsteadApp: App {
     /// Find searches a terminal's text; a remote desktop has none to search.
     private var activeIsTerminal: Bool { connectionStore.active?.kind == .ssh }
 
+    /// The tab in front's remote desktop, while it is on screen.
+    private var activeDesktop: RDPDesktop? {
+        connectionStore.active?.desktop.flatMap { $0.phase == .showing ? $0 : nil }
+    }
+
     /// Next and previous tab go round the focused pane's tabs only.
     private var focusedTabCount: Int { connectionStore.tabs(in: connectionStore.focusedPane).count }
 
@@ -203,6 +208,12 @@ struct TermsteadApp: App {
             }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(connectionStore.active == nil || formIsOpen)
+            Divider()
+            // Keys a Mac keeps for itself, for the remote desktop in front.
+            Button("Send Ctrl+Alt+Del") { activeDesktop?.sendControlAltDelete() }
+                .disabled(activeDesktop == nil || formIsOpen)
+            Button("Send Windows Key") { activeDesktop?.sendWindowsKey() }
+                .disabled(activeDesktop == nil || formIsOpen)
             Divider()
             // ⇧⌘[ and ⇧⌘], as in Safari, Terminal and Xcode. Declared as the
             // characters those keys type, "{" and "}" with ⌘, the way Terminal

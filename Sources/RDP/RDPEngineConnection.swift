@@ -54,6 +54,10 @@ final class RDPEngineConnection {
         engine?.unicode(character, down: down)
     }
 
+    func synchronize(capsLock: Bool) {
+        engine?.synchronize(capsLock: capsLock)
+    }
+
     func mouse(x: Int, y: Int, flags: Int) {
         engine?.mouse(x: x, y: y, flags: flags)
     }

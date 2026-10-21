@@ -55,6 +55,10 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         withSession { tsr_send_unicode($0, UInt16(truncatingIfNeeded: character), down) }
     }
 
+    func synchronize(capsLock: Bool) {
+        withSession { tsr_send_sync($0, capsLock) }
+    }
+
     func mouse(x: Int, y: Int, flags: Int) {
         withSession {
             tsr_send_mouse($0, UInt16(truncatingIfNeeded: flags),

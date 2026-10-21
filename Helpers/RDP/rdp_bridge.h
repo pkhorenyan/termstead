@@ -54,6 +54,7 @@ void tsr_free(tsr_session* session);
 
 bool tsr_send_scancode(tsr_session* session, uint16_t scancode, bool extended, bool down);
 bool tsr_send_unicode(tsr_session* session, uint16_t character, bool down);
+bool tsr_send_sync(tsr_session* session, bool caps_lock);
 bool tsr_send_mouse(tsr_session* session, uint16_t flags, uint16_t x, uint16_t y);
 bool tsr_resize(tsr_session* session, uint32_t width, uint32_t height, uint32_t desktop_scale);
 

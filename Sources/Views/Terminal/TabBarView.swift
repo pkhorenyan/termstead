@@ -151,6 +151,11 @@ struct TabBarView: View {
         if !tab.state.isRunning {
             Button("Reconnect") { tab.restart() }
         }
+        if let desktop = tab.desktop, desktop.phase == .showing {
+            Button("Send Ctrl+Alt+Del") { desktop.sendControlAltDelete() }
+            Button("Send Windows Key") { desktop.sendWindowsKey() }
+            Divider()
+        }
         Button("Duplicate Tab") { duplicate(tab) }
             // A session deleted since the tab opened has nothing to copy.
             .disabled(tab.sessionID != nil && saved == nil)
