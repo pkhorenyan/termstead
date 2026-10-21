@@ -53,6 +53,14 @@ struct RDPCertificateTests {
         #expect(permissions == 0o600)
     }
 
+    /// xrdp's "logged off" is also what a takeover by the same user looks like.
+    @Test func theServersReasonsAreSaidPlainly() {
+        #expect(RDPDesktop.explanation(code: 0x0001_000C, reason: "x").contains("connected again from elsewhere"))
+        #expect(RDPDesktop.explanation(code: 0x0001_0005, reason: "x").contains("took the session over"))
+        #expect(RDPDesktop.explanation(code: 0x0002_000D, reason: "transport failed") == "transport failed")
+        #expect(RDPDesktop.explanation(code: 0, reason: "") == "The session ended.")
+    }
+
     @Test func refusedLogins() {
         #expect(RDPDesktop.isRefusedLogin(0x0002_0014))   // logon failure
         #expect(RDPDesktop.isRefusedLogin(0x0002_0009))   // authentication failed

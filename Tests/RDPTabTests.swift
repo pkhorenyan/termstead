@@ -79,6 +79,29 @@ struct RDPTabTests {
         #expect(connections.connections.isEmpty)
     }
 
+    /// Two tabs logged in as one user stay up together: the lab's xrdp,
+    /// like a Windows server that allows it, gives each its own session.
+    @Test func twoTabsAsOneUserAtOnce() async throws {
+        func open() -> RDPDesktop {
+            let desktop = RDPDesktop()
+            var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+            launch.options.sound = false
+            desktop.knownHosts = TestLabRDP.knownHosts
+            desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
+            desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+            return desktop
+        }
+        let first = open()
+        await TestLabRDP.waitUntilShowing(first)
+        let second = open()
+        await TestLabRDP.waitUntilShowing(second)
+        try await Task.sleep(for: .seconds(3))
+        #expect(first.phase == .showing)
+        #expect(second.phase == .showing)
+        first.stop()
+        second.stop()
+    }
+
     /// Broadcast input is text for terminals; a remote desktop is left out
     /// as a source and as a target.
     @Test func aDesktopTakesNoBroadcastInput() async throws {

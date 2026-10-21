@@ -24,9 +24,10 @@ struct RDPClipboardTests {
         }
     }
 
-    /// The lab user's X display, from the session xrdp started for them.
+    /// The X display of the session xrdp started for this connection: the
+    /// newest, as every connection gets one of its own.
     private func display() throws -> String {
-        let sockets = TestLabRDP.inContainer(["ls", "/tmp/.X11-unix"]).output
+        let sockets = TestLabRDP.inContainer(["ls", "-t", "/tmp/.X11-unix"]).output
         let number = try #require(sockets.split(whereSeparator: \.isNewline).first?.dropFirst())
         return ":\(number)"
     }

@@ -160,7 +160,8 @@ struct RDPTypingTests {
         desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
         await TestLabRDP.waitUntilShowing(desktop)
         try #require(desktop.phase == .showing)
-        try await Task.sleep(for: .seconds(2))
+        // Each connection starts a desktop of its own; Xfce takes a moment.
+        try await Task.sleep(for: .seconds(5))
 
         func key(_ code: Int) throws -> RDPKeyboard.Key {
             try #require(RDPKeyboard.key(forKeyCode: UInt16(code), iso: false))

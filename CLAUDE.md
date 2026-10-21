@@ -908,6 +908,13 @@ These have each cost real time. They are not hypothetical.
   draws itself, took them. Every session starts in US English
   (`RDPKeyboard.sessionLayoutID`); a test types a command into an Xfce
   terminal and checks that it ran.
+- **xrdp gives a second login as the same user the first one's desktop**,
+  and drops the first with "logged off by user" (Windows does the same
+  unless several sessions per user are allowed). The lab's xrdp is set to a
+  session per connection (`Policy=UBC`, ended 30 s after they disconnect),
+  so `lab-rdp` and `lab-rdp-via-bastion` can be open together; a test that
+  needs the session's X display takes the newest. `RDPDesktop.explanation`
+  says the server's reasons plainly.
 - **FreeRDP asks for a login before the certificate** over TLS (xrdp), and
   after it with NLA (Windows). An empty password must reach FreeRDP as none
   (`NULL`), or xrdp tries to log in with it and shows a black screen.

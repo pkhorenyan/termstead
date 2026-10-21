@@ -260,7 +260,7 @@ final class RDPDesktop {
             if Self.isRefusedLogin(code) {
                 askAgain(launch, socket: open)
             } else {
-                end(endedByUser ?? (reason.isEmpty ? "The session ended." : reason))
+                end(endedByUser ?? Self.explanation(code: code, reason: reason))
             }
         }
         engine.connect(settings, socket: socket)
@@ -268,6 +268,23 @@ final class RDPDesktop {
 
     /// Trusted by macOS for this host, or trusted by the user before, it
     /// goes ahead; otherwise the tab asks.
+    /// The server's reasons for ending a session (ERRINFO_*, in FreeRDP's
+    /// error class 1), said the way someone at the Mac would. FreeRDP's own
+    /// words for "logged off" misled: xrdp sends it when the same user
+    /// connects again from elsewhere and takes the desktop over.
+    nonisolated static func explanation(code: Int, reason: String) -> String {
+        switch code {
+        case 0x0001_0001, 0x0001_000B: "The session was disconnected on the server."
+        case 0x0001_0002: "The session was logged off from the server."
+        case 0x0001_0003: "The server ended the session: it was idle too long."
+        case 0x0001_0004: "The server ended the session: the login took too long."
+        case 0x0001_0005: "The same user connected to the server from elsewhere and took the session over."
+        case 0x0001_000C:
+            "The session ended on the server: its user logged off, or connected again from elsewhere and took the desktop over."
+        default: reason.isEmpty ? "The session ended." : reason
+        }
+    }
+
     private func check(_ pem: String, for launch: RDPLaunch, attempt current: Int,
                        reply: @escaping @Sendable (Bool) -> Void) async {
         guard let certificate = RDPCertificate(pem: pem) else { return reply(false) }
