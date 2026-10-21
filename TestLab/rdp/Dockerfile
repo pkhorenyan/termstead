@@ -19,13 +19,16 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xclip \
  && rm -rf /var/lib/apt/lists/*
 
-# A session per connection, as a Windows server allowing several sessions
-# per user does: by default xrdp gives a second login as the same user the
-# first one's desktop and drops the first, so lab-rdp and
-# lab-rdp-via-bastion could not be open together. Left sessions end after
-# 30 s, or every test run would leave a desktop behind.
-RUN sed -i -e 's/^Policy=.*/Policy=UBC/' -e 's/^KillDisconnected=.*/KillDisconnected=true/' \
-      -e 's/^DisconnectedTimeLimit=.*/DisconnectedTimeLimit=30/' /etc/xrdp/sesman.ini
+# xrdp keeps one session per user and hands it to the next login, dropping
+# the one before. A second user, lab2 (password lab), lets two desktops be
+# open together — lab-rdp-via-bastion logs in as lab2. A session per
+# connection (Policy=UBC) was tried: this xrdp never ends a disconnected
+# Xorg session, KillDisconnected or not, and every test run left a desktop
+# behind until the 50-session limit refused logins.
+RUN useradd -m -s /bin/bash lab2 \
+ && echo "lab2:lab" | chpasswd \
+ && echo "xfce4-session" > /home/lab2/.xsession \
+ && chown lab2:lab2 /home/lab2/.xsession
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

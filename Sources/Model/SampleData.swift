@@ -115,8 +115,10 @@ extension SessionStore {
                                    PortForward(kind: .remote, listenPort: 9000,
                                                destinationHost: "localhost", destinationPort: 8081)]),
             // The lab's xrdp desktop, directly and through the bastion.
-            rdpSession(id: "lab-rdp", host: "127.0.0.1", port: 3390, jumps: []),
-            rdpSession(id: "lab-rdp-via-bastion", host: "rdp", port: 3389,
+            rdpSession(id: "lab-rdp", user: "lab", host: "127.0.0.1", port: 3390, jumps: []),
+            // Another user, so both desktops can be open at once: xrdp keeps
+            // one session per user and hands it to the next login.
+            rdpSession(id: "lab-rdp-via-bastion", user: "lab2", host: "rdp", port: 3389,
                        jumps: [JumpHost(host: "lab-bastion")]),
         ]
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
@@ -133,8 +135,9 @@ extension SessionStore {
         return (group, sessions)
     }
 
-    private static func rdpSession(id: String, host: String, port: Int, jumps: [JumpHost]) -> Session {
-        var session = Session(id: id, user: "lab", host: host, port: port, icon: .monitor,
+    private static func rdpSession(id: String, user: String, host: String, port: Int,
+                                   jumps: [JumpHost]) -> Session {
+        var session = Session(id: id, user: user, host: host, port: port, icon: .monitor,
                               auth: .password, jumps: jumps)
         session.kind = .rdp
         session.rdp = RDPOptions()

@@ -155,7 +155,7 @@ TestLab/lab.sh forget    # drop the lab's host keys from ~/.ssh/known_hosts
 127.0.0.1:2201 ─▶ direct                     lab-direct, -password, -passphrase
 127.0.0.1:2202 ─▶ bastion ─▶ app             lab-app-1-jump, lab-app-password
                   bastion ─▶ middle ─▶ db    lab-db-2-jumps, lab-db-2-jumps-typed
-127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           lab-rdp; lab-rdp-via-bastion as rdp:3389
+127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           lab-rdp; lab-rdp-via-bastion (lab2) as rdp:3389
 ```
 
 User `lab`, password `lab`, key `~/.ssh/termstead-lab` (and
@@ -912,11 +912,12 @@ These have each cost real time. They are not hypothetical.
   terminal and checks that it ran.
 - **xrdp gives a second login as the same user the first one's desktop**,
   and drops the first with "logged off by user" (Windows does the same
-  unless several sessions per user are allowed). The lab's xrdp is set to a
-  session per connection (`Policy=UBC`, ended 30 s after they disconnect),
-  so `lab-rdp` and `lab-rdp-via-bastion` can be open together; a test that
-  needs the session's X display takes the newest. `RDPDesktop.explanation`
-  says the server's reasons plainly.
+  unless several sessions per user are allowed); `RDPDesktop.explanation`
+  says the server's reasons plainly. So `lab-rdp-via-bastion` logs in as
+  `lab2`, and both can be open together. A session per connection
+  (`Policy=UBC`) was tried and dropped: this xrdp never ends a disconnected
+  Xorg session, `KillDisconnected` or not, and test runs filled the lab
+  with desktops until its 50-session limit refused logins.
 - **FreeRDP asks for a login before the certificate** over TLS (xrdp), and
   after it with NLA (Windows). An empty password must reach FreeRDP as none
   (`NULL`), or xrdp tries to log in with it and shows a black screen.

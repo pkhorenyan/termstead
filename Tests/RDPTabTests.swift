@@ -79,12 +79,14 @@ struct RDPTabTests {
         #expect(connections.connections.isEmpty)
     }
 
-    /// Two tabs logged in as one user stay up together: the lab's xrdp,
-    /// like a Windows server that allows it, gives each its own session.
-    @Test func twoTabsAsOneUserAtOnce() async throws {
+    /// Two desktops as two users stay up together. (As one user, xrdp — and
+    /// Windows, by default — hands the session to the second login.)
+    @Test func twoUsersAtOnce() async throws {
+        var user = "lab"
         func open() -> RDPDesktop {
             let desktop = RDPDesktop()
             var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+            launch.user = user
             launch.options.sound = false
             desktop.knownHosts = TestLabRDP.knownHosts
             desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
@@ -93,6 +95,7 @@ struct RDPTabTests {
         }
         let first = open()
         await TestLabRDP.waitUntilShowing(first)
+        user = "lab2"
         let second = open()
         await TestLabRDP.waitUntilShowing(second)
         try await Task.sleep(for: .seconds(3))

@@ -51,7 +51,7 @@ case "${1:-}" in
         echo "  direct   127.0.0.1:2201"
         echo "  bastion  127.0.0.1:2202 ─▶ app"
         echo "  bastion  ─▶ middle ─▶ db"
-        echo "  rdp      127.0.0.1:3390, or rdp:3389 through bastion (RDP)"
+        echo "  rdp      127.0.0.1:3390, or rdp:3389 through bastion (RDP; users lab and lab2)"
         echo "User lab, password lab, key $KEY"
         echo "Each home folder holds files to try the Files tab on (see entrypoint.sh)."
         ;;

@@ -24,12 +24,11 @@ struct RDPClipboardTests {
         }
     }
 
-    /// The X display of the session xrdp started for this connection: the
-    /// newest, as every connection gets one of its own.
+    /// The X display of the lab user's session: its X server runs as them.
     private func display() throws -> String {
-        let sockets = TestLabRDP.inContainer(["ls", "-t", "/tmp/.X11-unix"]).output
-        let number = try #require(sockets.split(whereSeparator: \.isNewline).first?.dropFirst())
-        return ":\(number)"
+        let found = TestLabRDP.inContainer(["sh", "-c", "ps -u lab -o args= | grep -o 'Xorg :[0-9]*' | head -1"])
+        let display = try #require(found.output.split(separator: " ").last.map(String.init))
+        return display.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// `xclip` as the lab user, in their session.
