@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Keys for a remote desktop: a Mac key is sent as the PC key in the same
-/// place, by its scan code, as mstsc does. Windows then applies its own
+/// place, by its scan code, as mstsc does. The server then applies its own
 /// layout, so the remote session's language decides what a key types.
 enum RDPKeyboard {
     /// A PC key's Set 1 scan code; `extended` for those sent after 0xE0.
@@ -167,35 +167,10 @@ enum RDPKeyboard {
         sideMasks[keyCode].map { flags & $0 != 0 }
     }
 
-    // MARK: - Layout
-
-    /// The Windows keyboard layout for the Mac's current input source, for
-    /// the session to start with. US English for anything not listed.
-    static func currentLayoutID() -> Int {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return 0x409 }
-        let id = property(source, kTISPropertyInputSourceID) as? String ?? ""
-        let languages = property(source, kTISPropertyInputSourceLanguages) as? [String] ?? []
-        return layoutID(sourceID: id, language: languages.first ?? "en")
-    }
-
-    private static func property(_ source: TISInputSource, _ key: CFString) -> AnyObject? {
-        guard let pointer = TISGetInputSourceProperty(source, key) else { return nil }
-        return Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue()
-    }
-
-    static func layoutID(sourceID: String, language: String) -> Int {
-        if sourceID.hasSuffix(".British") || sourceID.hasSuffix(".British-PC") { return 0x809 }
-        if sourceID.hasSuffix(".Brazilian") || sourceID.hasSuffix(".Brazilian-ABNT2") { return 0x416 }
-        let base = language.split(separator: "-").first.map(String.init) ?? language
-        return layouts[base] ?? 0x409
-    }
-
-    private static let layouts: [String: Int] = [
-        "en": 0x409, "ru": 0x419, "uk": 0x422, "be": 0x423, "kk": 0x43F,
-        "de": 0x407, "fr": 0x40C, "es": 0x40A, "it": 0x410, "pt": 0x816,
-        "nl": 0x413, "sv": 0x41D, "fi": 0x40B, "da": 0x406, "nb": 0x414,
-        "pl": 0x415, "cs": 0x405, "sk": 0x41B, "hu": 0x40E, "ro": 0x418,
-        "tr": 0x41F, "el": 0x408, "he": 0x40D, "ar": 0x401,
-        "ja": 0x411, "ko": 0x412, "zh": 0x804,
-    ]
+    /// The layout a session starts with: US English, always. Keys go by
+    /// position and the server's own layout decides what they type, so the
+    /// language is switched there (Win+Space). Sending the Mac's current
+    /// layout, as mstsc does, broke xrdp: with Russian it typed no letters
+    /// at all, only the keys that are not letters.
+    static let sessionLayoutID = 0x409
 }

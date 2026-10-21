@@ -85,7 +85,6 @@ final class RDPQuestionTests {
         desktop.knownHosts = known
         desktop.keychain = keychain
         desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
-        desktop.keyboardLayout = { 0x409 }
         var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: password)
         launch.options.sound = false
         launch.passwordAccount = account

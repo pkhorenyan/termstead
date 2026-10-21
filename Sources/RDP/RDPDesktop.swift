@@ -95,9 +95,6 @@ final class RDPDesktop {
     /// How big the tab is now, in points, and the screen's scale; `nil`
     /// while it has not been laid out.
     @ObservationIgnored var availableSize: () -> (size: CGSize, scale: CGFloat)? = { nil }
-    /// The layout the session starts with: the Mac's current one, as mstsc
-    /// does. Replaceable for a test, which must not depend on it.
-    @ObservationIgnored var keyboardLayout: () -> Int = RDPKeyboard.currentLayoutID
 
     init() {
         view.desktop = self
@@ -216,7 +213,7 @@ final class RDPDesktop {
         settings.width = width
         settings.height = height
         settings.desktopScale = scale
-        settings.keyboardLayout = keyboardLayout()
+        settings.keyboardLayout = RDPKeyboard.sessionLayoutID
         settings.clipboard = launch.options.clipboard
         settings.sound = launch.options.sound
 

@@ -73,12 +73,9 @@ struct RDPInputTests {
         #expect(RDPKeyboard.modifierIsDown(keyCode: UInt16(kVK_Command), flags: 0x0008) == nil)
     }
 
-    @Test func layouts() {
-        #expect(RDPKeyboard.layoutID(sourceID: "com.apple.keylayout.US", language: "en") == 0x409)
-        #expect(RDPKeyboard.layoutID(sourceID: "com.apple.keylayout.Russian", language: "ru") == 0x419)
-        #expect(RDPKeyboard.layoutID(sourceID: "com.apple.keylayout.British", language: "en") == 0x809)
-        #expect(RDPKeyboard.layoutID(sourceID: "com.apple.keylayout.German", language: "de-DE") == 0x407)
-        #expect(RDPKeyboard.layoutID(sourceID: "x", language: "xx") == 0x409)
+    /// The Mac's layout is not sent: with Russian, xrdp typed no letters.
+    @Test func aSessionStartsInUSEnglish() {
+        #expect(RDPKeyboard.sessionLayoutID == 0x409)
     }
 
     // MARK: - Mouse
@@ -129,27 +126,90 @@ struct RDPTypingTests {
         var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "")
         launch.options.sound = false
         desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
-        // The keys typed are US positions, whatever this Mac's layout is now.
-        desktop.keyboardLayout = { 0x409 }
         desktop.knownHosts = TestLabRDP.knownHosts
         desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
         // No password at the tab's question: xrdp then shows its own login.
         await TestLabRDP.waitUntilShowing(desktop, password: "")
         try #require(desktop.phase == .showing)
-        try await Task.sleep(for: .seconds(1))
-        let loginScreen = try #require(centre(of: desktop))
+        await wait(upTo: 10) { corner(of: desktop).map(isXrdpTeal) ?? false }
+        try #require(corner(of: desktop).map(isXrdpTeal) == true)
 
         // xrdp's dialog opens on the password field, the user filled in.
         for code in [kVK_ANSI_L, kVK_ANSI_A, kVK_ANSI_B, kVK_Return] {
             let key = try #require(RDPKeyboard.key(forKeyCode: UInt16(code), iso: false))
             desktop.press([key])
         }
-        // The dialog goes first, onto xrdp's teal; then Xfce's dark desktop.
-        await wait(upTo: 30) { centre(of: desktop).map(isXfceBackground) ?? false }
-        let after = try #require(centre(of: desktop))
-        #expect(after != loginScreen)
-        #expect(isXfceBackground(after))
+        // The dialog goes first, onto xrdp's teal; then the session's desktop.
+        await wait(upTo: 30) { corner(of: desktop).map(isSessionDesktop) ?? false }
+        let after = try #require(corner(of: desktop))
+        #expect(isSessionDesktop(after))
         desktop.stop()
+    }
+
+    /// Past the login screen, keys go another way: through Xorg, with the
+    /// layout the session started with. A command typed into a terminal
+    /// must run — checked by the file it makes in the container.
+    @Test func keysReachATerminalInTheSession() async throws {
+        let docker = try #require(Self.docker, "docker is not on this Mac")
+        let marker = "/tmp/termstead-typed-\(Int.random(in: 1000...9999))"
+        let desktop = RDPDesktop()
+        var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+        launch.options.sound = false
+        desktop.knownHosts = TestLabRDP.knownHosts
+        desktop.availableSize = { (CGSize(width: 1024, height: 768), 1) }
+        desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+        await TestLabRDP.waitUntilShowing(desktop)
+        try #require(desktop.phase == .showing)
+        try await Task.sleep(for: .seconds(2))
+
+        func key(_ code: Int) throws -> RDPKeyboard.Key {
+            try #require(RDPKeyboard.key(forKeyCode: UInt16(code), iso: false))
+        }
+        // Xfce's shortcut for a terminal.
+        desktop.press([try key(kVK_Control), try key(kVK_Option), try key(kVK_ANSI_T)])
+        try await Task.sleep(for: .seconds(3))
+        let letters: [Character: Int] = [
+            "t": kVK_ANSI_T, "o": kVK_ANSI_O, "u": kVK_ANSI_U, "c": kVK_ANSI_C, "h": kVK_ANSI_H,
+            "m": kVK_ANSI_M, "p": kVK_ANSI_P, "e": kVK_ANSI_E, "r": kVK_ANSI_R, "s": kVK_ANSI_S,
+            "a": kVK_ANSI_A, "d": kVK_ANSI_D, "y": kVK_ANSI_Y, "x": kVK_ANSI_X, "i": kVK_ANSI_I,
+            "-": kVK_ANSI_Minus, "/": kVK_ANSI_Slash, " ": kVK_Space, ";": kVK_ANSI_Semicolon,
+            "0": kVK_ANSI_0, "1": kVK_ANSI_1, "2": kVK_ANSI_2, "3": kVK_ANSI_3, "4": kVK_ANSI_4,
+            "5": kVK_ANSI_5, "6": kVK_ANSI_6, "7": kVK_ANSI_7, "8": kVK_ANSI_8, "9": kVK_ANSI_9,
+        ]
+        for character in "touch \(marker); exit" {
+            desktop.press([try key(try #require(letters[character]))])
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        desktop.press([try key(kVK_Return)])
+
+        var found = false
+        for _ in 0..<20 where !found {
+            try await Task.sleep(for: .milliseconds(250))
+            found = Self.run(docker, ["compose", "-f", Self.compose, "exec", "-T", "rdp", "test", "-e", marker]) == 0
+        }
+        _ = Self.run(docker, ["compose", "-f", Self.compose, "exec", "-T", "rdp", "rm", "-f", marker])
+        #expect(found)
+        desktop.stop()
+    }
+
+    private static var compose: String {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("TestLab/docker-compose.yml").path
+    }
+
+    private static let docker: String? = ["/usr/local/bin/docker", "/opt/homebrew/bin/docker",
+                                          "/Applications/Docker.app/Contents/Resources/bin/docker"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    private static func run(_ tool: String, _ arguments: [String]) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return -1 }
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 
     private func wait(upTo seconds: Double, until done: () -> Bool) async {
@@ -159,20 +219,25 @@ struct RDPTypingTests {
         }
     }
 
-    /// Xfce's default background is a dark blue; xrdp's login screen is
-    /// teal and light.
-    private func isXfceBackground(_ pixel: [UInt8]) -> Bool {
-        pixel.allSatisfy { $0 < 90 }
+    /// xrdp's login screen around its dialog: B 181, G 156, R 0.
+    private func isXrdpTeal(_ pixel: [UInt8]) -> Bool {
+        pixel[0] > 150 && pixel[1] > 120 && pixel[2] < 40
     }
 
-    /// The colour a little above the middle: the login dialog there, the
-    /// desktop's background once logged in.
-    private func centre(of desktop: RDPDesktop) -> [UInt8]? {
+    /// Logged in: neither the login screen's teal nor a blank frame. The
+    /// lab's session is shared and keeps its windows, so this looks at a
+    /// corner of Xfce's background, not at whatever is in the middle.
+    private func isSessionDesktop(_ pixel: [UInt8]) -> Bool {
+        !isXrdpTeal(pixel) && pixel.contains { $0 > 0 }
+    }
+
+    /// Above the bottom left corner, clear of the dialog and the dock.
+    private func corner(of desktop: RDPDesktop) -> [UInt8]? {
         guard let surface = desktop.view.layer?.contents as? IOSurface ?? nil else { return nil }
         surface.lock(options: .readOnly, seed: nil)
         defer { surface.unlock(options: .readOnly, seed: nil) }
         let pixel = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
-            + (surface.height / 2 - 60) * surface.bytesPerRow + surface.width / 2 * 4
+            + (surface.height - 40) * surface.bytesPerRow + 20 * 4
         return [pixel[0], pixel[1], pixel[2]]
     }
 }
