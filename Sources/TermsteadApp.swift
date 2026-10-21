@@ -69,6 +69,9 @@ struct TermsteadApp: App {
     /// switched off while one is up.
     private var formIsOpen: Bool { appState.isModalOpen }
 
+    /// Find searches a terminal's text; a remote desktop has none to search.
+    private var activeIsTerminal: Bool { connectionStore.active?.kind == .ssh }
+
     /// Next and previous tab go round the focused pane's tabs only.
     private var focusedTabCount: Int { connectionStore.tabs(in: connectionStore.focusedPane).count }
 
@@ -105,13 +108,13 @@ struct TermsteadApp: App {
         CommandGroup(replacing: .textEditing) {
             Button("Find…") { appState.openFind() }
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(connectionStore.active == nil || formIsOpen)
+                .disabled(!activeIsTerminal || formIsOpen)
             Button("Find Next") { appState.find(in: connectionStore.active?.terminalView, upward: true) }
                 .keyboardShortcut("g", modifiers: .command)
-                .disabled(connectionStore.active == nil || appState.findQuery.isEmpty || formIsOpen)
+                .disabled(!activeIsTerminal || appState.findQuery.isEmpty || formIsOpen)
             Button("Find Previous") { appState.find(in: connectionStore.active?.terminalView, upward: false) }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(connectionStore.active == nil || appState.findQuery.isEmpty || formIsOpen)
+                .disabled(!activeIsTerminal || appState.findQuery.isEmpty || formIsOpen)
         }
         // The active tab only, as in Terminal and iTerm2; the size every tab
         // starts at is in Settings. ⌘= reaches "Bigger" through

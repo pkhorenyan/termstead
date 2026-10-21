@@ -80,8 +80,8 @@ struct SessionKindTests {
         #expect(ConnectionStore().forwardingMenuItems(for: session, in: SessionStore.sample()).isEmpty)
     }
 
-    /// Until the RDP engine is in, opening one never runs ssh against the
-    /// desktop's port.
+    /// Opening one never runs ssh against the desktop's port: the tab is a
+    /// remote desktop, with no ssh plan behind it.
     @Test func openingAnRDPSessionStartsNoSSH() throws {
         let store = SessionStore.sample()
         let group = try #require(store.groupOptions().first?.id)
@@ -90,7 +90,8 @@ struct SessionKindTests {
         connections.connect(sessionID: name, in: store)
         let tab = try #require(connections.active)
         #expect(tab.plan == nil)
-        #expect(!tab.state.isRunning)
+        #expect(tab.kind == .rdp)
+        #expect(tab.desktop != nil)
         connections.closeAll()
     }
 }

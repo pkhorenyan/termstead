@@ -9,7 +9,10 @@ struct FilesPanel: View {
 
     var body: some View {
         if let connection = connectionStore.active {
-            if connection.state.isRunning {
+            if connection.kind == .rdp {
+                placeholder("Remote desktop",
+                            "Files are browsed over SFTP, which an RDP session does not have.")
+            } else if connection.state.isRunning {
                 FileBrowserView(browser: connection.fileBrowser, title: connection.title)
                     // A fresh view per tab, so a rename field or a scroll
                     // position never carries over to another server.

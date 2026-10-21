@@ -71,15 +71,24 @@ final class Connection: Identifiable {
     /// connection that opens them ("Start Port Forwarding"). Kept out of the
     /// tab strip (`ConnectionStore.tunnels`) unless it needs the user.
     let isTunnelOnly: Bool
+    /// SSH, or a remote desktop. An RDP tab still has its terminal: it
+    /// shows how connecting went until the desktop is up, and why it ended.
+    let kind: SessionKind
+    /// The remote desktop, for an RDP tab.
+    let desktop: RDPDesktop?
+    /// What the RDP tab connected with, to reconnect with on Return.
+    @ObservationIgnored private var desktopLaunch: RDPLaunch?
     @ObservationIgnored private var didClose = false
 
     /// Told when ssh ends, before the tab is closed or reconnected.
     @ObservationIgnored var onEnded: (() -> Void)?
 
     init(sessionID: String?, title: String, address: String, keyDescription: String,
-         keychain: KeychainStore = .shared, isTunnelOnly: Bool = false) {
+         keychain: KeychainStore = .shared, isTunnelOnly: Bool = false, kind: SessionKind = .ssh) {
         self.keychain = keychain
         self.isTunnelOnly = isTunnelOnly
+        self.kind = kind
+        desktop = kind == .rdp ? RDPDesktop() : nil
         self.sessionID = sessionID
         self.title = title
         self.address = address
@@ -98,6 +107,33 @@ final class Connection: Identifiable {
             self?.browser?.terminalMayHaveMoved()
         }
         terminalView.onUserInput = { [weak self] data in self?.onInput?(data) }
+        desktop?.log = { [weak self] line in
+            self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n")
+        }
+        desktop?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
+        desktop?.availableSize = { [weak self] in
+            // The pane holding the terminal, while the desktop is not up.
+            guard let pane = self?.terminalView.superview ?? self?.desktop?.view.superview,
+                  pane.bounds.width > 0, pane.bounds.height > 0 else { return nil }
+            return (pane.bounds.size, pane.window?.backingScaleFactor ?? 1)
+        }
+    }
+
+    /// Opens the remote desktop: straight to the server, for now.
+    func start(_ launch: RDPLaunch) {
+        guard !didClose, let desktop else { return }
+        desktopLaunch = launch
+        state = .running
+        desktop.start(launch) {
+            try await RDPSocket.connect(host: launch.host, port: launch.port)
+        }
+    }
+
+    private func desktopEnded(_ reason: String) {
+        guard state.isRunning else { return }
+        state = .exited(code: nil)
+        onEnded?()
+        terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to reconnect.\u{1b}[0m\r\n")
     }
 
     /// Typed or pasted into this tab — see `ConnectionStore.broadcast`.
@@ -162,6 +198,11 @@ final class Connection: Identifiable {
     }
 
     func restart() {
+        if let desktopLaunch, !state.isRunning {
+            terminalView.feed(text: "\r\n")
+            start(desktopLaunch)
+            return
+        }
         guard let plan, !state.isRunning else { return }
         // The old output stays above, the way a terminal keeps a finished
         // command's: it is often what the user needs to read.
@@ -176,7 +217,8 @@ final class Connection: Identifiable {
         browser?.stop()
         exitWatch?.cancel()
         exitWatch = nil
-        if state.isRunning { terminalView.terminate() }
+        desktop?.stop()
+        if state.isRunning, kind == .ssh { terminalView.terminate() }
         removeWorkDirectory()
     }
 

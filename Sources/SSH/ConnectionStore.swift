@@ -137,7 +137,9 @@ final class ConnectionStore {
     /// The pane takes broadcast input: on, split, not left out, and with a
     /// tab in front.
     func receivesBroadcast(pane: Int) -> Bool {
-        isBroadcasting && canBroadcast && !broadcastExcluded.contains(pane) && active(in: pane) != nil
+        // Typing reaches a terminal; a remote desktop takes keys, not text.
+        isBroadcasting && canBroadcast && !broadcastExcluded.contains(pane)
+            && active(in: pane).map { $0.kind == .ssh } == true
     }
 
     /// Where input typed into `source` goes besides `source` itself: the
@@ -206,11 +208,16 @@ final class ConnectionStore {
 
         let connection = Connection(sessionID: sessionID, title: session.id,
                                     address: session.statusAddress,
-                                    keyDescription: Self.keyDescription(for: session))
+                                    keyDescription: Self.keyDescription(for: session),
+                                    kind: session.kind)
         add(connection)
-        guard session.kind == .ssh else {
-            // Until the RDP engine lands: never ssh to a desktop's port.
-            connection.fail("RDP sessions cannot be opened in this build yet.")
+        if session.kind == .rdp {
+            guard session.jumps.isEmpty else {
+                connection.fail("RDP through jump hosts is not supported in this build yet.")
+                return
+            }
+            let password = KeychainStore.shared.secret(for: SSHLaunch.sessionPasswordAccount(session.id)) ?? ""
+            connection.start(RDPLaunch(session: session, password: password))
             return
         }
         do {
