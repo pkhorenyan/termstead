@@ -399,7 +399,7 @@ struct SessionSheet: View {
                     }
                 }
                 checkbox("Sharp on Retina displays", isOn: $rdp.sharpOnRetina)
-                checkbox("Share the clipboard", isOn: $rdp.clipboard)
+                checkbox("Share the clipboard: text and files", isOn: $rdp.clipboard)
                 checkbox("Play sound", isOn: $rdp.sound)
             }
 

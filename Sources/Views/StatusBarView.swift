@@ -52,6 +52,7 @@ struct StatusBarView: View {
                 }
 
                 TunnelStatusItem()
+                RDPTransferStatusItem()
 
                 if themeStore.showServerLoad, let load = tab.serverLoad {
                     ServerLoadView(load: load, theme: theme)
@@ -153,3 +154,58 @@ private struct ServerLoadView: View {
     }
 }
 
+
+/// Files copied on a remote desktop on their way to the Mac's clipboard —
+/// from any tab, since the copy is fetched once the user has gone
+/// elsewhere, often to another tab.
+struct RDPTransferStatusItem: View {
+    @Environment(\.theme) private var theme
+    @Environment(ConnectionStore.self) private var connectionStore
+
+    var body: some View {
+        let transfers = connectionStore.connections.compactMap { tab in
+            tab.desktop.flatMap { desktop in desktop.download.map { (tab, desktop, $0) } }
+        }
+        if let (tab, desktop, download) = transfers.first {
+            HStack(spacing: 6) {
+                switch download.state {
+                case .copying:
+                    Label(progress(download), systemImage: "arrow.down.doc")
+                        .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+                        .foregroundStyle(theme.accent.color)
+                        .help("Copying files from \(tab.title) to the Mac's clipboard")
+                case .done:
+                    Label(download.fileCount == 1 ? "File ready to paste" : "Files ready to paste",
+                          systemImage: "checkmark")
+                        .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+                        .foregroundStyle(theme.accent.color)
+                case .failed(let reason):
+                    Label("Copying files failed", systemImage: "exclamationmark.triangle")
+                        .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+                        .foregroundStyle(theme.ansiRed.color)
+                        .help(reason)
+                case .cancelled:
+                    EmptyView()
+                }
+                if download.state != .done {
+                    Button { desktop.dismissDownload() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(download.state == .copying ? "Stop copying" : "Dismiss")
+                }
+            }
+            .fixedSize()
+            .layoutPriority(2)
+        }
+    }
+
+    private func progress(_ download: RDPFileDownload) -> String {
+        let files = download.fileCount == 1 ? "1 file" : "\(download.fileCount) files"
+        guard download.total > 0 else { return "Copying \(files)…" }
+        let percent = Int(Double(download.copied) / Double(download.total) * 100)
+        return "Copying \(files)… \(min(percent, 100))%"
+    }
+}

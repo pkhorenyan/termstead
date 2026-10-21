@@ -73,6 +73,10 @@ services:
     hostname: rdp
     ports: ["127.0.0.1:3390:3389"]
     networks: [default, dmz]
+    # xrdp's FUSE filesystem, for files pasted from the client.
+    devices: [/dev/fuse]
+    cap_add: [SYS_ADMIN]
+    security_opt: [apparmor:unconfined]
 
 networks:
   dmz: { internal: true }

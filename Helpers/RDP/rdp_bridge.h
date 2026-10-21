@@ -11,6 +11,17 @@
 
 typedef struct tsr_session tsr_session;
 
+/// A file or folder on the clipboard, either side's. `name` is relative to
+/// where it was copied from, `/` between folders, UTF-8.
+typedef struct {
+	const char* name;
+	/// UINT64_MAX when the server did not say.
+	uint64_t size;
+	bool directory;
+	/// Seconds since 1970; 0 when unknown.
+	int64_t modified;
+} tsr_file;
+
 /// Called on the session's own thread, the one running `tsr_run`.
 typedef struct {
 	void* user;
@@ -32,6 +43,15 @@ typedef struct {
 	void (*connected)(void* user);
 	/// Text copied on the server, UTF-8. Called on a channel's thread.
 	void (*clipboard)(void* user, const char* text);
+	/// Files copied on the server, in its order: folders before what is in
+	/// them. On a channel's thread; the list is valid during the call.
+	void (*server_files)(void* user, const tsr_file* files, size_t count);
+	/// The server pastes files this Mac offered, and wants `length` bytes of
+	/// file `index` from `offset`. Answer with `tsr_file_data_reply` and the
+	/// same `stream`, from any thread.
+	void (*read_file)(void* user, uint32_t stream, uint32_t index, uint64_t offset, uint32_t length);
+	/// What `tsr_request_file_data` asked for; NULL when the server refused.
+	void (*file_data)(void* user, uint32_t stream, const uint8_t* data, size_t length);
 	/// A pointer shape from the server, kept under `id` (from 1) until
 	/// `pointer_free`: RGBA with straight alpha, in desktop pixels, and the
 	/// hot spot in the same pixels.
@@ -74,7 +94,17 @@ bool tsr_send_unicode(tsr_session* session, uint16_t character, bool down);
 bool tsr_send_sync(tsr_session* session, bool caps_lock);
 bool tsr_send_mouse(tsr_session* session, uint16_t flags, uint16_t x, uint16_t y);
 bool tsr_resize(tsr_session* session, uint32_t width, uint32_t height, uint32_t desktop_scale);
-/// Text copied on this Mac, UTF-8, offered to the server; NULL for none.
-void tsr_set_clipboard(tsr_session* session, const char* text);
+/// What was copied on this Mac, offered to the server: text (UTF-8, or
+/// NULL) and files (`count` 0 for none). Names longer than Windows takes
+/// fail the offer.
+bool tsr_set_clipboard(tsr_session* session, const char* text, const tsr_file* files, size_t count);
+/// An answer to `read_file`: the bytes read, or NULL when the file could not
+/// be read.
+void tsr_file_data_reply(tsr_session* session, uint32_t stream, const uint8_t* data, size_t length);
+/// Asks the server for part of a file it copied, by its index in the list
+/// `server_files` gave; `size_only` asks for its size instead (8 bytes,
+/// little-endian). The answer comes to `file_data` with this `stream`.
+bool tsr_request_file_data(tsr_session* session, uint32_t stream, uint32_t index, uint64_t offset,
+                           uint32_t length, bool size_only);
 
 #endif

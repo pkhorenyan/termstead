@@ -19,6 +19,8 @@
 #include <freerdp/graphics.h>
 #include <freerdp/input.h>
 #include <freerdp/transport_io.h>
+#include <freerdp/utils/cliprdr_utils.h>
+#include <winpr/shell.h>
 #include <winpr/string.h>
 #include <winpr/synch.h>
 #include <winpr/user.h>
@@ -46,6 +48,13 @@ struct tsr_session {
 	/// queue, read on the clipboard channel's thread.
 	pthread_mutex_t clipboard_lock;
 	char* local_text;
+	FILEDESCRIPTORW* local_files;
+	uint32_t local_file_count;
+	/// The server's id for its file list format, and which format the
+	/// data asked for last is: a data response does not say. On the
+	/// clipboard channel's thread only.
+	UINT32 server_file_format;
+	UINT32 pending_format;
 	char* reason;
 	/// The last pointer id given out; on the session's thread only.
 	int32_t last_pointer;
@@ -131,24 +140,48 @@ static BOOL tsr_authenticate(freerdp* instance, char** username, char** password
 
 // MARK: - Clipboard (MS-RDPECLIP), text only
 
-static bool has_local_text(tsr_session* session)
-{
-	pthread_mutex_lock(&session->clipboard_lock);
-	const bool has = session->local_text != NULL;
-	pthread_mutex_unlock(&session->clipboard_lock);
-	return has;
-}
+/// The id this client gives its file list. Any registered format id does;
+/// the server goes by the name.
+#define TSR_FILE_FORMAT 0xC0F1
+#define TSR_FILE_FORMAT_NAME "FileGroupDescriptorW"
+/// Between 1601 and 1970, in seconds: FILETIME counts from 1601.
+#define TSR_FILETIME_EPOCH 11644473600LL
 
-/// Tells the server what this Mac's clipboard holds: text, or nothing.
-static UINT tsr_send_format_list(CliprdrClientContext* cliprdr, bool text)
+/// What may be on offer: the general flags this client asks for. FreeRDP
+/// keeps only what the server also has.
+static const UINT32 tsr_clipboard_flags = CB_USE_LONG_FORMAT_NAMES | CB_STREAM_FILECLIP_ENABLED |
+                                          CB_FILECLIP_NO_FILE_PATHS |
+                                          CB_HUGE_FILE_SUPPORT_ENABLED;
+
+/// Tells the server what this Mac's clipboard holds: files, text, both or
+/// nothing.
+static UINT tsr_send_format_list(CliprdrClientContext* cliprdr, bool text, bool files)
 {
-	CLIPRDR_FORMAT format = { 0 };
-	format.formatId = CF_UNICODETEXT;
+	CLIPRDR_FORMAT formats[2] = { 0 };
+	UINT32 count = 0;
+	if (files) {
+		formats[count].formatId = TSR_FILE_FORMAT;
+		formats[count].formatName = (char*)TSR_FILE_FORMAT_NAME;
+		count++;
+	}
+	if (text) {
+		formats[count].formatId = CF_UNICODETEXT;
+		count++;
+	}
 	CLIPRDR_FORMAT_LIST list = { 0 };
 	list.common.msgType = CB_FORMAT_LIST;
-	list.numFormats = text ? 1 : 0;
-	list.formats = text ? &format : NULL;
+	list.numFormats = count;
+	list.formats = count ? formats : NULL;
 	return cliprdr->ClientFormatList(cliprdr, &list);
+}
+
+static UINT tsr_send_current_format_list(tsr_session* session, CliprdrClientContext* cliprdr)
+{
+	pthread_mutex_lock(&session->clipboard_lock);
+	const bool text = session->local_text != NULL;
+	const bool files = session->local_file_count > 0;
+	pthread_mutex_unlock(&session->clipboard_lock);
+	return tsr_send_format_list(cliprdr, text, files);
 }
 
 static UINT tsr_monitor_ready(CliprdrClientContext* cliprdr, const CLIPRDR_MONITOR_READY* ready)
@@ -158,7 +191,7 @@ static UINT tsr_monitor_ready(CliprdrClientContext* cliprdr, const CLIPRDR_MONIT
 	general.capabilitySetType = CB_CAPSTYPE_GENERAL;
 	general.capabilitySetLength = CB_CAPSTYPE_GENERAL_LEN;
 	general.version = CB_CAPS_VERSION_2;
-	general.generalFlags = CB_USE_LONG_FORMAT_NAMES;
+	general.generalFlags = tsr_clipboard_flags;
 	CLIPRDR_CAPABILITIES capabilities = { 0 };
 	capabilities.common.msgType = CB_CLIP_CAPS;
 	capabilities.cCapabilitiesSets = 1;
@@ -166,7 +199,7 @@ static UINT tsr_monitor_ready(CliprdrClientContext* cliprdr, const CLIPRDR_MONIT
 	const UINT rc = cliprdr->ClientCapabilities(cliprdr, &capabilities);
 	if (rc != CHANNEL_RC_OK)
 		return rc;
-	return tsr_send_format_list(cliprdr, has_local_text((tsr_session*)cliprdr->custom));
+	return tsr_send_current_format_list((tsr_session*)cliprdr->custom, cliprdr);
 }
 
 static UINT tsr_server_capabilities(CliprdrClientContext* cliprdr,
@@ -177,23 +210,40 @@ static UINT tsr_server_capabilities(CliprdrClientContext* cliprdr,
 	return CHANNEL_RC_OK;
 }
 
-/// Something was copied on the server: take its text, if it has any.
+static UINT tsr_request_format(tsr_session* session, CliprdrClientContext* cliprdr, UINT32 format)
+{
+	session->pending_format = format;
+	CLIPRDR_FORMAT_DATA_REQUEST request = { 0 };
+	request.common.msgType = CB_FORMAT_DATA_REQUEST;
+	request.requestedFormatId = format;
+	return cliprdr->ClientFormatDataRequest(cliprdr, &request);
+}
+
+/// Something was copied on the server: take its files if it has any, else
+/// its text. Files come with their names as text too, and the names are
+/// not what the user wants pasted on the Mac.
 static UINT tsr_server_format_list(CliprdrClientContext* cliprdr, const CLIPRDR_FORMAT_LIST* list)
 {
+	tsr_session* session = (tsr_session*)cliprdr->custom;
 	CLIPRDR_FORMAT_LIST_RESPONSE response = { 0 };
 	response.common.msgType = CB_FORMAT_LIST_RESPONSE;
 	response.common.msgFlags = CB_RESPONSE_OK;
 	UINT rc = cliprdr->ClientFormatListResponse(cliprdr, &response);
 	if (rc != CHANNEL_RC_OK)
 		return rc;
+	session->server_file_format = 0;
+	bool text = false;
 	for (UINT32 i = 0; i < list->numFormats; i++) {
-		if (list->formats[i].formatId == CF_UNICODETEXT) {
-			CLIPRDR_FORMAT_DATA_REQUEST request = { 0 };
-			request.common.msgType = CB_FORMAT_DATA_REQUEST;
-			request.requestedFormatId = CF_UNICODETEXT;
-			return cliprdr->ClientFormatDataRequest(cliprdr, &request);
-		}
+		const CLIPRDR_FORMAT* format = &list->formats[i];
+		if (format->formatId == CF_UNICODETEXT)
+			text = true;
+		else if (format->formatName && strcmp(format->formatName, TSR_FILE_FORMAT_NAME) == 0)
+			session->server_file_format = format->formatId;
 	}
+	if (session->server_file_format && session->callbacks.server_files)
+		return tsr_request_format(session, cliprdr, session->server_file_format);
+	if (text)
+		return tsr_request_format(session, cliprdr, CF_UNICODETEXT);
 	return CHANNEL_RC_OK;
 }
 
@@ -205,12 +255,61 @@ static UINT tsr_server_format_list_response(CliprdrClientContext* cliprdr,
 	return CHANNEL_RC_OK;
 }
 
+/// The server's file list, as the app takes it: UTF-8 names, `/` between
+/// folders.
+static void tsr_hand_over_server_files(tsr_session* session, const BYTE* data, UINT32 length)
+{
+	FILEDESCRIPTORW* descriptors = NULL;
+	UINT32 count = 0;
+	if (cliprdr_parse_file_list(data, length, &descriptors, &count) != CHANNEL_RC_OK)
+		return;
+	tsr_file* files = calloc(count ? count : 1, sizeof(tsr_file));
+	if (!files) {
+		free(descriptors);
+		return;
+	}
+	for (UINT32 i = 0; i < count; i++) {
+		const FILEDESCRIPTORW* d = &descriptors[i];
+		char* name = ConvertWCharNToUtf8Alloc(d->cFileName, ARRAYSIZE(d->cFileName), NULL);
+		if (name) {
+			for (char* c = name; *c; c++) {
+				if (*c == '\\')
+					*c = '/';
+			}
+		}
+		files[i].name = name ? name : strdup("");
+		files[i].directory = (d->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+		files[i].size = (d->dwFlags & FD_FILESIZE)
+		                    ? ((uint64_t)d->nFileSizeHigh << 32) | d->nFileSizeLow
+		                    : UINT64_MAX;
+		if (d->dwFlags & FD_WRITESTIME) {
+			const uint64_t ticks = ((uint64_t)d->ftLastWriteTime.dwHighDateTime << 32) |
+			                       d->ftLastWriteTime.dwLowDateTime;
+			files[i].modified = (int64_t)(ticks / 10000000ULL) - TSR_FILETIME_EPOCH;
+		}
+	}
+	session->callbacks.server_files(session->callbacks.user, files, count);
+	for (UINT32 i = 0; i < count; i++)
+		free((char*)files[i].name);
+	free(files);
+	free(descriptors);
+}
+
 static UINT tsr_server_format_data_response(CliprdrClientContext* cliprdr,
                                             const CLIPRDR_FORMAT_DATA_RESPONSE* response)
 {
 	tsr_session* session = (tsr_session*)cliprdr->custom;
-	if ((response->common.msgFlags & CB_RESPONSE_FAIL) || !response->requestedFormatData ||
-	    !session->callbacks.clipboard)
+	const UINT32 format = session->pending_format;
+	session->pending_format = 0;
+	if ((response->common.msgFlags & CB_RESPONSE_FAIL) || !response->requestedFormatData)
+		return CHANNEL_RC_OK;
+	if (format && format == session->server_file_format) {
+		if (session->callbacks.server_files)
+			tsr_hand_over_server_files(session, response->requestedFormatData,
+			                           response->common.dataLen);
+		return CHANNEL_RC_OK;
+	}
+	if (format != CF_UNICODETEXT || !session->callbacks.clipboard)
 		return CHANNEL_RC_OK;
 	const size_t units = response->common.dataLen / sizeof(WCHAR);
 	char* text = ConvertWCharNToUtf8Alloc((const WCHAR*)response->requestedFormatData, units, NULL);
@@ -221,7 +320,8 @@ static UINT tsr_server_format_data_response(CliprdrClientContext* cliprdr,
 	return CHANNEL_RC_OK;
 }
 
-/// The server pastes: it gets this Mac's text, NUL-terminated UTF-16.
+/// The server pastes: it gets this Mac's text, NUL-terminated UTF-16, or
+/// the list of its files.
 static UINT tsr_server_format_data_request(CliprdrClientContext* cliprdr,
                                            const CLIPRDR_FORMAT_DATA_REQUEST* request)
 {
@@ -229,22 +329,85 @@ static UINT tsr_server_format_data_request(CliprdrClientContext* cliprdr,
 	CLIPRDR_FORMAT_DATA_RESPONSE response = { 0 };
 	response.common.msgType = CB_FORMAT_DATA_RESPONSE;
 	response.common.msgFlags = CB_RESPONSE_FAIL;
-	WCHAR* data = NULL;
-	if (request->requestedFormatId == CF_UNICODETEXT) {
-		pthread_mutex_lock(&session->clipboard_lock);
+	BYTE* data = NULL;
+	UINT32 length = 0;
+	pthread_mutex_lock(&session->clipboard_lock);
+	if (request->requestedFormatId == CF_UNICODETEXT && session->local_text) {
 		size_t units = 0;
-		if (session->local_text)
-			data = ConvertUtf8ToWCharAlloc(session->local_text, &units);
-		pthread_mutex_unlock(&session->clipboard_lock);
-		if (data) {
-			response.common.msgFlags = CB_RESPONSE_OK;
-			response.common.dataLen = (UINT32)((units + 1) * sizeof(WCHAR));
-			response.requestedFormatData = (const BYTE*)data;
+		data = (BYTE*)ConvertUtf8ToWCharAlloc(session->local_text, &units);
+		length = (UINT32)((units + 1) * sizeof(WCHAR));
+	} else if (request->requestedFormatId == TSR_FILE_FORMAT && session->local_file_count > 0) {
+		if (cliprdr_serialize_file_list_ex(tsr_clipboard_flags, session->local_files,
+		                                   session->local_file_count, &data,
+		                                   &length) != CHANNEL_RC_OK) {
+			data = NULL;
 		}
+	}
+	pthread_mutex_unlock(&session->clipboard_lock);
+	if (data) {
+		response.common.msgFlags = CB_RESPONSE_OK;
+		response.common.dataLen = length;
+		response.requestedFormatData = data;
 	}
 	const UINT rc = cliprdr->ClientFormatDataResponse(cliprdr, &response);
 	free(data);
 	return rc;
+}
+
+static UINT tsr_send_file_contents(CliprdrClientContext* cliprdr, UINT32 stream, const BYTE* data,
+                                   UINT32 length)
+{
+	CLIPRDR_FILE_CONTENTS_RESPONSE response = { 0 };
+	response.common.msgType = CB_FILECONTENTS_RESPONSE;
+	response.common.msgFlags = data ? CB_RESPONSE_OK : CB_RESPONSE_FAIL;
+	response.common.dataLen = 4 + (data ? length : 0);
+	response.streamId = stream;
+	response.cbRequested = data ? length : 0;
+	response.requestedData = data;
+	return cliprdr->ClientFileContentsResponse(cliprdr, &response);
+}
+
+/// The server pastes files: their sizes are known here, their contents
+/// are the app's to read.
+static UINT tsr_server_file_contents_request(CliprdrClientContext* cliprdr,
+                                             const CLIPRDR_FILE_CONTENTS_REQUEST* request)
+{
+	tsr_session* session = (tsr_session*)cliprdr->custom;
+	pthread_mutex_lock(&session->clipboard_lock);
+	const bool known = request->listIndex < session->local_file_count;
+	uint64_t size = 0;
+	if (known) {
+		const FILEDESCRIPTORW* d = &session->local_files[request->listIndex];
+		size = ((uint64_t)d->nFileSizeHigh << 32) | d->nFileSizeLow;
+	}
+	pthread_mutex_unlock(&session->clipboard_lock);
+	if (!known)
+		return tsr_send_file_contents(cliprdr, request->streamId, NULL, 0);
+	if (request->dwFlags & FILECONTENTS_SIZE) {
+		BYTE bytes[8];
+		for (int i = 0; i < 8; i++)
+			bytes[i] = (BYTE)(size >> (8 * i));
+		return tsr_send_file_contents(cliprdr, request->streamId, bytes, sizeof(bytes));
+	}
+	if (!session->callbacks.read_file)
+		return tsr_send_file_contents(cliprdr, request->streamId, NULL, 0);
+	const uint64_t offset = ((uint64_t)request->nPositionHigh << 32) | request->nPositionLow;
+	session->callbacks.read_file(session->callbacks.user, request->streamId, request->listIndex,
+	                             offset, request->cbRequested);
+	return CHANNEL_RC_OK;
+}
+
+static UINT tsr_server_file_contents_response(CliprdrClientContext* cliprdr,
+                                              const CLIPRDR_FILE_CONTENTS_RESPONSE* response)
+{
+	tsr_session* session = (tsr_session*)cliprdr->custom;
+	if (session->callbacks.file_data) {
+		const bool ok = !(response->common.msgFlags & CB_RESPONSE_FAIL);
+		session->callbacks.file_data(session->callbacks.user, response->streamId,
+		                             ok ? response->requestedData : NULL,
+		                             ok ? response->cbRequested : 0);
+	}
+	return CHANNEL_RC_OK;
 }
 
 static void tsr_attach_clipboard(tsr_session* session, CliprdrClientContext* cliprdr)
@@ -256,18 +419,88 @@ static void tsr_attach_clipboard(tsr_session* session, CliprdrClientContext* cli
 	cliprdr->ServerFormatListResponse = tsr_server_format_list_response;
 	cliprdr->ServerFormatDataRequest = tsr_server_format_data_request;
 	cliprdr->ServerFormatDataResponse = tsr_server_format_data_response;
+	cliprdr->ServerFileContentsRequest = tsr_server_file_contents_request;
+	cliprdr->ServerFileContentsResponse = tsr_server_file_contents_response;
+	pthread_mutex_lock(&session->clipboard_lock);
 	session->cliprdr = cliprdr;
+	pthread_mutex_unlock(&session->clipboard_lock);
 }
 
-void tsr_set_clipboard(tsr_session* session, const char* text)
+/// A file as the server's Explorer takes it. False for a name too long for
+/// its 260 characters.
+static bool tsr_describe(const tsr_file* file, FILEDESCRIPTORW* d)
 {
+	memset(d, 0, sizeof(*d));
+	if (ConvertUtf8ToWChar(file->name, d->cFileName, ARRAYSIZE(d->cFileName)) < 0)
+		return false;
+	for (size_t i = 0; i < ARRAYSIZE(d->cFileName) && d->cFileName[i]; i++) {
+		if (d->cFileName[i] == '/')
+			d->cFileName[i] = '\\';
+	}
+	d->dwFlags = FD_ATTRIBUTES | FD_FILESIZE | FD_WRITESTIME | FD_PROGRESSUI;
+	d->dwFileAttributes = file->directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+	const uint64_t size = file->directory ? 0 : file->size;
+	d->nFileSizeHigh = (DWORD)(size >> 32);
+	d->nFileSizeLow = (DWORD)size;
+	const uint64_t ticks = (uint64_t)(file->modified + TSR_FILETIME_EPOCH) * 10000000ULL;
+	d->ftLastWriteTime.dwHighDateTime = (DWORD)(ticks >> 32);
+	d->ftLastWriteTime.dwLowDateTime = (DWORD)ticks;
+	return true;
+}
+
+bool tsr_set_clipboard(tsr_session* session, const char* text, const tsr_file* files, size_t count)
+{
+	FILEDESCRIPTORW* descriptors = NULL;
+	if (count > 0) {
+		descriptors = calloc(count, sizeof(FILEDESCRIPTORW));
+		if (!descriptors)
+			return false;
+		for (size_t i = 0; i < count; i++) {
+			if (!tsr_describe(&files[i], &descriptors[i])) {
+				free(descriptors);
+				return false;
+			}
+		}
+	}
 	pthread_mutex_lock(&session->clipboard_lock);
 	free(session->local_text);
 	session->local_text = text ? strdup(text) : NULL;
+	free(session->local_files);
+	session->local_files = descriptors;
+	session->local_file_count = (uint32_t)count;
 	CliprdrClientContext* cliprdr = session->cliprdr;
 	pthread_mutex_unlock(&session->clipboard_lock);
 	if (cliprdr)
-		(void)tsr_send_format_list(cliprdr, text != NULL);
+		(void)tsr_send_format_list(cliprdr, text != NULL, count > 0);
+	return true;
+}
+
+void tsr_file_data_reply(tsr_session* session, uint32_t stream, const uint8_t* data, size_t length)
+{
+	pthread_mutex_lock(&session->clipboard_lock);
+	CliprdrClientContext* cliprdr = session->cliprdr;
+	pthread_mutex_unlock(&session->clipboard_lock);
+	if (cliprdr)
+		(void)tsr_send_file_contents(cliprdr, stream, data, (UINT32)length);
+}
+
+bool tsr_request_file_data(tsr_session* session, uint32_t stream, uint32_t index, uint64_t offset,
+                           uint32_t length, bool size_only)
+{
+	pthread_mutex_lock(&session->clipboard_lock);
+	CliprdrClientContext* cliprdr = session->cliprdr;
+	pthread_mutex_unlock(&session->clipboard_lock);
+	if (!cliprdr)
+		return false;
+	CLIPRDR_FILE_CONTENTS_REQUEST request = { 0 };
+	request.common.msgType = CB_FILECONTENTS_REQUEST;
+	request.streamId = stream;
+	request.listIndex = index;
+	request.dwFlags = size_only ? FILECONTENTS_SIZE : FILECONTENTS_RANGE;
+	request.nPositionLow = size_only ? 0 : (UINT32)offset;
+	request.nPositionHigh = size_only ? 0 : (UINT32)(offset >> 32);
+	request.cbRequested = size_only ? 8 : length;
+	return cliprdr->ClientFileContentsRequest(cliprdr, &request) == CHANNEL_RC_OK;
 }
 
 static void tsr_channel_connected(void* context, const ChannelConnectedEventArgs* e)
@@ -654,6 +887,7 @@ void tsr_free(tsr_session* session)
 		close(session->socket);
 	free(session->reason);
 	free(session->local_text);
+	free(session->local_files);
 	pthread_mutex_destroy(&session->clipboard_lock);
 	free(session);
 }

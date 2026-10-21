@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Testing
 @testable import Termstead
@@ -18,6 +19,96 @@ struct RDPClipboardTextTests {
         #expect(RDPDesktop.mayShare([.string, concealed], onPaste: true))
         #expect(!RDPDesktop.mayShare([.string, transient], onPaste: true))
         #expect(!RDPDesktop.mayShare([.string, generated], onPaste: true))
+    }
+}
+
+/// Files copied on the Mac as a desktop is offered them, and names from the
+/// server as they may land on the Mac.
+struct RDPClipboardFileListTests {
+    private func folder() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rdp-files-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Folder/Inner"),
+                                                withIntermediateDirectories: true)
+        try Data("one".utf8).write(to: root.appendingPathComponent("Folder/b.txt"))
+        try Data("two".utf8).write(to: root.appendingPathComponent("Folder/Inner/c.txt"))
+        try Data().write(to: root.appendingPathComponent("Folder/.DS_Store"))
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Folder/link"),
+                                                   withDestinationURL: URL(fileURLWithPath: "/etc/hosts"))
+        try Data("top".utf8).write(to: root.appendingPathComponent("a.txt"))
+        return root
+    }
+
+    @Test func aFolderIsListedFolderFirst() throws {
+        let root = try folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = RDPLocalFiles.collect([root.appendingPathComponent("a.txt"), root.appendingPathComponent("Folder")])
+        #expect(files.entries.map(\.name) == ["a.txt", "Folder", "Folder/Inner", "Folder/Inner/c.txt", "Folder/b.txt"])
+        #expect(files.entries.map(\.isDirectory) == [false, true, true, false, false])
+        #expect(files.entries[0].size == 3)
+        // A link is not followed: it would hand over what it points at.
+        #expect(files.skipped == ["Folder/link"])
+    }
+
+    @Test func filesAreReadInPieces() throws {
+        let root = try folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = RDPLocalFiles.collect([root.appendingPathComponent("a.txt"), root.appendingPathComponent("Folder")])
+        #expect(files.read(index: 0, offset: 1, length: 10) == Data("op".utf8))
+        #expect(files.read(index: 0, offset: 3, length: 10) == Data())
+        #expect(files.read(index: 1, offset: 0, length: 10) == nil)    // a folder
+        #expect(files.read(index: 4, offset: 0, length: 2) == Data("on".utf8))
+        #expect(files.read(index: 9, offset: 0, length: 2) == nil)
+    }
+
+    /// Windows sends folders, unlike the lab's xrdp: a pretend server with
+    /// one, a file inside it, and a file whose size it leaves out.
+    @MainActor @Test func aDownloadRebuildsFoldersAndAsksForMissingSizes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rdp-dl-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let contents = [1: Data(repeating: 7, count: RDPFileDownload.chunk + 10), 2: Data("unsized".utf8)]
+        let files = [RDPClipboardFile(name: "Dir", size: 0, isDirectory: true, modified: 0),
+                     RDPClipboardFile(name: "Dir/a.bin", size: Int64(contents[1]!.count), isDirectory: false,
+                                      modified: 1_700_000_000),
+                     RDPClipboardFile(name: "b.txt", size: -1, isDirectory: false, modified: 0)]
+        var asked: [String] = []
+        let download = RDPFileDownload(files: files, into: root) { index, offset, length, sizeOnly in
+            asked.append("\(index)@\(offset)\(sizeOnly ? "size" : "")")
+            let data = contents[index]!
+            if sizeOnly { return withUnsafeBytes(of: UInt64(data.count).littleEndian) { Data($0) } }
+            return data.subdata(in: Int(offset)..<min(data.count, Int(offset) + length))
+        }
+        var top: [URL] = []
+        download.start { top = $0 }
+        while download.state == .copying { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(download.state == .done)
+        #expect(top.map(\.lastPathComponent) == ["Dir", "b.txt"])
+        #expect(try Data(contentsOf: root.appendingPathComponent("Dir/a.bin")) == contents[1])
+        #expect(try Data(contentsOf: root.appendingPathComponent("b.txt")) == contents[2])
+        #expect(asked == ["1@0", "1@\(RDPFileDownload.chunk)", "2@0size", "2@0"])
+        #expect(download.copied == download.total)
+        let date = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("Dir/a.bin").path)[.modificationDate] as? Date
+        #expect(date == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    @MainActor @Test func aNameThatWouldLeaveTheFolderStopsTheDownload() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rdp-dl-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let download = RDPFileDownload(files: [RDPClipboardFile(name: "../escape.txt", size: 1, isDirectory: false,
+                                                                modified: 0)], into: root) { _, _, _, _ in Data("x".utf8) }
+        download.start { _ in }
+        while download.state == .copying { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(download.state != .done)
+        #expect(!FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appendingPathComponent("escape.txt").path))
+    }
+
+    @Test func namesFromTheServerStayInTheirFolder() {
+        #expect(RDPFileDownload.safeComponents("a/b.txt") == ["a", "b.txt"])
+        #expect(RDPFileDownload.safeComponents("../x") == nil)
+        #expect(RDPFileDownload.safeComponents("a/../../x") == nil)
+        #expect(RDPFileDownload.safeComponents("/etc/passwd") == nil)
+        #expect(RDPFileDownload.safeComponents("a//b") == nil)
+        #expect(RDPFileDownload.safeComponents("") == nil)
+        #expect(RDPFileDownload.safeComponents(".") == nil)
     }
 }
 
@@ -123,8 +214,101 @@ struct RDPClipboardTests {
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
         #expect(try await serverText(expecting: secret, for: 3) != secret)
 
-        desktop.offerForPaste()
+        await desktop.offerForPaste()
         #expect(try await serverText(expecting: secret, for: 5) == secret)
+        desktop.stop()
+    }
+
+    // MARK: - Files
+
+    /// `sh -c` as the lab user, in the container.
+    private func asLab(_ command: String) -> (status: Int32, output: String) {
+        TestLabRDP.inContainer(["su", "lab", "-c", command])
+    }
+
+    /// Files copied in Finder, pasted in the session: xrdp shows them
+    /// through its FUSE filesystem and reads them as they are opened, from
+    /// this Mac, piece by piece. This xrdp (0.9) takes no folders — it
+    /// says "skipping directory not supported" — so a folder copied along
+    /// is left out there, and must not cost the files their place.
+    @Test func filesCopiedHereCanBePastedThere() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rdp-up-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Folder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("inside".utf8).write(to: folder.appendingPathComponent("inside.txt"))
+        let big = Data((0..<1_500_000).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
+        try big.write(to: root.appendingPathComponent("big.bin"))
+        try Data("hello ✓\n".utf8).write(to: root.appendingPathComponent("note.txt"))
+
+        let pasteboard = NSPasteboard(name: .init("termstead-test-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([root.appendingPathComponent("note.txt"), folder,
+                                 root.appendingPathComponent("big.bin")] as [NSURL])
+        let desktop = try await open(pasteboard: pasteboard)
+
+        // What a file manager pasting does: ask for the list, then read.
+        var list = ""
+        for _ in 0..<20 where !list.contains("note.txt") {
+            try await Task.sleep(for: .milliseconds(500))
+            list = try xclip("-o -t text/uri-list").output
+        }
+        let paths = list.split(whereSeparator: \.isNewline).compactMap { URL(string: String($0))?.path }
+        let note = try #require(paths.first { $0.hasSuffix("/note.txt") })
+        let pasted = try #require(paths.first { $0.hasSuffix("/big.bin") })
+        #expect(asLab("cat '\(note)'").output == "hello ✓\n")
+        let sum = asLab("sha256sum '\(pasted)' | cut -d' ' -f1").output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(sum == SHA256.hash(data: big).map { String(format: "%02x", $0) }.joined())
+        desktop.stop()
+    }
+
+    /// Files copied in the session reach the Mac's clipboard once the
+    /// keyboard is elsewhere, fetched into a folder of the test's own. Files
+    /// only: this xrdp sends no folders (see above).
+    @Test func filesCopiedThereComeHere() async throws {
+        let pasteboard = NSPasteboard(name: .init("termstead-test-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rdp-down-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var keyboard = true
+        let desktop = RDPDesktop()
+        desktop.downloadRoot = root
+        desktop.knownHosts = TestLabRDP.knownHosts
+        desktop.pasteboard = pasteboard
+        desktop.hasKeyboard = { keyboard }
+        desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
+        var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+        launch.options.sound = false
+        desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+        await TestLabRDP.waitUntilShowing(desktop)
+        try #require(desktop.phase == .showing)
+        try await Task.sleep(for: .seconds(1))
+
+        let tag = Int.random(in: 1000...9999)
+        _ = asLab("rm -rf ~/out && mkdir -p ~/out && printf 'from xrdp \(tag)' > ~/out/x.txt"
+                  + " && head -c 700000 /dev/urandom > ~/out/y.bin")
+        let display = try display()
+        _ = asLab("printf 'file:///home/lab/out/x.txt\\r\\nfile:///home/lab/out/y.bin\\r\\n'"
+                  + " | DISPLAY=\(display) xclip -selection clipboard -t text/uri-list -l 3 &")
+        // Copied there; nothing is fetched while the keyboard stays.
+        try await Task.sleep(for: .seconds(3))
+        #expect(desktop.download == nil)
+
+        keyboard = false
+        desktop.keyboardLeft()
+        await wait(upTo: 20) { desktop.download?.state == .done }
+        #expect(desktop.download?.state == .done)
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        #expect(urls.map(\.lastPathComponent).sorted() == ["x.txt", "y.bin"])
+        let x = try #require(urls.first { $0.lastPathComponent == "x.txt" })
+        #expect(try String(contentsOf: x, encoding: .utf8) == "from xrdp \(tag)")
+        #expect(x.path.hasPrefix(root.path))
+        let y = try Data(contentsOf: x.deletingLastPathComponent().appendingPathComponent("y.bin"))
+        let remote = asLab("sha256sum ~/out/y.bin | cut -d' ' -f1").output.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(SHA256.hash(data: y).map { String(format: "%02x", $0) }.joined() == remote)
         desktop.stop()
     }
 

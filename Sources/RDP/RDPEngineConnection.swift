@@ -17,6 +17,8 @@ final class RDPEngineConnection {
     var onAskCredentials: ((_ user: String, _ domain: String,
                             _ reply: @escaping @Sendable (RDPLogin?) -> Void) -> Void)?
     var onServerClipboard: ((String) -> Void)?
+    /// Files copied on the server; their contents come through `fileData`.
+    var onServerFiles: (([RDPClipboardFile]) -> Void)?
     /// A pointer shape from the server, under its id; and one it dropped.
     var onPointerShape: ((Int, RDPPointer.Shape) -> Void)?
     var onPointerForgotten: ((Int) -> Void)?
@@ -29,12 +31,14 @@ final class RDPEngineConnection {
 
     private let connection: NSXPCConnection
     private var didEnd = false
+    /// The Mac's files on offer, read for the server off the main thread.
+    private let offeredFiles = RDPOfferedFiles()
 
     init() {
         connection = NSXPCConnection(serviceName: RDPService.name)
         connection.remoteObjectInterface = RDPService.engineInterface
         connection.exportedInterface = RDPService.clientInterface
-        let receiver = Receiver()
+        let receiver = Receiver(files: offeredFiles)
         connection.exportedObject = receiver
         receiver.owner = self
         // The engine's process died: a crash in FreeRDP ends every desktop.
@@ -76,8 +80,25 @@ final class RDPEngineConnection {
         engine?.resize(width: width, height: height, desktopScale: desktopScale)
     }
 
-    func clipboard(_ text: String?) {
-        engine?.clipboard(text)
+    /// Offers text and files copied on the Mac; both `nil` withdraws the
+    /// offer.
+    func clipboard(_ text: String?, files: RDPLocalFiles? = nil) {
+        offeredFiles.current = files
+        engine?.clipboard(text, files: files?.clipboardFiles ?? [])
+    }
+
+    /// Part of a file the server copied; `nil` when it could not be had.
+    func fileData(index: Int, offset: Int64, length: Int, sizeOnly: Bool) async -> Data? {
+        guard let engine else { return nil }
+        return await withCheckedContinuation { continuation in
+            let once = Once(continuation)
+            // The engine's process gone, the answer never comes: the error
+            // handler gives it instead.
+            let proxy = connection.remoteObjectProxyWithErrorHandler { _ in once.resume(nil) } as? any RDPEngineProtocol
+            (proxy ?? engine).fileData(index: index, offset: offset, length: length, sizeOnly: sizeOnly) {
+                once.resume($0)
+            }
+        }
     }
 
     /// Ends the session and the engine's process with it.
@@ -99,6 +120,11 @@ final class RDPEngineConnection {
     /// must arrive before the changes drawn into it.
     private final class Receiver: NSObject, RDPClientProtocol, @unchecked Sendable {
         weak var owner: RDPEngineConnection?
+        private let files: RDPOfferedFiles
+
+        init(files: RDPOfferedFiles) {
+            self.files = files
+        }
 
         private func onMain(_ body: @escaping @MainActor (RDPEngineConnection) -> Void) {
             DispatchQueue.main.async { [weak self] in
@@ -143,6 +169,17 @@ final class RDPEngineConnection {
             onMain { $0.onServerClipboard?(text) }
         }
 
+        func serverFiles(_ list: [RDPClipboardFile]) {
+            onMain { $0.onServerFiles?(list) }
+        }
+
+        func readFile(index: Int, offset: Int64, length: Int, reply: @escaping @Sendable (Data?) -> Void) {
+            let current = files.current
+            DispatchQueue.global(qos: .userInitiated).async {
+                reply(current?.read(index: index, offset: offset, length: length))
+            }
+        }
+
         func pointerShape(id: Int, rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
             guard let shape = RDPPointer.Shape(rgba: rgba, width: width, height: height, hotX: hotX, hotY: hotY)
             else { return }
@@ -171,6 +208,24 @@ final class RDPEngineConnection {
 /// is shared memory, safe to pass along; the type just does not say so.
 private struct SurfaceBox: @unchecked Sendable {
     let surface: IOSurface
+}
+
+/// A continuation resumed once, whichever answer comes first.
+private final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data?, Never>?
+
+    init(_ continuation: CheckedContinuation<Data?, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Data?) {
+        let taken = lock.withLock { () -> CheckedContinuation<Data?, Never>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        taken?.resume(returning: value)
+    }
 }
 
 /// A user name, domain and password typed into the tab.

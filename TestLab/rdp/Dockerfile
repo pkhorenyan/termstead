@@ -30,6 +30,13 @@ RUN useradd -m -s /bin/bash lab2 \
  && echo "xfce4-session" > /home/lab2/.xsession \
  && chown lab2:lab2 /home/lab2/.xsession
 
+# Files copied on the client reach the session through xrdp's FUSE
+# filesystem (~/thinclient_drives/.clipboard), which needs fusermount; the
+# compose file hands the container /dev/fuse.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fuse \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

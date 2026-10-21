@@ -152,10 +152,10 @@ final class RDPDesktop {
     func perform(_ command: RDPKeyboard.EditCommand) {
         guard phase == .showing else { return }
         if command == .paste, options.clipboard {
-            offerForPaste()
             // The clipboard and the keys share the connection but not a
-            // queue on the server: give it the text before the keys.
+            // queue on the server: give it the clipboard before the keys.
             Task { [weak self] in
+                await self?.offerForPaste()
                 try? await Task.sleep(for: .milliseconds(100))
                 self?.press(command.keys)
             }
@@ -275,6 +275,10 @@ final class RDPDesktop {
             guard let self, current == attempt else { return }
             view.showPointer(id: id)
         }
+        engine.onServerFiles = { [weak self] files in
+            guard let self, current == attempt, launch.options.clipboard else { return }
+            serverCopied(files)
+        }
         engine.onServerClipboard = { [weak self] text in
             guard let self, current == attempt, launch.options.clipboard else { return }
             received(text)
@@ -378,16 +382,18 @@ final class RDPDesktop {
 
     // MARK: - Clipboard
 
-    /// Text copied here is offered to the server while the keyboard is in
-    /// the desktop: when it gets there, and as the text changes. The
-    /// pasteboard says nothing when it changes, so it is looked at once a
-    /// second — its change count, which costs nothing to read.
+    /// What was copied here is offered to the server while the keyboard is
+    /// in the desktop: when it gets there, and as it changes. The pasteboard
+    /// says nothing when it changes, so it is looked at once a second — its
+    /// change count, which costs nothing to read. Files copied on the server
+    /// are fetched once the keyboard has left.
     private func watchClipboard() {
         stopClipboard()
         seenChange = -1
         clipboardWatch = Task { [weak self] in
             while !Task.isCancelled {
-                self?.offerClipboard()
+                await self?.offerClipboard()
+                self?.fetchServerFilesIfAway()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -396,32 +402,107 @@ final class RDPDesktop {
     private func stopClipboard() {
         clipboardWatch?.cancel()
         clipboardWatch = nil
+        serverFiles = nil
+        download?.cancel()
+        download = nil
     }
 
     /// The keyboard came to the desktop: what was copied elsewhere is
     /// there to paste at once, not a second later.
     func keyboardArrived() {
         guard phase == .showing, options.clipboard else { return }
-        offerClipboard()
+        Task { await offerClipboard() }
+    }
+
+    /// The keyboard went elsewhere — another app, window or tab — where
+    /// files copied on the server may be pasted next.
+    func keyboardLeft() {
+        fetchServerFilesIfAway()
     }
 
     /// What ⌘V hands the server before the keys: whatever may go, now.
-    func offerForPaste() {
-        offerClipboard(paste: true)
+    func offerForPaste() async {
+        await offerClipboard(paste: true)
     }
 
     /// `paste`: ⌘V in the desktop, which offers whatever may go, now.
-    /// Clipboard text that may not go withdraws what was offered before,
+    /// Clipboard contents that may not go withdraw what was offered before,
     /// as copying anything else on the Mac would.
-    private func offerClipboard(paste: Bool = false) {
+    private func offerClipboard(paste: Bool = false) async {
         guard let engine, paste || (hasKeyboard() && pasteboard.changeCount != seenChange) else { return }
-        seenChange = pasteboard.changeCount
-        let text = pasteboard.string(forType: .string)
-        guard let text, Self.mayShare(pasteboard.types ?? [], onPaste: paste) else {
+        let change = pasteboard.changeCount
+        seenChange = change
+        guard Self.mayShare(pasteboard.types ?? [], onPaste: paste) else {
             engine.clipboard(nil)
             return
         }
-        engine.clipboard(Self.serverText(text))
+        let text = pasteboard.string(forType: .string).map(Self.serverText)
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard !urls.isEmpty else {
+            engine.clipboard(text)
+            return
+        }
+        let files = await Task.detached { RDPLocalFiles.collect(urls) }.value
+        // Copied again meanwhile, or the session gone: that offer is stale.
+        guard self.engine === engine, pasteboard.changeCount == change else { return }
+        engine.clipboard(text, files: files.entries.isEmpty ? nil : files)
+    }
+
+    // MARK: - Files from the server
+
+    /// Files copied on the server and not fetched yet. That waits until
+    /// the keyboard leaves the desktop: a copy and paste within the server
+    /// needs none of it here.
+    @ObservationIgnored private var serverFiles: [RDPClipboardFile]?
+    /// Fetching them, or how that ended, for the status bar.
+    private(set) var download: RDPFileDownload?
+    /// Where fetched files are kept until the next ones replace them. A
+    /// test keeps its own.
+    @ObservationIgnored var downloadRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("Termstead Clipboard", isDirectory: true)
+
+    private func serverCopied(_ files: [RDPClipboardFile]) {
+        download?.cancel()
+        download = nil
+        serverFiles = files.isEmpty ? nil : files
+        fetchServerFilesIfAway()
+    }
+
+    private func fetchServerFilesIfAway() {
+        guard let files = serverFiles, let engine, !hasKeyboard() else { return }
+        serverFiles = nil
+        // Emptied, so a paste meanwhile pastes nothing rather than what was
+        // copied before; the files go on it once they are all here.
+        pasteboard.clearContents()
+        let change = pasteboard.changeCount
+        seenChange = change
+        try? FileManager.default.removeItem(at: downloadRoot)
+        let folder = downloadRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let download = RDPFileDownload(files: files, into: folder) { [weak engine] index, offset, length, sizeOnly in
+            await engine?.fileData(index: index, offset: offset, length: length, sizeOnly: sizeOnly)
+        }
+        self.download = download
+        download.start { [weak self, weak download] urls in
+            guard let self else { return }
+            // Something else was copied meanwhile: that stays.
+            if pasteboard.changeCount == change {
+                pasteboard.clearContents()
+                pasteboard.writeObjects(urls as [NSURL])
+                seenChange = pasteboard.changeCount
+            }
+            // "Ready to paste" for a moment, then out of the status bar.
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(4))
+                if let self, self.download === download { self.download = nil }
+            }
+        }
+    }
+
+    /// The status bar's ✕: stops fetching, or puts away how it ended.
+    func dismissDownload() {
+        download?.cancel()
+        download = nil
     }
 
     /// Markers apps put on what they copy (nspasteboard.org). Transient and
@@ -438,6 +519,10 @@ final class RDPDesktop {
     }
 
     private func received(_ text: String) {
+        // Text copied on the server after files: the text is what counts.
+        serverFiles = nil
+        download?.cancel()
+        download = nil
         pasteboard.clearContents()
         pasteboard.setString(Self.macText(text), forType: .string)
         seenChange = pasteboard.changeCount
@@ -689,11 +774,14 @@ final class RDPDesktopView: NSView {
 
     override func resignFirstResponder() -> Bool {
         releaseAll()
+        // Once it is no longer the first responder.
+        DispatchQueue.main.async { [weak self] in self?.desktop?.keyboardLeft() }
         return true
     }
 
     @objc private func windowResignedKey() {
         releaseAll()
+        desktop?.keyboardLeft()
     }
 
     /// Back from another app or window, straight into the desktop.

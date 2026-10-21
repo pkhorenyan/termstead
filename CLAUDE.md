@@ -238,7 +238,7 @@ scripts/release.sh 0.2.0
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
 | `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
-| `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts` |
+| `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts`, `RDPClipboardFiles` (files copied either way) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
 | `Helpers/RDP/` | `TermsteadRDP.xpc`, the RDP engine: FreeRDP behind `rdp_bridge.c`, driven by `RDPEngine.swift`, in `Contents/XPCServices` |
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
@@ -359,13 +359,25 @@ read from there, never stored on `Session`.
   Application Support), or asked in the tab — a change in red. **A login**
   missing or refused is asked in the tab too, and can be saved to the
   Keychain under the session's password account.
-- **The clipboard** is text only, both ways, while "Share the clipboard" is
-  on. The Mac's pasteboard is looked at once a second, but offered to the
+- **The clipboard** carries text and files, both ways, while "Share the
+  clipboard" is on. The Mac's pasteboard is looked at once a second, but offered to the
   server only while the keyboard is in the desktop (`RDPDesktopView.hasKeyboard`,
   and again the moment it arrives): a desktop in a background tab never sees
   what is copied elsewhere. Content marked transient or generated
   (nspasteboard.org) is never offered; concealed — a password manager's —
   only on ⌘V, so a password can still be pasted into a Windows login.
+- **Files** (`RDPClipboardFiles.swift`). Copied on the Mac, they are offered
+  as a flat list, folders first (`RDPLocalFiles`); the server reads them by
+  index as it pastes, and the app reads only files in that list, off the
+  main thread (`RDPOfferedFiles`) — an engine gone wrong can ask for
+  nothing else on the Mac. Links are left out. Copied on the server, they
+  are fetched once the keyboard leaves the desktop (a copy and paste within
+  the server fetches nothing) into `$TMPDIR/Termstead Clipboard`
+  (`RDPFileDownload`), with the Mac's clipboard emptied meanwhile so a
+  paste does not take what was there before; then the clipboard gets the
+  files. Progress and a stop button are in the status bar, whatever tab is
+  in front. Names from the server that would leave that folder (`..`, an
+  absolute path) stop the download.
 - **FreeRDP's log** goes to the unified log:
   `/usr/bin/log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
   (in zsh, `log` alone is a shell builtin).
@@ -938,6 +950,11 @@ These have each cost real time. They are not hypothetical.
   each other: a crash in `WLog_SetLogAppenderType` that ended both, seen
   only now and then in the two-desktop test. It is set up once
   (`pthread_once`).
+- **xrdp 0.9 copies no folders**, either way ("skipping directory not
+  supported" in `~/.local/share/xrdp/xrdp-chansrv.*.log`), and shows files
+  from the client through FUSE, so the lab's container gets `/dev/fuse`.
+  The lab tests files only; folders are covered by a test with a pretend
+  server, and by Windows.
 - **A question the engine waits on must be cancellable.** FreeRDP's thread
   blocks in the callback until the app answers; closing the tab meanwhile
   left it blocked for good. `RDPEngine.disconnect` gives up the question.

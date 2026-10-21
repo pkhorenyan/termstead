@@ -14,8 +14,62 @@ enum RDPService {
     /// The XPC service's bundle identifier.
     static let name = "com.pavelkhorenyan.Termstead.rdp"
 
-    static var engineInterface: NSXPCInterface { NSXPCInterface(with: (any RDPEngineProtocol).self) }
-    static var clientInterface: NSXPCInterface { NSXPCInterface(with: (any RDPClientProtocol).self) }
+    static var engineInterface: NSXPCInterface {
+        let interface = NSXPCInterface(with: (any RDPEngineProtocol).self)
+        interface.setClasses(fileListClasses, for: #selector((any RDPEngineProtocol).clipboard(_:files:)),
+                             argumentIndex: 1, ofReply: false)
+        return interface
+    }
+
+    static var clientInterface: NSXPCInterface {
+        let interface = NSXPCInterface(with: (any RDPClientProtocol).self)
+        interface.setClasses(fileListClasses, for: #selector((any RDPClientProtocol).serverFiles(_:)),
+                             argumentIndex: 0, ofReply: false)
+        return interface
+    }
+
+    /// An array of files: NSXPC decodes a collection's elements only as
+    /// the classes it is told.
+    private static var fileListClasses: Set<AnyHashable> {
+        NSSet(objects: NSArray.self, RDPClipboardFile.self) as! Set<AnyHashable>
+    }
+}
+
+/// A file or folder on the clipboard, copied on either side.
+@objc(TermsteadRDPClipboardFile)
+final class RDPClipboardFile: NSObject, NSSecureCoding, @unchecked Sendable {
+    static let supportsSecureCoding = true
+
+    /// Relative to where it was copied from, `/` between folders.
+    @objc let name: String
+    /// -1 when the server did not say.
+    @objc let size: Int64
+    @objc let isDirectory: Bool
+    /// Seconds since 1970; 0 when unknown.
+    @objc let modified: Int64
+
+    init(name: String, size: Int64, isDirectory: Bool, modified: Int64) {
+        self.name = name
+        self.size = size
+        self.isDirectory = isDirectory
+        self.modified = modified
+        super.init()
+    }
+
+    func encode(with coder: NSCoder) {
+        coder.encode(name, forKey: "name")
+        coder.encode(size, forKey: "size")
+        coder.encode(isDirectory, forKey: "isDirectory")
+        coder.encode(modified, forKey: "modified")
+    }
+
+    init?(coder: NSCoder) {
+        name = coder.decodeObject(of: NSString.self, forKey: "name") as String? ?? ""
+        size = coder.decodeInt64(forKey: "size")
+        isDirectory = coder.decodeBool(forKey: "isDirectory")
+        modified = coder.decodeInt64(forKey: "modified")
+        super.init()
+    }
 }
 
 /// Everything one connection logs in and draws with.
@@ -94,9 +148,15 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
     func mouse(x: Int, y: Int, flags: Int)
     /// A new size for the desktop, through the Display Control channel.
     func resize(width: Int, height: Int, desktopScale: Int)
-    /// Text copied on this Mac, offered to the server's clipboard; `nil`
-    /// withdraws it.
-    func clipboard(_ text: String?)
+    /// What was copied on this Mac, offered to the server's clipboard: text
+    /// and files, each `nil` (or empty) for none. The server reads the
+    /// files through `readFile` as it pastes them.
+    func clipboard(_ text: String?, files: [RDPClipboardFile])
+    /// Part of a file the server copied, by its index in `serverFiles`'s
+    /// list; `nil` when the server refused. `sizeOnly` asks for its size,
+    /// eight bytes little-endian, instead.
+    func fileData(index: Int, offset: Int64, length: Int, sizeOnly: Bool,
+                  reply: @escaping @Sendable (Data?) -> Void)
     func disconnect()
 }
 
@@ -116,6 +176,12 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
                         reply: @escaping @Sendable (_ ok: Bool, _ user: String, _ domain: String, _ password: String) -> Void)
     /// Text copied on the server.
     func serverClipboard(_ text: String)
+    /// Files copied on the server: folders before what is in them. Their
+    /// contents come through `fileData`.
+    func serverFiles(_ files: [RDPClipboardFile])
+    /// The server pastes files this Mac offered: `length` bytes of file
+    /// `index` from `offset`, or `nil` when it cannot be read.
+    func readFile(index: Int, offset: Int64, length: Int, reply: @escaping @Sendable (Data?) -> Void)
     /// A pointer shape from the server, kept under `id` until it is
     /// forgotten: RGBA with straight alpha, in desktop pixels, and its hot
     /// spot in the same pixels.

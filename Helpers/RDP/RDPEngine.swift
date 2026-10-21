@@ -16,7 +16,12 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     /// Gives up the question the session's thread is waiting on, if any:
     /// a tab closed meanwhile must not leave that thread blocked for good.
     private var cancelQuestion: (() -> Void)?
-    private var localClipboard: String?
+    /// What the app last offered, kept for a session not yet started.
+    private var localClipboard: (text: String?, files: [RDPClipboardFile])?
+    /// The app's requests for the server's files, by stream id, waiting
+    /// for the server's answer.
+    private var fileRequests: [UInt32: @Sendable (Data?) -> Void] = [:]
+    private var nextStream: UInt32 = 0
 
     /// Changed areas, gathered between messages to the app: FreeRDP ends a
     /// paint for every update, a few hundred a second while a window moves.
@@ -74,12 +79,64 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         withSession { tsr_resize($0, UInt32(clamping: width), UInt32(clamping: height), UInt32(clamping: desktopScale)) }
     }
 
-    func clipboard(_ text: String?) {
+    func clipboard(_ text: String?, files: [RDPClipboardFile]) {
         lock.lock()
         defer { lock.unlock() }
         // Before the session exists, it waits for it.
-        localClipboard = text
-        if let session { tsr_set_clipboard(session, text) }
+        localClipboard = (text, files)
+        if let session { Self.offer(text, files: files, to: session) }
+    }
+
+    /// FreeRDP copies what it is given, so the names need only last the call.
+    @discardableResult
+    private static func offer(_ text: String?, files: [RDPClipboardFile], to session: OpaquePointer) -> Bool {
+        let names = files.map { strdup($0.name) }
+        defer { names.forEach { free($0) } }
+        var list = files.enumerated().map { index, file in
+            tsr_file(name: UnsafePointer(names[index]), size: UInt64(max(file.size, 0)),
+                     directory: file.isDirectory, modified: file.modified)
+        }
+        return tsr_set_clipboard(session, text, &list, list.count)
+    }
+
+    func fileData(index: Int, offset: Int64, length: Int, sizeOnly: Bool,
+                  reply: @escaping @Sendable (Data?) -> Void) {
+        lock.lock()
+        guard let session else {
+            lock.unlock()
+            return reply(nil)
+        }
+        nextStream &+= 1
+        let stream = nextStream
+        fileRequests[stream] = reply
+        let sent = tsr_request_file_data(session, stream, UInt32(clamping: index), UInt64(max(offset, 0)),
+                                         UInt32(clamping: length), sizeOnly)
+        if !sent { fileRequests[stream] = nil }
+        lock.unlock()
+        if !sent { reply(nil) }
+    }
+
+    private func fileDataArrived(stream: UInt32, data: Data?) {
+        lock.lock()
+        let reply = fileRequests.removeValue(forKey: stream)
+        lock.unlock()
+        reply?(data)
+    }
+
+    /// The server pastes: the app reads the file, and the answer goes back
+    /// under the server's stream id — if the session is still there.
+    private func readFile(stream: UInt32, index: Int, offset: Int64, length: Int) {
+        guard let client else { return withSession { tsr_file_data_reply($0, stream, nil, 0); return true } }
+        client.readFile(index: index, offset: offset, length: length) { [weak self] data in
+            self?.withSession { session in
+                if let data {
+                    data.withUnsafeBytes { tsr_file_data_reply(session, stream, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+                } else {
+                    tsr_file_data_reply(session, stream, nil, 0)
+                }
+                return true
+            }
+        }
     }
 
     func disconnect() {
@@ -126,6 +183,22 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             return true
         }
         callbacks.connected = { user in RDPEngine.from(user).client?.connected() }
+        callbacks.server_files = { user, files, count in
+            guard let files else { return }
+            let list = UnsafeBufferPointer(start: files, count: count).map { file in
+                RDPClipboardFile(name: file.name.map { String(cString: $0) } ?? "",
+                                 size: file.size == UInt64.max ? -1 : Int64(clamping: file.size),
+                                 isDirectory: file.directory, modified: file.modified)
+            }
+            RDPEngine.from(user).client?.serverFiles(list)
+        }
+        callbacks.read_file = { user, stream, index, offset, length in
+            RDPEngine.from(user).readFile(stream: stream, index: Int(index), offset: Int64(clamping: offset),
+                                          length: Int(length))
+        }
+        callbacks.file_data = { user, stream, data, length in
+            RDPEngine.from(user).fileDataArrived(stream: stream, data: data.map { Data(bytes: $0, count: length) })
+        }
         callbacks.clipboard = { user, text in
             guard let text else { return }
             RDPEngine.from(user).client?.serverClipboard(String(cString: text))
@@ -164,7 +237,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         }
         lock.lock()
         session = created
-        if let localClipboard { tsr_set_clipboard(created, localClipboard) }
+        if let localClipboard { Self.offer(localClipboard.text, files: localClipboard.files, to: created) }
         lock.unlock()
 
         let reason = String(cString: tsr_run(created))
@@ -172,7 +245,10 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
 
         lock.lock()
         session = nil
+        let unanswered = fileRequests.values
+        fileRequests = [:]
         lock.unlock()
+        unanswered.forEach { $0(nil) }
         tsr_free(created)
         client?.disconnected(reason: reason, code: code)
     }
