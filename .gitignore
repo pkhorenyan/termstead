@@ -11,3 +11,5 @@ VisualReference/
 releases/
 # Local signing identity: see Config/Signing.xcconfig
 Config/Signing.local.xcconfig
+# The RDP engine's C libraries: scripts/build-rdp-deps.sh
+Vendor/rdp/

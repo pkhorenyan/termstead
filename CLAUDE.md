@@ -148,6 +148,7 @@ TestLab/lab.sh forget    # drop the lab's host keys from ~/.ssh/known_hosts
 127.0.0.1:2201 ─▶ direct                     lab-direct, -password, -passphrase
 127.0.0.1:2202 ─▶ bastion ─▶ app             lab-app-1-jump, lab-app-password
                   bastion ─▶ middle ─▶ db    lab-db-2-jumps, lab-db-2-jumps-typed
+127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           also rdp:3389 through bastion
 ```
 
 User `lab`, password `lab`, key `~/.ssh/termstead-lab` (and

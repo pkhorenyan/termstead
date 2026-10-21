@@ -3,6 +3,7 @@
 #   this Mac ──127.0.0.1:2201──▶ direct            (one hop: none)
 #   this Mac ──127.0.0.1:2202──▶ bastion ──dmz──▶ app
 #                                        └─dmz──▶ middle ──core──▶ db
+#   this Mac ──127.0.0.1:3390──▶ rdp     (RDP; also on the dmz as rdp:3389)
 #
 # `app` is reachable only through `bastion`; `db` only through bastion and
 # then `middle`. The dmz and core networks are internal: nothing on them is
@@ -62,6 +63,16 @@ services:
     volumes:
       - ./.state/hostkeys/db:/lab/hostkey:ro
       - ./.state/authorized_keys:/lab/authorized_keys:ro
+
+  # RDP, for Termstead's RDP tabs: directly on 127.0.0.1:3390, or as
+  # rdp:3389 through bastion.
+  rdp:
+    build: ./rdp
+    image: termstead-lab-xrdp
+    restart: unless-stopped
+    hostname: rdp
+    ports: ["127.0.0.1:3390:3389"]
+    networks: [default, dmz]
 
 networks:
   dmz: { internal: true }

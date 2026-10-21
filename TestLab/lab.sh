@@ -1,6 +1,6 @@
 #!/bin/sh
 # Termstead test lab: SSH servers in Docker to connect to — directly, through
-# one jump host, and through two.
+# one jump host, and through two — and an RDP server.
 #
 #   ./lab.sh up      create keys if missing, build, start, wait until ready
 #   ./lab.sh down    stop and remove the containers
@@ -45,11 +45,13 @@ case "${1:-}" in
         docker compose up -d --build
         wait_for 2201
         wait_for 2202
+        wait_for 3390
         echo
         echo "Lab is up. In Termstead: Debug ▸ Add Test Lab Sessions, or launch with -sb-sample YES."
         echo "  direct   127.0.0.1:2201"
         echo "  bastion  127.0.0.1:2202 ─▶ app"
         echo "  bastion  ─▶ middle ─▶ db"
+        echo "  rdp      127.0.0.1:3390, or rdp:3389 through bastion (RDP)"
         echo "User lab, password lab, key $KEY"
         echo "Each home folder holds files to try the Files tab on (see entrypoint.sh)."
         ;;
