@@ -75,6 +75,10 @@ final class RDPDesktop {
     /// How it ended, when the user is why: the engine reports only that the
     /// connection was cancelled.
     @ObservationIgnored private var endedByUser: String?
+    /// What the session last logged in with, a login typed into the tab
+    /// included, for Return to reconnect with: the session's own may be the
+    /// one the server refused, or none.
+    @ObservationIgnored private(set) var lastLaunch: RDPLaunch?
     @ObservationIgnored var knownHosts = RDPKnownHosts.shared
     @ObservationIgnored var keychain = KeychainStore.shared
     /// The Mac's clipboard, shared with the server when the session says
@@ -228,6 +232,7 @@ final class RDPDesktop {
         guard current == attempt else { return }
         options = launch.options
         endedByUser = nil
+        lastLaunch = launch
         let socket: FileHandle
         do {
             socket = try await open()
@@ -294,7 +299,12 @@ final class RDPDesktop {
             guard let self, current == attempt else { return reply(nil) }
             ask(launch, user: user, domain: domain, problem: nil) { [weak self] login, save in
                 if login == nil { self?.endedByUser = "Login cancelled." }
-                if let login, save { self?.save(login.password, for: launch) }
+                if let login {
+                    if save { self?.save(login.password, for: launch) }
+                    self?.lastLaunch?.user = login.user
+                    self?.lastLaunch?.domain = login.domain
+                    self?.lastLaunch?.password = login.password
+                }
                 reply(login)
             }
         }

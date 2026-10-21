@@ -161,6 +161,9 @@ final class RDPQuestionTests {
         await wait(upTo: 20) { tab.phase == .showing }
         #expect(tab.phase == .showing)
         #expect(keychain.secret(for: account) == "lab")
+        // Return reconnects with what was typed, not the empty password
+        // the tab opened with.
+        #expect(tab.lastLaunch?.password == "lab")
         tab.stop()
     }
 

@@ -247,7 +247,8 @@ final class Connection: Identifiable {
     func restart() {
         if let desktopLaunch, !state.isRunning {
             terminalView.feed(text: "\r\n")
-            start(desktopLaunch, tunnel: desktopTunnel)
+            // As it last logged in: a login typed into the tab included.
+            start(desktop?.lastLaunch ?? desktopLaunch, tunnel: desktopTunnel)
             return
         }
         guard let plan, !state.isRunning else { return }

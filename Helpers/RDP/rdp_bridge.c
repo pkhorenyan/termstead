@@ -786,7 +786,14 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 		return NULL;
 	session->callbacks = *callbacks;
 	session->socket = params->socket;
-	pthread_mutex_init(&session->channel_lock, NULL);
+	// Recursive: a write that fails can close a dynamic channel on the
+	// writing thread, which already holds the lock, and the channel's
+	// disconnect handler takes it again.
+	pthread_mutexattr_t recursive;
+	pthread_mutexattr_init(&recursive);
+	pthread_mutexattr_settype(&recursive, PTHREAD_MUTEX_RECURSIVE);
+	pthread_mutex_init(&session->channel_lock, &recursive);
+	pthread_mutexattr_destroy(&recursive);
 
 	RDP_CLIENT_ENTRY_POINTS entry = { 0 };
 	entry.Version = RDP_CLIENT_INTERFACE_VERSION;
