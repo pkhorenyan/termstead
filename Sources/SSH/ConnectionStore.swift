@@ -212,12 +212,13 @@ final class ConnectionStore {
                                     kind: session.kind)
         add(connection)
         if session.kind == .rdp {
-            guard session.jumps.isEmpty else {
-                connection.fail("RDP through jump hosts is not supported in this build yet.")
-                return
-            }
             let password = KeychainStore.shared.secret(for: SSHLaunch.sessionPasswordAccount(session.id)) ?? ""
-            connection.start(RDPLaunch(session: session, password: password))
+            do {
+                let tunnel = session.jumps.isEmpty ? nil : try Self.desktopTunnelPlan(for: session, in: store)
+                connection.start(RDPLaunch(session: session, password: password), tunnel: tunnel)
+            } catch {
+                connection.fail(String(describing: error))
+            }
             return
         }
         do {
@@ -228,7 +229,16 @@ final class ConnectionStore {
     }
 
     static func launchPlan(for session: Session, in store: SessionStore) throws -> SSHLaunchPlan {
-        var plan = try SSHLaunch.plan(for: session, sessions: store.sessions)
+        withDevelopmentPrefix(try SSHLaunch.plan(for: session, sessions: store.sessions))
+    }
+
+    /// The ssh an RDP session reaches its desktop through.
+    static func desktopTunnelPlan(for session: Session, in store: SessionStore) throws -> SSHLaunchPlan {
+        withDevelopmentPrefix(try SSHLaunch.plan(forDesktop: session, sessions: store.sessions))
+    }
+
+    private static func withDevelopmentPrefix(_ plan: SSHLaunchPlan) -> SSHLaunchPlan {
+        var plan = plan
         // Development hook: `-sb-ssh-prefix <file>` puts that file's ssh
         // options first — trust settings for a throwaway test server, so
         // a launched copy can connect to one without a host-key prompt.

@@ -128,7 +128,27 @@ enum SSHLaunch {
     ) throws -> SSHLaunchPlan {
         let targetAuth = try auth(session.auth, keyPath: session.keyPath, keyExists: keyExists)
         let targetPassword = sessionPasswordAccount(session.id)
+        let hops = try hopEndpoints(of: session, sessions: sessions,
+                                    sameAsSession: (targetAuth, targetPassword), keyExists: keyExists)
 
+        let target = try endpoint(user: session.user.isEmpty ? nil : session.user,
+                                  host: session.host, port: session.port,
+                                  auth: targetAuth, passwordAccount: targetPassword)
+        var plan = assemble(hops: hops, target: target)
+        plan.forwards = try session.forwards.enumerated().map { index, forward in
+            SSHLaunchPlan.Forward(forward: forward, arguments: try forwardArguments(forward, index: index))
+        }
+        return plan
+    }
+
+    /// The jump chain as endpoints. A hop set to "Same as session" takes
+    /// `sameAsSession`; one named after a saved session connects the way that
+    /// session does.
+    private static func hopEndpoints(
+        of session: Session, sessions: [String: Session],
+        sameAsSession: (auth: SSHEndpoint.Auth, account: String?),
+        keyExists: (String) -> Bool
+    ) throws -> [SSHEndpoint] {
         var hops: [SSHEndpoint] = []
         for (index, hop) in session.jumps.enumerated() {
             let typed = hop.host.trimmingCharacters(in: .whitespaces)
@@ -164,11 +184,11 @@ enum SSHLaunch {
 
             let parsed = try parseAddress(typed)
             let hopAuth: SSHEndpoint.Auth
-            let account: String
+            let account: String?
             switch hop.auth {
             case .session:
-                hopAuth = targetAuth
-                account = targetPassword
+                hopAuth = sameAsSession.auth
+                account = sameAsSession.account
             case .key:
                 hopAuth = try auth(.key, keyPath: hop.keyPath, keyExists: keyExists)
                 account = hopPasswordAccount(hop.id)
@@ -180,15 +200,31 @@ enum SSHLaunch {
                                      port: hop.port ?? parsed.port,
                                      auth: hopAuth, passwordAccount: account))
         }
+        return hops
+    }
 
-        let target = try endpoint(user: session.user.isEmpty ? nil : session.user,
-                                  host: session.host, port: session.port,
-                                  auth: targetAuth, passwordAccount: targetPassword)
-        var plan = assemble(hops: hops, target: target)
-        plan.forwards = try session.forwards.enumerated().map { index, forward in
-            SSHLaunchPlan.Forward(forward: forward, arguments: try forwardArguments(forward, index: index))
-        }
-        return plan
+    /// The ssh that carries an RDP session through its jump hosts: the last
+    /// hop is its target, and the desktop is reached from there
+    /// (`rdpForwardArguments`). A remote desktop's own login means nothing to
+    /// ssh, so a hop left at "Default" logs in however ssh would.
+    static func plan(
+        forDesktop session: Session,
+        sessions: [String: Session],
+        keyExists: (String) -> Bool = { FileManager.default.fileExists(atPath: ($0 as NSString).expandingTildeInPath) }
+    ) throws -> SSHLaunchPlan {
+        var hops = try hopEndpoints(of: session, sessions: sessions,
+                                    sameAsSession: (.automatic, nil), keyExists: keyExists)
+        guard let target = hops.popLast() else { throw SSHLaunchError.emptyHop(index: 0) }
+        return assemble(hops: hops, target: target)
+    }
+
+    /// `-L` for the desktop, from the last hop: a Unix socket in the
+    /// connection's private folder rather than a port others on this Mac
+    /// could reach.
+    static func rdpForwardArguments(socket: String, host: String, port: Int) throws -> [String] {
+        try validate(host, field: "host")
+        let target = host.contains(":") ? "[\(host)]" : host
+        return ["-L", "\(socket):\(target):\(port)"]
     }
 
     /// `-L [bind:]port:host:hostport`, `-R` the same way round from the

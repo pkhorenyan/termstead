@@ -94,3 +94,99 @@ struct RDPTabTests {
         connections.closeAll()
     }
 }
+
+/// An RDP session through a jump host: ssh carries the desktop to a Unix
+/// socket in the tab's private folder.
+@MainActor
+@Suite(.serialized, .enabled(if: TestLabRDP.isUp && TestLab.isUp, "the Docker test lab is not running (TestLab/lab.sh up)"))
+final class RDPTunnelTests {
+    private let directory: URL
+    private let lab = SessionStore.testLab()
+
+    init() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("termstead-rdp-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    deinit { try? FileManager.default.removeItem(at: directory) }
+
+    private func wait(upTo seconds: Double, until done: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done(), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    /// The tab as the app opens it, with the test's own known_hosts and no
+    /// agent, as `TestLabTests` has it.
+    private func open(_ id: String) throws -> Connection {
+        let sessions = Dictionary(uniqueKeysWithValues: lab.sessions.map { ($0.id, $0) })
+        let session = try #require(sessions[id])
+        var plan = try SSHLaunch.plan(forDesktop: session, sessions: sessions)
+        plan.config = """
+        Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile \(directory.appendingPathComponent("known_hosts").path)
+          IdentityAgent none
+
+        """ + plan.config
+        let tab = Connection(sessionID: id, title: id, address: session.statusAddress,
+                             keyDescription: "RDP", kind: .rdp)
+        tab.desktop?.availableSize = { (CGSize(width: 800, height: 600), 1) }
+        var launch = RDPLaunch(session: session, password: "lab")
+        launch.options.sound = false
+        tab.start(launch, tunnel: plan)
+        return tab
+    }
+
+    @Test func theDesktopComesThroughTheBastion() async throws {
+        let tab = try open("lab-rdp-via-bastion")
+        let desktop = try #require(tab.desktop)
+        await wait(upTo: 30) { desktop.phase == .showing }
+        #expect(desktop.phase == .showing)
+        #expect(desktop.size == CGSize(width: 800, height: 600))
+        #expect(tab.isLoggedIn)
+        // The tunnel's ssh is no shell: nothing for the Files tab.
+        #expect(tab.plan?.target.host == "127.0.0.1")
+        tab.close()
+    }
+
+    /// The tunnel ending takes the desktop with it, and says so.
+    @Test func theTunnelEndingEndsTheDesktop() async throws {
+        let tab = try open("lab-rdp-via-bastion")
+        let desktop = try #require(tab.desktop)
+        await wait(upTo: 30) { desktop.phase == .showing }
+        try #require(desktop.phase == .showing)
+
+        kill(tab.terminalView.process.shellPid, SIGTERM)
+        await wait(upTo: 10) { !tab.state.isRunning }
+        #expect(!tab.state.isRunning)
+        #expect(desktop.phase == .ended(""))
+        let screen = String(decoding: tab.terminalView.getTerminal().getBufferAsData(), as: UTF8.self)
+        #expect(screen.contains("Press Return to reconnect."))
+
+        tab.restart()
+        await wait(upTo: 30) { desktop.phase == .showing }
+        #expect(desktop.phase == .showing)
+        tab.close()
+    }
+
+    @Test func aDesktopSessionIsNoJumpHost() throws {
+        let sessions = Dictionary(uniqueKeysWithValues: lab.sessions.map { ($0.id, $0) })
+        let target = Session(id: "behind", user: "lab", host: "app", port: 22, icon: .server,
+                             jumps: [JumpHost(host: "lab-rdp")])
+        #expect(throws: SSHLaunchError.notSSH("lab-rdp")) {
+            try SSHLaunch.plan(for: target, sessions: sessions.merging([target.id: target]) { a, _ in a })
+        }
+    }
+
+    /// The forward goes to a socket path, the desktop's host as the last hop
+    /// sees it; an IPv6 address in brackets.
+    @Test func theForwardIsToASocket() throws {
+        #expect(try SSHLaunch.rdpForwardArguments(socket: "/tmp/x/rdp", host: "rdp", port: 3389)
+                == ["-L", "/tmp/x/rdp:rdp:3389"])
+        #expect(try SSHLaunch.rdpForwardArguments(socket: "/tmp/x/rdp", host: "fe80::1", port: 3389)
+                == ["-L", "/tmp/x/rdp:[fe80::1]:3389"])
+    }
+}

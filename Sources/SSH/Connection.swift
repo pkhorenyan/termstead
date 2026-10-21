@@ -78,6 +78,12 @@ final class Connection: Identifiable {
     let desktop: RDPDesktop?
     /// What the RDP tab connected with, to reconnect with on Return.
     @ObservationIgnored private var desktopLaunch: RDPLaunch?
+    /// The ssh that carries it through its jump hosts; `nil` for a desktop
+    /// reached directly.
+    @ObservationIgnored private var desktopTunnel: SSHLaunchPlan?
+    /// Why the desktop ended, while the tunnel's ssh is being stopped: its
+    /// exit then reports this rather than an exit code.
+    @ObservationIgnored private var desktopEndReason: String?
     @ObservationIgnored private var didClose = false
 
     /// Told when ssh ends, before the tab is closed or reconnected.
@@ -119,18 +125,59 @@ final class Connection: Identifiable {
         }
     }
 
-    /// Opens the remote desktop: straight to the server, for now.
-    func start(_ launch: RDPLaunch) {
+    /// Opens the remote desktop: straight to the server, or through the jump
+    /// hosts. Then ssh runs in the terminal first — host keys, passwords and
+    /// errors as in any tab — and once it has logged in to the last hop the
+    /// desktop is forwarded to a Unix socket in the private work folder.
+    func start(_ launch: RDPLaunch, tunnel: SSHLaunchPlan? = nil) {
         guard !didClose, let desktop else { return }
         desktopLaunch = launch
-        state = .running
-        desktop.start(launch) {
-            try await RDPSocket.connect(host: launch.host, port: launch.port)
+        desktopTunnel = tunnel
+        desktopEndReason = nil
+        guard let tunnel else {
+            state = .running
+            desktop.start(launch) {
+                try await RDPSocket.connect(host: launch.host, port: launch.port)
+            }
+            return
+        }
+        let route = (tunnel.hops + [tunnel.target]).map(\.host).joined(separator: " → ")
+        terminalView.feed(text: "\u{1b}[2mOpening a tunnel through \(route)…\u{1b}[0m\r\n")
+        start(tunnel)
+    }
+
+    /// The tunnel is logged in: the desktop goes through it.
+    private func openDesktopThroughTunnel() {
+        guard let desktop, let launch = desktopLaunch, let workDirectory else { return }
+        let socket = workDirectory.appendingPathComponent("rdp").path
+        desktop.start(launch) { [weak self] in
+            guard let self else { throw RDPSocket.Failure.connect("the tab closed") }
+            // Once per tunnel; a login tried again reuses it.
+            if !FileManager.default.fileExists(atPath: socket) {
+                let arguments = try SSHLaunch.rdpForwardArguments(socket: socket, host: launch.host,
+                                                                  port: launch.port)
+                if let problem = await forward(arguments) {
+                    throw RDPSocket.Failure.connect(ConnectionStore.lastLine(problem))
+                }
+            }
+            return try RDPSocket.connect(unixPath: socket)
+        }
+    }
+
+    private func forward(_ arguments: [String]) async -> String? {
+        await withCheckedContinuation { continuation in
+            multiplex("forward", arguments) { problem in continuation.resume(returning: problem) }
         }
     }
 
     private func desktopEnded(_ reason: String) {
         guard state.isRunning else { return }
+        if desktopTunnel != nil, terminalView.process.running {
+            // The tunnel's exit finishes the job, with this as its reason.
+            desktopEndReason = reason
+            terminalView.terminate()
+            return
+        }
         state = .exited(code: nil)
         onEnded?()
         terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to reconnect.\u{1b}[0m\r\n")
@@ -169,7 +216,7 @@ final class Connection: Identifiable {
             let control = directory.appendingPathComponent("cm").path
             terminalView.startProcess(executable: SSHLaunch.executable,
                                       args: plan.arguments(configPath: configURL.path, controlPath: control,
-                                                           tunnelOnly: isTunnelOnly),
+                                                           tunnelOnly: isTunnelOnly || kind == .rdp),
                                       environment: Self.environment(extra: extra),
                                       execName: "ssh")
             watchForExit(of: terminalView.process.shellPid)
@@ -200,7 +247,7 @@ final class Connection: Identifiable {
     func restart() {
         if let desktopLaunch, !state.isRunning {
             terminalView.feed(text: "\r\n")
-            start(desktopLaunch)
+            start(desktopLaunch, tunnel: desktopTunnel)
             return
         }
         guard let plan, !state.isRunning else { return }
@@ -218,7 +265,7 @@ final class Connection: Identifiable {
         exitWatch?.cancel()
         exitWatch = nil
         desktop?.stop()
-        if state.isRunning, kind == .ssh { terminalView.terminate() }
+        if state.isRunning, terminalView.process.running { terminalView.terminate() }
         removeWorkDirectory()
     }
 
@@ -277,6 +324,11 @@ final class Connection: Identifiable {
         loginWatch = nil
         isLoggedIn = true
         didLogIn = true
+        // An RDP tab's ssh is only its tunnel: no Files tab, no server load.
+        if kind == .rdp {
+            openDesktopThroughTunnel()
+            return
+        }
         onLogin?()
         updateLoadWatch()
     }
@@ -357,8 +409,12 @@ final class Connection: Identifiable {
         stopLoadWatch()
         serverLoad = nil
         removeWorkDirectory()
+        // A desktop's tunnel gone takes the desktop with it.
+        desktop?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
-        terminalView.feed(text: "\r\n\u{1b}[2mConnection closed\(detail). Press Return to reconnect.\u{1b}[0m\r\n")
+        let reason = desktopEndReason ?? "Connection closed\(detail)."
+        desktopEndReason = nil
+        terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to reconnect.\u{1b}[0m\r\n")
     }
 
     fileprivate func sizeChanged(columns: Int, rows: Int) {
