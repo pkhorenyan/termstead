@@ -7,6 +7,28 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Remote desktops (RDP) in tabs. A session is SSH or RDP, chosen at the top
+  of the session form; an RDP session opens as a tab like any other, in any
+  pane, through its jump hosts if it has them — ssh carries the desktop from
+  the last hop, with host keys and passwords asked in the tab's terminal as
+  usual. The engine is FreeRDP, in a sandboxed process of its own with no
+  network access.
+- The desktop fits the tab and follows it when the window is resized or the
+  pane changes, sharp on Retina screens (Windows at 200%), or keeps a fixed
+  size scaled to fit.
+- Keyboard and mouse: keys by position, as Microsoft's client sends them,
+  with ⌘ shortcuts kept for Termstead; Send Ctrl+Alt+Del and Send Windows
+  Key in the Session menu and the tab's menu; the wheel and trackpad
+  scrolling both ways.
+- The server's certificate is checked against macOS's trust; one macOS does
+  not trust is asked about in the tab, with its fingerprint, and remembered
+  once trusted. A certificate that changed is asked about as a change.
+- A login the session has no password for, or the server refuses, is asked
+  for in the tab, with Save to Keychain.
+- Text copied on either side can be pasted on the other.
+
 ## [0.6.0] - 2026-10-20
 
 ### Added

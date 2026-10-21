@@ -49,6 +49,13 @@ open build/Build/Products/Release/Termstead.app
   first build fetches it from GitHub. If macOS then asks for the login keychain
   password on behalf of xcodebuild for "github.com", deny it: the repository is
   public, and a stored GitHub login is only being offered.
+- **The RDP engine's C libraries are built by a script**, not committed:
+  `scripts/build-rdp-deps.sh` (needs `brew install cmake ninja`) downloads
+  OpenSSL and FreeRDP at pinned versions and sha256 sums, applies
+  `scripts/rdp-patches/`, and builds static universal archives into
+  `Vendor/rdp`. About a minute and a half the first time; afterwards it
+  returns at once unless a version, a flag or a patch changed. The
+  `TermsteadRDP` target refuses to build without it, and says so.
 - `Termstead.xcodeproj` is generated from `project.yml` and is **not** committed.
   Adding a source file means re-running `xcodegen generate`.
 - The build must stay free of warnings as well as errors.
@@ -148,7 +155,7 @@ TestLab/lab.sh forget    # drop the lab's host keys from ~/.ssh/known_hosts
 127.0.0.1:2201 ─▶ direct                     lab-direct, -password, -passphrase
 127.0.0.1:2202 ─▶ bastion ─▶ app             lab-app-1-jump, lab-app-password
                   bastion ─▶ middle ─▶ db    lab-db-2-jumps, lab-db-2-jumps-typed
-127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           also rdp:3389 through bastion
+127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           lab-rdp; lab-rdp-via-bastion as rdp:3389
 ```
 
 User `lab`, password `lab`, key `~/.ssh/termstead-lab` (and
@@ -231,8 +238,12 @@ scripts/release.sh 0.2.0
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
 | `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
+| `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts` |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
+| `Helpers/RDP/` | `TermsteadRDP.xpc`, the RDP engine: FreeRDP behind `rdp_bridge.c`, driven by `RDPEngine.swift`, in `Contents/XPCServices` |
 | `Shared/` | The askpass wire format, compiled into both the app and the helper |
+| `SharedRDP/` | The XPC protocol between the app and the RDP engine |
+| `Vendor/rdp/`, `scripts/build-rdp-deps.sh`, `scripts/rdp-patches/` | FreeRDP and OpenSSL, built, not committed; how they are built, and FreeRDP's patches |
 | `Tests/` | `TermsteadTests` |
 | `TestLab/` | Docker SSH servers for manual and automated testing (`lab.sh`), and the screenshot kit in `screenshots/` |
 | `Sources/Theme/` | `Theme` tokens, the eight themes, `RGB`, `ThemeStore`, `SBFont` |
@@ -309,6 +320,41 @@ read from there, never stored on `Session`.
   connection is closed. `TunnelLaunch` keeps what port forwarding started
   with, to start one tunnel again. Connect and double-click skip a tunnel
   connection shown as a tab: it has no shell.
+
+## How an RDP tab works
+
+- **A session is SSH or RDP** (`Session.kind`; an SSH session writes no key
+  for it, so older files read unchanged). An RDP tab is a `Connection` with
+  a `desktop` (`RDPDesktop`); it keeps its terminal, which shows how
+  connecting went and why it ended, and Return reconnects as in any tab.
+  Find, the Files tab, server load and broadcast input leave it out.
+- **The engine is FreeRDP in `TermsteadRDP.xpc`**, sandboxed and with no
+  network. The app opens the connection — TCP straight to the server, or,
+  with jump hosts, a Unix socket in the tab's private folder that ssh
+  forwards from the last hop (`SSHLaunch.plan(forDesktop:)`, then
+  `ssh -O forward` once logged in) — and hands the socket over; FreeRDP's
+  `TCPConnect` returns it. A crash in FreeRDP ends the remote desktops, not
+  the app. All desktops share the one engine process (see pitfalls).
+- **Frames are never copied.** FreeRDP draws straight into an IOSurface the
+  engine makes and sends once per size; the app's layer shows it, and is
+  handed it again for each changed area (at most 60 a second).
+- **Size**: the desktop fits the tab at its pixels with Windows at 200% on
+  a Retina screen ("Sharp on Retina"), and follows the tab through Display
+  Control once its size holds for 0.3 s. A fixed size is only scaled.
+- **Keys go by position** (`RDPKeyboard`, WinPR's Apple table with fixes),
+  ⌘ stays with the Mac, and the session always starts in US English (see
+  pitfalls). Ctrl+Alt+Del and the Windows key are in Session and the tab's
+  menu.
+- **Certificates are the app's** (`ExternalCertificateManagement`): trusted
+  by macOS for the host, or by the user before (`rdp_known_hosts` in
+  Application Support), or asked in the tab — a change in red. **A login**
+  missing or refused is asked in the tab too, and can be saved to the
+  Keychain under the session's password account.
+- **The clipboard** is text only, both ways, while "Share the clipboard" is
+  on; the Mac's pasteboard is looked at once a second.
+- **FreeRDP's log** goes to the unified log:
+  `/usr/bin/log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
+  (in zsh, `log` alone is a shell builtin).
 
 ## Conventions
 
@@ -845,6 +891,36 @@ These have each cost real time. They are not hypothetical.
   re-arming on each call multiplied the read chains. One tab after 300k lines
   held 37k pending ops and 468 MB; with the patch, 126 MB. `ReadChainTests`
   checks that at most one read is outstanding.
+- **An app gets one instance of an XPC service.** `_MultipleInstances` in
+  the service's Info.plist is honoured for WebKit only: tried, and every
+  connection landed in the one process. So all remote desktops share
+  `TermsteadRDP`. It also ignores SIGTERM while it has work (libxpc holds
+  it back), so a test that wants a crash sends SIGKILL — to its own build's
+  engine only. After a crash launchd waits about ten seconds before it
+  starts the service again; the crash itself is noticed in milliseconds.
+- **xrdp draws before a resize is finished.** After a Display Control
+  resize it sends updates while the client is still finalizing the
+  reactivation, and stock FreeRDP 3 ended the session over them about one
+  time in two. `scripts/rdp-patches/freerdp-reactivation-updates.patch`
+  lets them through.
+- **Sending the Mac's keyboard layout broke xrdp.** With Russian, keys in
+  the session typed no letters at all — only the login screen, which xrdp
+  draws itself, took them. Every session starts in US English
+  (`RDPKeyboard.sessionLayoutID`); a test types a command into an Xfce
+  terminal and checks that it ran.
+- **FreeRDP asks for a login before the certificate** over TLS (xrdp), and
+  after it with NLA (Windows). An empty password must reach FreeRDP as none
+  (`NULL`), or xrdp tries to log in with it and shows a black screen.
+- **A question the engine waits on must be cancellable.** FreeRDP's thread
+  blocks in the callback until the app answers; closing the tab meanwhile
+  left it blocked for good. `RDPEngine.disconnect` gives up the question.
+- **OpenSSL does not build in a path with a space**, and build paths end up
+  in the libraries. `build-rdp-deps.sh` builds in `/tmp/termstead-rdp-deps`
+  with `-ffile-prefix-map` and installs under a neutral prefix; no home
+  folder path may appear in `Vendor/rdp`.
+- **FreeRDP's headers warn**, and `os/log.h` next to WinPR makes `TRUE` and
+  `FALSE` ambiguous. `rdp_bridge.c` silences warnings for FreeRDP's includes
+  only, and the unified-log forwarding lives in `rdp_log.c` on its own.
 - **A color id is a palette id, `"none"` or `#RRGGBB`.** Groups and sessions
   store one in `colorID`; `GroupColor.swatch(for:)` resolves all three, so
   code that resolves ids handles custom colors without knowing. A colored

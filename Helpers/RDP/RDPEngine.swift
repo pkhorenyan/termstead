@@ -16,6 +16,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     /// Gives up the question the session's thread is waiting on, if any:
     /// a tab closed meanwhile must not leave that thread blocked for good.
     private var cancelQuestion: (() -> Void)?
+    private var localClipboard: String?
 
     /// Changed areas, gathered between messages to the app: FreeRDP ends a
     /// paint for every update, a few hundred a second while a window moves.
@@ -73,7 +74,13 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         withSession { tsr_resize($0, UInt32(clamping: width), UInt32(clamping: height), UInt32(clamping: desktopScale)) }
     }
 
-    func clipboard(_ text: String) {}
+    func clipboard(_ text: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        // Before the session exists, it waits for it.
+        localClipboard = text
+        if let session { tsr_set_clipboard(session, text) }
+    }
 
     func disconnect() {
         lock.lock()
@@ -119,6 +126,10 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             return true
         }
         callbacks.connected = { user in RDPEngine.from(user).client?.connected() }
+        callbacks.clipboard = { user, text in
+            guard let text else { return }
+            RDPEngine.from(user).client?.serverClipboard(String(cString: text))
+        }
 
         // FreeRDP copies every string into its settings, so these need only
         // last through `tsr_new`.
@@ -145,6 +156,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         }
         lock.lock()
         session = created
+        if let localClipboard { tsr_set_clipboard(created, localClipboard) }
         lock.unlock()
 
         let reason = String(cString: tsr_run(created))

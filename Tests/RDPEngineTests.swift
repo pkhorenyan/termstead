@@ -21,6 +21,27 @@ enum TestLabRDP {
         return result == 0
     }()
 
+    static let docker: String? = ["/usr/local/bin/docker", "/opt/homebrew/bin/docker",
+                                  "/Applications/Docker.app/Contents/Resources/bin/docker"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// A command in the lab's xrdp container, with its exit status and output.
+    static func inContainer(_ command: [String]) -> (status: Int32, output: String) {
+        guard let docker else { return (-1, "") }
+        let compose = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("TestLab/docker-compose.yml").path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: docker)
+        process.arguments = ["compose", "-f", compose, "exec", "-T", "rdp"] + command
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return (-1, "") }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
     /// Certificates trusted in tests go here, never to the user's file.
     static let knownHosts = RDPKnownHosts(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("termstead-rdp-known-hosts-\(UUID().uuidString)"))

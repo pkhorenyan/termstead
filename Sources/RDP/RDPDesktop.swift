@@ -77,6 +77,13 @@ final class RDPDesktop {
     @ObservationIgnored private var endedByUser: String?
     @ObservationIgnored var knownHosts = RDPKnownHosts.shared
     @ObservationIgnored var keychain = KeychainStore.shared
+    /// The Mac's clipboard, shared with the server when the session says
+    /// so. A test swaps in a private one, so it never overwrites the user's.
+    @ObservationIgnored var pasteboard: NSPasteboard = .general
+    @ObservationIgnored private var clipboardWatch: Task<Void, Never>?
+    /// The pasteboard's change count last offered or written: a change the
+    /// server made is not offered back to it.
+    @ObservationIgnored private var seenChange = -1
 
     @ObservationIgnored let view = RDPDesktopView()
     @ObservationIgnored private var engine: RDPEngineConnection?
@@ -148,6 +155,7 @@ final class RDPDesktop {
     /// Ends the session, as asked: no `onEnded`.
     func stop() {
         attempt += 1
+        stopClipboard()
         dropQuestions()
         engine?.close()
         engine = nil
@@ -223,12 +231,17 @@ final class RDPDesktop {
             guard let self, current == attempt else { return }
             size = CGSize(width: width, height: height)
             view.show(surface)
+            if phase != .showing, launch.options.clipboard { watchClipboard() }
             phase = .showing
             view.synchronizeLocks()
         }
         engine.onChange = { [weak self] _ in
             guard let self, current == attempt else { return }
             view.surfaceChanged()
+        }
+        engine.onServerClipboard = { [weak self] text in
+            guard let self, current == attempt, launch.options.clipboard else { return }
+            received(text)
         }
         engine.onVerifyCertificate = { [weak self] pem, _, _, reply in
             guard let self, current == attempt else { return reply(false) }
@@ -310,6 +323,49 @@ final class RDPDesktop {
         keychain.set(password, for: account)
     }
 
+    // MARK: - Clipboard
+
+    /// Text copied here is offered to the server as it changes. The
+    /// pasteboard says nothing when it changes, so it is looked at once a
+    /// second — its change count, which costs nothing to read.
+    private func watchClipboard() {
+        stopClipboard()
+        seenChange = -1
+        clipboardWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.offerClipboard()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func stopClipboard() {
+        clipboardWatch?.cancel()
+        clipboardWatch = nil
+    }
+
+    private func offerClipboard() {
+        guard let engine, pasteboard.changeCount != seenChange else { return }
+        seenChange = pasteboard.changeCount
+        guard let text = pasteboard.string(forType: .string) else { return }
+        engine.clipboard(Self.serverText(text))
+    }
+
+    private func received(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(Self.macText(text), forType: .string)
+        seenChange = pasteboard.changeCount
+    }
+
+    /// RDP's text has Windows line endings; the Mac's has its own.
+    nonisolated static func serverText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
+    }
+
+    nonisolated static func macText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+    }
+
     // MARK: - Size
 
     /// The tab changed size, or moved to a screen of another scale. A
@@ -336,6 +392,7 @@ final class RDPDesktop {
     }
 
     private func end(_ reason: String) {
+        stopClipboard()
         dropQuestions()
         engine?.close()
         engine = nil

@@ -7,7 +7,9 @@
 #pragma clang diagnostic ignored "-Weverything"
 #include <freerdp/channels/disp.h>
 #include <freerdp/client.h>
+#include <freerdp/channels/cliprdr.h>
 #include <freerdp/client/channels.h>
+#include <freerdp/client/cliprdr.h>
 #include <freerdp/client/disp.h>
 #include <freerdp/event.h>
 #include <freerdp/freerdp.h>
@@ -15,10 +17,13 @@
 #include <freerdp/gdi/gfx.h>
 #include <freerdp/input.h>
 #include <freerdp/transport_io.h>
+#include <winpr/string.h>
 #include <winpr/synch.h>
+#include <winpr/user.h>
 #include <winpr/wlog.h>
 #pragma clang diagnostic pop
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,6 +39,11 @@ struct tsr_session {
 	rdpContext* context;
 	int socket;
 	DispClientContext* disp;
+	CliprdrClientContext* cliprdr;
+	/// This Mac's clipboard text, offered to the server: set from an XPC
+	/// queue, read on the clipboard channel's thread.
+	pthread_mutex_t clipboard_lock;
+	char* local_text;
 	char* reason;
 	volatile bool stopping;
 };
@@ -115,11 +125,154 @@ static BOOL tsr_authenticate(freerdp* instance, char** username, char** password
 	return TRUE;
 }
 
+// MARK: - Clipboard (MS-RDPECLIP), text only
+
+static bool has_local_text(tsr_session* session)
+{
+	pthread_mutex_lock(&session->clipboard_lock);
+	const bool has = session->local_text != NULL;
+	pthread_mutex_unlock(&session->clipboard_lock);
+	return has;
+}
+
+/// Tells the server what this Mac's clipboard holds: text, or nothing.
+static UINT tsr_send_format_list(CliprdrClientContext* cliprdr, bool text)
+{
+	CLIPRDR_FORMAT format = { 0 };
+	format.formatId = CF_UNICODETEXT;
+	CLIPRDR_FORMAT_LIST list = { 0 };
+	list.common.msgType = CB_FORMAT_LIST;
+	list.numFormats = text ? 1 : 0;
+	list.formats = text ? &format : NULL;
+	return cliprdr->ClientFormatList(cliprdr, &list);
+}
+
+static UINT tsr_monitor_ready(CliprdrClientContext* cliprdr, const CLIPRDR_MONITOR_READY* ready)
+{
+	(void)ready;
+	CLIPRDR_GENERAL_CAPABILITY_SET general = { 0 };
+	general.capabilitySetType = CB_CAPSTYPE_GENERAL;
+	general.capabilitySetLength = CB_CAPSTYPE_GENERAL_LEN;
+	general.version = CB_CAPS_VERSION_2;
+	general.generalFlags = CB_USE_LONG_FORMAT_NAMES;
+	CLIPRDR_CAPABILITIES capabilities = { 0 };
+	capabilities.common.msgType = CB_CLIP_CAPS;
+	capabilities.cCapabilitiesSets = 1;
+	capabilities.capabilitySets = (CLIPRDR_CAPABILITY_SET*)&general;
+	const UINT rc = cliprdr->ClientCapabilities(cliprdr, &capabilities);
+	if (rc != CHANNEL_RC_OK)
+		return rc;
+	return tsr_send_format_list(cliprdr, has_local_text((tsr_session*)cliprdr->custom));
+}
+
+static UINT tsr_server_capabilities(CliprdrClientContext* cliprdr,
+                                    const CLIPRDR_CAPABILITIES* capabilities)
+{
+	(void)cliprdr;
+	(void)capabilities;
+	return CHANNEL_RC_OK;
+}
+
+/// Something was copied on the server: take its text, if it has any.
+static UINT tsr_server_format_list(CliprdrClientContext* cliprdr, const CLIPRDR_FORMAT_LIST* list)
+{
+	CLIPRDR_FORMAT_LIST_RESPONSE response = { 0 };
+	response.common.msgType = CB_FORMAT_LIST_RESPONSE;
+	response.common.msgFlags = CB_RESPONSE_OK;
+	UINT rc = cliprdr->ClientFormatListResponse(cliprdr, &response);
+	if (rc != CHANNEL_RC_OK)
+		return rc;
+	for (UINT32 i = 0; i < list->numFormats; i++) {
+		if (list->formats[i].formatId == CF_UNICODETEXT) {
+			CLIPRDR_FORMAT_DATA_REQUEST request = { 0 };
+			request.common.msgType = CB_FORMAT_DATA_REQUEST;
+			request.requestedFormatId = CF_UNICODETEXT;
+			return cliprdr->ClientFormatDataRequest(cliprdr, &request);
+		}
+	}
+	return CHANNEL_RC_OK;
+}
+
+static UINT tsr_server_format_list_response(CliprdrClientContext* cliprdr,
+                                            const CLIPRDR_FORMAT_LIST_RESPONSE* response)
+{
+	(void)cliprdr;
+	(void)response;
+	return CHANNEL_RC_OK;
+}
+
+static UINT tsr_server_format_data_response(CliprdrClientContext* cliprdr,
+                                            const CLIPRDR_FORMAT_DATA_RESPONSE* response)
+{
+	tsr_session* session = (tsr_session*)cliprdr->custom;
+	if ((response->common.msgFlags & CB_RESPONSE_FAIL) || !response->requestedFormatData ||
+	    !session->callbacks.clipboard)
+		return CHANNEL_RC_OK;
+	const size_t units = response->common.dataLen / sizeof(WCHAR);
+	char* text = ConvertWCharNToUtf8Alloc((const WCHAR*)response->requestedFormatData, units, NULL);
+	if (text) {
+		session->callbacks.clipboard(session->callbacks.user, text);
+		free(text);
+	}
+	return CHANNEL_RC_OK;
+}
+
+/// The server pastes: it gets this Mac's text, NUL-terminated UTF-16.
+static UINT tsr_server_format_data_request(CliprdrClientContext* cliprdr,
+                                           const CLIPRDR_FORMAT_DATA_REQUEST* request)
+{
+	tsr_session* session = (tsr_session*)cliprdr->custom;
+	CLIPRDR_FORMAT_DATA_RESPONSE response = { 0 };
+	response.common.msgType = CB_FORMAT_DATA_RESPONSE;
+	response.common.msgFlags = CB_RESPONSE_FAIL;
+	WCHAR* data = NULL;
+	if (request->requestedFormatId == CF_UNICODETEXT) {
+		pthread_mutex_lock(&session->clipboard_lock);
+		size_t units = 0;
+		if (session->local_text)
+			data = ConvertUtf8ToWCharAlloc(session->local_text, &units);
+		pthread_mutex_unlock(&session->clipboard_lock);
+		if (data) {
+			response.common.msgFlags = CB_RESPONSE_OK;
+			response.common.dataLen = (UINT32)((units + 1) * sizeof(WCHAR));
+			response.requestedFormatData = (const BYTE*)data;
+		}
+	}
+	const UINT rc = cliprdr->ClientFormatDataResponse(cliprdr, &response);
+	free(data);
+	return rc;
+}
+
+static void tsr_attach_clipboard(tsr_session* session, CliprdrClientContext* cliprdr)
+{
+	cliprdr->custom = session;
+	cliprdr->MonitorReady = tsr_monitor_ready;
+	cliprdr->ServerCapabilities = tsr_server_capabilities;
+	cliprdr->ServerFormatList = tsr_server_format_list;
+	cliprdr->ServerFormatListResponse = tsr_server_format_list_response;
+	cliprdr->ServerFormatDataRequest = tsr_server_format_data_request;
+	cliprdr->ServerFormatDataResponse = tsr_server_format_data_response;
+	session->cliprdr = cliprdr;
+}
+
+void tsr_set_clipboard(tsr_session* session, const char* text)
+{
+	pthread_mutex_lock(&session->clipboard_lock);
+	free(session->local_text);
+	session->local_text = text ? strdup(text) : NULL;
+	CliprdrClientContext* cliprdr = session->cliprdr;
+	pthread_mutex_unlock(&session->clipboard_lock);
+	if (cliprdr)
+		(void)tsr_send_format_list(cliprdr, text != NULL);
+}
+
 static void tsr_channel_connected(void* context, const ChannelConnectedEventArgs* e)
 {
 	tsr_session* session = session_of((rdpContext*)context);
 	if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
 		session->disp = (DispClientContext*)e->pInterface;
+	else if (strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0)
+		tsr_attach_clipboard(session, (CliprdrClientContext*)e->pInterface);
 	else
 		freerdp_client_OnChannelConnectedEventHandler(context, e);
 }
@@ -127,10 +280,15 @@ static void tsr_channel_connected(void* context, const ChannelConnectedEventArgs
 static void tsr_channel_disconnected(void* context, const ChannelDisconnectedEventArgs* e)
 {
 	tsr_session* session = session_of((rdpContext*)context);
-	if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
+	if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0) {
 		session->disp = NULL;
-	else
+	} else if (strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0) {
+		pthread_mutex_lock(&session->clipboard_lock);
+		session->cliprdr = NULL;
+		pthread_mutex_unlock(&session->clipboard_lock);
+	} else {
 		freerdp_client_OnChannelDisconnectedEventHandler(context, e);
+	}
 }
 
 // MARK: - Drawing
@@ -269,6 +427,7 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 		return NULL;
 	session->callbacks = *callbacks;
 	session->socket = params->socket;
+	pthread_mutex_init(&session->clipboard_lock, NULL);
 
 	RDP_CLIENT_ENTRY_POINTS entry = { 0 };
 	entry.Version = RDP_CLIENT_INTERFACE_VERSION;
@@ -310,9 +469,7 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 	          freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, TRUE) &&
 	          freerdp_settings_set_bool(settings, FreeRDP_SupportDisplayControl, TRUE) &&
 	          freerdp_settings_set_bool(settings, FreeRDP_DynamicResolutionUpdate, TRUE) &&
-	          // Until the clipboard is handled here, the channel stays away:
-	          // a server waits on a client that never answers it.
-	          freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard, FALSE);
+	          freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard, params->clipboard);
 	if (ok && params->sound) {
 		const char* const sound[] = { "rdpsnd", "sys:mac" };
 		ok = freerdp_client_add_static_channel(settings, ARRAYSIZE(sound), sound) &&
@@ -391,6 +548,8 @@ void tsr_free(tsr_session* session)
 	if (session->socket >= 0)
 		close(session->socket);
 	free(session->reason);
+	free(session->local_text);
+	pthread_mutex_destroy(&session->clipboard_lock);
 	free(session);
 }
 

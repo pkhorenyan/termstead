@@ -30,6 +30,8 @@ typedef struct {
 	bool (*authenticate)(void* user, const char* username, const char* domain, char** out_username,
 	                     char** out_domain, char** out_password);
 	void (*connected)(void* user);
+	/// Text copied on the server, UTF-8. Called on a channel's thread.
+	void (*clipboard)(void* user, const char* text);
 } tsr_callbacks;
 
 typedef struct {
@@ -63,5 +65,7 @@ bool tsr_send_unicode(tsr_session* session, uint16_t character, bool down);
 bool tsr_send_sync(tsr_session* session, bool caps_lock);
 bool tsr_send_mouse(tsr_session* session, uint16_t flags, uint16_t x, uint16_t y);
 bool tsr_resize(tsr_session* session, uint32_t width, uint32_t height, uint32_t desktop_scale);
+/// Text copied on this Mac, UTF-8, offered to the server; NULL for none.
+void tsr_set_clipboard(tsr_session* session, const char* text);
 
 #endif

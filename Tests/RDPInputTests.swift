@@ -150,7 +150,7 @@ struct RDPTypingTests {
     /// layout the session started with. A command typed into a terminal
     /// must run — checked by the file it makes in the container.
     @Test func keysReachATerminalInTheSession() async throws {
-        let docker = try #require(Self.docker, "docker is not on this Mac")
+        try #require(TestLabRDP.docker != nil, "docker is not on this Mac")
         let marker = "/tmp/termstead-typed-\(Int.random(in: 1000...9999))"
         let desktop = RDPDesktop()
         var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
@@ -185,31 +185,11 @@ struct RDPTypingTests {
         var found = false
         for _ in 0..<20 where !found {
             try await Task.sleep(for: .milliseconds(250))
-            found = Self.run(docker, ["compose", "-f", Self.compose, "exec", "-T", "rdp", "test", "-e", marker]) == 0
+            found = TestLabRDP.inContainer(["test", "-e", marker]).status == 0
         }
-        _ = Self.run(docker, ["compose", "-f", Self.compose, "exec", "-T", "rdp", "rm", "-f", marker])
+        _ = TestLabRDP.inContainer(["rm", "-f", marker])
         #expect(found)
         desktop.stop()
-    }
-
-    private static var compose: String {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("TestLab/docker-compose.yml").path
-    }
-
-    private static let docker: String? = ["/usr/local/bin/docker", "/opt/homebrew/bin/docker",
-                                          "/Applications/Docker.app/Contents/Resources/bin/docker"]
-        .first { FileManager.default.isExecutableFile(atPath: $0) }
-
-    private static func run(_ tool: String, _ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return -1 }
-        process.waitUntilExit()
-        return process.terminationStatus
     }
 
     private func wait(upTo seconds: Double, until done: () -> Bool) async {
