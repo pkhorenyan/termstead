@@ -180,6 +180,19 @@ final class RDPTunnelTests {
     }
 
     /// The tunnel ending takes the desktop with it, and says so.
+    /// The tunnel's ssh reaches the bastion; its load must not pass for the
+    /// desktop's in the status bar.
+    @Test func aDesktopThroughATunnelShowsNoServerLoad() async throws {
+        let tab = try open("lab-rdp-via-bastion")
+        let desktop = try #require(tab.desktop)
+        await TestLabRDP.waitUntilShowing(desktop)
+        try #require(desktop.phase == .showing)
+        tab.watchesLoad = true
+        try await Task.sleep(for: .seconds(4))
+        #expect(tab.serverLoad == nil)
+        tab.close()
+    }
+
     @Test func theTunnelEndingEndsTheDesktop() async throws {
         let tab = try open("lab-rdp-via-bastion")
         let desktop = try #require(tab.desktop)

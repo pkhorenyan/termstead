@@ -370,7 +370,11 @@ final class Connection: Identifiable {
     /// Starts or stops reading the server's load to match `watchesLoad`. It
     /// rides the connection master, so it needs ssh logged in.
     private func updateLoadWatch() {
-        guard watchesLoad, isLoggedIn, state.isRunning, !loadIsUnsupported, let client = sftp else {
+        // An RDP tab's ssh reaches its last jump host, not the desktop's
+        // server: its load would have been the bastion's, shown as the
+        // desktop's.
+        guard kind == .ssh, watchesLoad, isLoggedIn, state.isRunning, !loadIsUnsupported,
+              let client = sftp else {
             stopLoadWatch()
             return
         }
