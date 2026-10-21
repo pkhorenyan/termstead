@@ -32,6 +32,15 @@ typedef struct {
 	void (*connected)(void* user);
 	/// Text copied on the server, UTF-8. Called on a channel's thread.
 	void (*clipboard)(void* user, const char* text);
+	/// A pointer shape from the server, kept under `id` (from 1) until
+	/// `pointer_free`: RGBA with straight alpha, in desktop pixels, and the
+	/// hot spot in the same pixels.
+	void (*pointer_new)(void* user, int32_t id, const uint8_t* rgba, uint32_t width,
+	                    uint32_t height, uint32_t hot_x, uint32_t hot_y);
+	void (*pointer_free)(void* user, int32_t id);
+	/// The pointer to show: an id from `pointer_new`, 0 for the system's
+	/// arrow, -1 for none.
+	void (*pointer_set)(void* user, int32_t id);
 } tsr_callbacks;
 
 typedef struct {

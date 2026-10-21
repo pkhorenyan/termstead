@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 
 /// The mouse for a remote desktop: RDP's pointer flags, where a point in the
 /// view lands on the desktop, and the wheel in RDP's units.
@@ -41,6 +41,46 @@ enum RDPPointer {
         let clamped = min(max(rotation, -255), 255)
         return (horizontal ? horizontalWheel : wheel) | (clamped & 0x1FF)
     }
+
+    /// Mac points per desktop pixel, as the view shows the desktop: ½ for
+    /// a sharp desktop on a Retina screen, less for a large fixed one.
+    static func scale(of desktop: CGSize, in bounds: CGSize) -> CGFloat {
+        let shown = shownRect(of: desktop, in: bounds)
+        return shown.width > 0 ? shown.width / desktop.width : 1
+    }
+
+    /// A pointer shape the server sent, in its pixels.
+    struct Shape: @unchecked Sendable {  // immutable: a CGImage and a point
+        let image: CGImage
+        let hotSpot: CGPoint
+
+        init?(rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
+            guard width > 0, height > 0, rgba.count >= width * height * 4,
+                  let provider = CGDataProvider(data: rgba as CFData),
+                  let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                                      bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                                      provider: provider, decode: nil, shouldInterpolate: true,
+                                      intent: .defaultIntent)
+            else { return nil }
+            self.image = image
+            hotSpot = CGPoint(x: min(max(hotX, 0), width - 1), y: min(max(hotY, 0), height - 1))
+        }
+
+        /// The shape as a Mac cursor, at `scale` points per desktop pixel,
+        /// so it keeps the size it has on the desktop. The image keeps every
+        /// pixel: on a Retina screen a 64-pixel pointer is a sharp 32 points.
+        func cursor(scale: CGFloat) -> NSCursor {
+            let size = NSSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+            return NSCursor(image: NSImage(cgImage: image, size: size),
+                            hotSpot: NSPoint(x: hotSpot.x * scale, y: hotSpot.y * scale))
+        }
+    }
+
+    /// No pointer, when the server hides it: an empty image, not
+    /// `NSCursor.hide()`, which hides it over the whole screen until undone.
+    @MainActor static let hidden = NSCursor(image: NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true },
+                                            hotSpot: .zero)
 
     /// Wheel movement gathered into whole RDP steps. A mouse wheel moves in
     /// lines; a trackpad in points, many small ones, which add up.

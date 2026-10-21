@@ -257,6 +257,18 @@ final class RDPDesktop {
             guard let self, current == attempt else { return }
             view.surfaceChanged()
         }
+        engine.onPointerShape = { [weak self] id, shape in
+            guard let self, current == attempt else { return }
+            view.addPointer(shape, id: id)
+        }
+        engine.onPointerForgotten = { [weak self] id in
+            guard let self, current == attempt else { return }
+            view.forgetPointer(id: id)
+        }
+        engine.onShowPointer = { [weak self] id in
+            guard let self, current == attempt else { return }
+            view.showPointer(id: id)
+        }
         engine.onServerClipboard = { [weak self] text in
             guard let self, current == attempt, launch.options.clipboard else { return }
             received(text)
@@ -498,8 +510,15 @@ final class RDPDesktopView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     func show(_ surface: IOSurface?) {
+        let resized = surface?.width != self.surface?.width || surface?.height != self.surface?.height
         self.surface = surface
         apply()
+        if surface == nil {
+            // A session's pointers are its own; the next one starts afresh.
+            pointerShapes = [:]
+            pointerID = 0
+        }
+        if surface == nil || resized { pointerChanged() }
     }
 
     /// The engine drew into the surface. A layer does not notice by itself
@@ -525,7 +544,11 @@ final class RDPDesktopView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        if changed { desktop?.tabSizeChanged() }
+        if changed {
+            desktop?.tabSizeChanged()
+            // A scaled desktop scales its pointer too.
+            pointerChanged()
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -541,8 +564,69 @@ final class RDPDesktopView: NSView {
         super.updateTrackingAreas()
         for area in trackingAreas { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(rect: bounds,
-                                       options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                       options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
                                        owner: self))
+    }
+
+    // MARK: - Pointer
+
+    /// The server's pointer shapes, by the engine's ids, and the one shown:
+    /// 0 is the system's arrow, -1 none.
+    private(set) var pointerShapes: [Int: RDPPointer.Shape] = [:]
+    private(set) var pointerID = 0
+    /// `pointerID` as a cursor at the current scale, made when first asked.
+    private var madeCursor: NSCursor?
+
+    func addPointer(_ shape: RDPPointer.Shape, id: Int) {
+        pointerShapes[id] = shape
+    }
+
+    func forgetPointer(id: Int) {
+        pointerShapes[id] = nil
+    }
+
+    func showPointer(id: Int) {
+        guard id != pointerID || madeCursor == nil else { return }
+        pointerID = id
+        pointerChanged()
+    }
+
+    var cursor: NSCursor {
+        if let madeCursor { return madeCursor }
+        let made: NSCursor
+        if pointerID < 0 {
+            made = RDPPointer.hidden
+        } else if let shape = pointerShapes[pointerID] {
+            let desktop = surface.map { CGSize(width: $0.width, height: $0.height) } ?? bounds.size
+            made = shape.cursor(scale: RDPPointer.scale(of: desktop, in: bounds.size))
+        } else {
+            made = .arrow
+        }
+        madeCursor = made
+        return made
+    }
+
+    /// The pointer changed shape or scale. Cursor rects are only looked at
+    /// again when the mouse moves, so a pointer already over the desktop
+    /// takes the new shape at once: Windows changes it under a still mouse
+    /// (a busy cursor, a window opening under it).
+    private func pointerChanged() {
+        madeCursor = nil
+        guard let window else { return }
+        window.invalidateCursorRects(for: self)
+        let root = window.contentView?.superview ?? window.contentView
+        if window.isKeyWindow,
+           root?.hitTest(root!.convert(window.mouseLocationOutsideOfEventStream, from: nil)) === self {
+            cursor.set()
+        }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: cursor)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        cursor.set()
     }
 
     // MARK: - Keyboard
@@ -609,7 +693,11 @@ final class RDPDesktopView: NSView {
         desktop?.sendMouse(x: pixel.x, y: pixel.y, flags: flags)
     }
 
-    override func mouseMoved(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
+    override func mouseMoved(with event: NSEvent) {
+        // SwiftUI may put its own arrow back as the mouse moves (macOS 15).
+        if NSCursor.current !== cursor { cursor.set() }
+        sendMouse(event, flags: RDPPointer.move)
+    }
     override func mouseDragged(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
     override func rightMouseDragged(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }
     override func otherMouseDragged(with event: NSEvent) { sendMouse(event, flags: RDPPointer.move) }

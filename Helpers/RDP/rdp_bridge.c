@@ -11,10 +11,12 @@
 #include <freerdp/client/channels.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/disp.h>
+#include <freerdp/codec/color.h>
 #include <freerdp/event.h>
 #include <freerdp/freerdp.h>
 #include <freerdp/gdi/gdi.h>
 #include <freerdp/gdi/gfx.h>
+#include <freerdp/graphics.h>
 #include <freerdp/input.h>
 #include <freerdp/transport_io.h>
 #include <winpr/string.h>
@@ -45,6 +47,8 @@ struct tsr_session {
 	pthread_mutex_t clipboard_lock;
 	char* local_text;
 	char* reason;
+	/// The last pointer id given out; on the session's thread only.
+	int32_t last_pointer;
 	volatile bool stopping;
 };
 
@@ -359,6 +363,97 @@ static BOOL tsr_desktop_resize(rdpContext* context)
 	return tsr_attach_surface(context, TRUE);
 }
 
+// MARK: - Pointer
+
+/// FreeRDP allocates every pointer at the prototype's size, so each one
+/// carries the id the app knows it by.
+typedef struct {
+	rdpPointer pointer;
+	int32_t id;
+} tsrPointer;
+
+static BOOL tsr_pointer_new(rdpContext* context, rdpPointer* pointer)
+{
+	tsr_session* session = session_of(context);
+	tsrPointer* own = (tsrPointer*)pointer;
+	own->id = 0;
+	const UINT32 width = pointer->width;
+	const UINT32 height = pointer->height;
+	// Nothing to draw: shown as the system's arrow, id 0.
+	if (!session->callbacks.pointer_new || width == 0 || height == 0)
+		return TRUE;
+	BYTE* rgba = calloc((size_t)width * height, 4);
+	if (!rgba)
+		return FALSE;
+	const gdiPalette* palette = context->gdi ? &context->gdi->palette : NULL;
+	if (!freerdp_image_copy_from_pointer_data(rgba, PIXEL_FORMAT_RGBA32, 0, 0, 0, width, height,
+	                                          pointer->xorMaskData, pointer->lengthXorMask,
+	                                          pointer->andMaskData, pointer->lengthAndMask,
+	                                          pointer->xorBpp, palette)) {
+		free(rgba);
+		return FALSE;
+	}
+	own->id = ++session->last_pointer;
+	session->callbacks.pointer_new(session->callbacks.user, own->id, rgba, width, height,
+	                               pointer->xPos, pointer->yPos);
+	free(rgba);
+	return TRUE;
+}
+
+static void tsr_pointer_free(rdpContext* context, rdpPointer* pointer)
+{
+	tsr_session* session = session_of(context);
+	const int32_t id = ((tsrPointer*)pointer)->id;
+	if (id > 0 && session->callbacks.pointer_free)
+		session->callbacks.pointer_free(session->callbacks.user, id);
+}
+
+static BOOL tsr_show_pointer(rdpContext* context, int32_t id)
+{
+	tsr_session* session = session_of(context);
+	if (session->callbacks.pointer_set)
+		session->callbacks.pointer_set(session->callbacks.user, id);
+	return TRUE;
+}
+
+static BOOL tsr_pointer_set(rdpContext* context, rdpPointer* pointer)
+{
+	return tsr_show_pointer(context, ((tsrPointer*)pointer)->id);
+}
+
+static BOOL tsr_pointer_set_null(rdpContext* context)
+{
+	return tsr_show_pointer(context, -1);
+}
+
+static BOOL tsr_pointer_set_default(rdpContext* context)
+{
+	return tsr_show_pointer(context, 0);
+}
+
+/// The server moving the pointer is not followed: the mouse is the
+/// user's, and a Mac pointer that jumps by itself would only startle.
+static BOOL tsr_pointer_set_position(rdpContext* context, UINT32 x, UINT32 y)
+{
+	(void)context;
+	(void)x;
+	(void)y;
+	return TRUE;
+}
+
+static void tsr_register_pointer(rdpContext* context)
+{
+	rdpPointer pointer = { 0 };
+	pointer.size = sizeof(tsrPointer);
+	pointer.New = tsr_pointer_new;
+	pointer.Free = tsr_pointer_free;
+	pointer.Set = tsr_pointer_set;
+	pointer.SetNull = tsr_pointer_set_null;
+	pointer.SetDefault = tsr_pointer_set_default;
+	pointer.SetPosition = tsr_pointer_set_position;
+	graphics_register_pointer(context->graphics, &pointer);
+}
+
 // MARK: - Lifecycle
 
 static BOOL tsr_pre_connect(freerdp* instance)
@@ -378,6 +473,7 @@ static BOOL tsr_post_connect(freerdp* instance)
 	rdpContext* context = instance->context;
 	if (!tsr_attach_surface(context, FALSE))
 		return FALSE;
+	tsr_register_pointer(context);
 	context->update->BeginPaint = tsr_begin_paint;
 	context->update->EndPaint = tsr_end_paint;
 	context->update->DesktopResize = tsr_desktop_resize;
@@ -409,11 +505,14 @@ static bool set_string(rdpSettings* settings, FreeRDP_Settings_Keys_String key, 
 	return freerdp_settings_set_string(settings, key, value && value[0] ? value : NULL);
 }
 
-tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
+/// Warnings and errors to the unified log: an XPC service's stderr goes
+/// nowhere, and the sandbox keeps the old syslog out.
+/// `log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
+/// Once per process: the root log is shared, and two desktops starting
+/// together each replaced its appender under the other, which crashed the
+/// engine.
+static void tsr_setup_log(void)
 {
-	// Warnings and errors to the unified log: an XPC service's stderr goes
-	// nowhere, and the sandbox keeps the old syslog out.
-	// `log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
 	wLog* root = WLog_GetRoot();
 	if (WLog_SetLogAppenderType(root, WLOG_APPENDER_CALLBACK)) {
 		wLogCallbacks forward = { 0 };
@@ -421,6 +520,12 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 		(void)WLog_ConfigureAppender(WLog_GetLogAppender(root), "callbacks", &forward);
 	}
 	WLog_SetLogLevel(root, WLOG_WARN);
+}
+
+tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
+{
+	static pthread_once_t log_once = PTHREAD_ONCE_INIT;
+	pthread_once(&log_once, tsr_setup_log);
 
 	tsr_session* session = calloc(1, sizeof(tsr_session));
 	if (!session)

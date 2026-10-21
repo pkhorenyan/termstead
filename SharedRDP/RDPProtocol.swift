@@ -115,6 +115,14 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
                         reply: @escaping @Sendable (_ ok: Bool, _ user: String, _ domain: String, _ password: String) -> Void)
     /// Text copied on the server.
     func serverClipboard(_ text: String)
+    /// A pointer shape from the server, kept under `id` until it is
+    /// forgotten: RGBA with straight alpha, in desktop pixels, and its hot
+    /// spot in the same pixels.
+    func pointerShape(id: Int, rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int)
+    func pointerForgotten(id: Int)
+    /// The pointer to show: an id from `pointerShape`, 0 for the system's
+    /// arrow, -1 for none.
+    func showPointer(id: Int)
     func connected()
     /// The session ended; `reason` is empty when it ended as asked. `code`
     /// is FreeRDP's last error, so a refused password can be asked again.

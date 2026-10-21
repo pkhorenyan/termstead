@@ -130,6 +130,14 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             guard let text else { return }
             RDPEngine.from(user).client?.serverClipboard(String(cString: text))
         }
+        callbacks.pointer_new = { user, id, rgba, width, height, hotX, hotY in
+            guard let rgba else { return }
+            let pixels = Data(bytes: rgba, count: Int(width) * Int(height) * 4)
+            RDPEngine.from(user).client?.pointerShape(id: Int(id), rgba: pixels, width: Int(width), height: Int(height),
+                                                      hotX: Int(hotX), hotY: Int(hotY))
+        }
+        callbacks.pointer_free = { user, id in RDPEngine.from(user).client?.pointerForgotten(id: Int(id)) }
+        callbacks.pointer_set = { user, id in RDPEngine.from(user).client?.showPointer(id: Int(id)) }
 
         // FreeRDP copies every string into its settings, so these need only
         // last through `tsr_new`.

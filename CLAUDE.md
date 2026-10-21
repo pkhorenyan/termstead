@@ -347,6 +347,13 @@ read from there, never stored on `Session`.
   clipboard over first) — and the session always starts in US English (see
   pitfalls). Ctrl+Alt+Del and the Windows key are in Session and the tab's
   menu.
+- **The pointer is the server's.** FreeRDP's `rdpPointer` hands each shape
+  over once (RGBA, under an id) and then only which one to show;
+  `RDPDesktopView` makes the `NSCursor` at the desktop's scale, so a
+  64-pixel pointer from Windows at 200% is 32 points. It is set through
+  cursor rects, again on each mouse move (SwiftUI may put its arrow back),
+  and at once when the server changes it under a still mouse. The server
+  moving the pointer is ignored: the Mac's mouse is the user's.
 - **Certificates are the app's** (`ExternalCertificateManagement`): trusted
   by macOS for the host, or by the user before (`rdp_known_hosts` in
   Application Support), or asked in the tab — a change in red. **A login**
@@ -921,6 +928,11 @@ These have each cost real time. They are not hypothetical.
 - **FreeRDP asks for a login before the certificate** over TLS (xrdp), and
   after it with NLA (Windows). An empty password must reach FreeRDP as none
   (`NULL`), or xrdp tries to log in with it and shows a black screen.
+- **FreeRDP's root log is one per process.** Each session set up its
+  appender in `tsr_new`, and two desktops starting together freed it under
+  each other: a crash in `WLog_SetLogAppenderType` that ended both, seen
+  only now and then in the two-desktop test. It is set up once
+  (`pthread_once`).
 - **A question the engine waits on must be cancellable.** FreeRDP's thread
   blocks in the callback until the app answers; closing the tab meanwhile
   left it blocked for good. `RDPEngine.disconnect` gives up the question.

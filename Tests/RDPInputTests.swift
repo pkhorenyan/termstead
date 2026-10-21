@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CoreVideo
 import Foundation
 import IOSurface
 import Testing
@@ -137,6 +138,48 @@ struct RDPInputTests {
         var total = 0
         for _ in 0..<30 { total += wheel.steps(for: 0.5, precise: true).reduce(0, +) }
         #expect(total == 120)
+    }
+
+    // MARK: - The server's pointer
+
+    /// Windows at 200% draws a 64-pixel pointer; on a sharp Retina desktop
+    /// that is 32 points, the size it has there.
+    @MainActor @Test func aPointerKeepsItsSizeOnTheDesktop() throws {
+        let shape = try #require(RDPPointer.Shape(rgba: Data(count: 64 * 64 * 4), width: 64, height: 64,
+                                                  hotX: 10, hotY: 20))
+        let scale = RDPPointer.scale(of: CGSize(width: 2000, height: 1200), in: CGSize(width: 1000, height: 600))
+        #expect(scale == 0.5)
+        let cursor = shape.cursor(scale: scale)
+        #expect(cursor.image.size == NSSize(width: 32, height: 32))
+        #expect(cursor.hotSpot == NSPoint(x: 5, y: 10))
+        #expect(RDPPointer.Shape(rgba: Data(count: 10), width: 64, height: 64, hotX: 0, hotY: 0) == nil)
+    }
+
+    @MainActor @Test func theViewShowsThePointerTheServerPicks() throws {
+        let view = RDPDesktopView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        let surface = try #require(IOSurface(properties: [.width: 2000, .height: 1200, .bytesPerElement: 4,
+                                                          .pixelFormat: kCVPixelFormatType_32BGRA]))
+        view.show(surface)
+        let shape = try #require(RDPPointer.Shape(rgba: Data(count: 48 * 48 * 4), width: 48, height: 48,
+                                                  hotX: 0, hotY: 0))
+        view.addPointer(shape, id: 3)
+        #expect(view.cursor === NSCursor.arrow)
+        view.showPointer(id: 3)
+        #expect(view.cursor.image.size == NSSize(width: 24, height: 24))
+        view.showPointer(id: -1)
+        #expect(view.cursor === RDPPointer.hidden)
+        view.showPointer(id: 0)
+        #expect(view.cursor === NSCursor.arrow)
+
+        // A fixed desktop shown at half its size: the pointer shrinks too.
+        view.showPointer(id: 3)
+        view.setFrameSize(NSSize(width: 500, height: 300))
+        #expect(view.cursor.image.size == NSSize(width: 12, height: 12))
+
+        // The session's shapes go with it.
+        view.show(nil)
+        #expect(view.pointerShapes.isEmpty && view.pointerID == 0)
+        #expect(view.cursor === NSCursor.arrow)
     }
 }
 
@@ -306,6 +349,24 @@ struct RDPResizeTests {
         await wait(upTo: 15) { desktop.size == CGSize(width: 1024, height: 700) }
         #expect(desktop.size == CGSize(width: 1024, height: 700))
         desktop.stop()
+    }
+
+    /// xrdp sends the X server's pointer, and the view takes it up.
+    @Test func theServersPointerReachesTheView() async throws {
+        let desktop = RDPDesktop()
+        var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+        launch.options.sound = false
+        desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
+        desktop.knownHosts = TestLabRDP.knownHosts
+        desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+        await TestLabRDP.waitUntilShowing(desktop)
+        try #require(desktop.phase == .showing)
+        await wait(upTo: 15) { desktop.view.pointerShapes[desktop.view.pointerID] != nil }
+        let shape = try #require(desktop.view.pointerShapes[desktop.view.pointerID])
+        #expect(shape.image.width > 0)
+        #expect(desktop.view.cursor !== NSCursor.arrow)
+        desktop.stop()
+        #expect(desktop.view.pointerShapes.isEmpty)
     }
 
     private func wait(upTo seconds: Double, until done: () -> Bool) async {

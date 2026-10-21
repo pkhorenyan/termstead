@@ -17,6 +17,11 @@ final class RDPEngineConnection {
     var onAskCredentials: ((_ user: String, _ domain: String,
                             _ reply: @escaping @Sendable (RDPLogin?) -> Void) -> Void)?
     var onServerClipboard: ((String) -> Void)?
+    /// A pointer shape from the server, under its id; and one it dropped.
+    var onPointerShape: ((Int, RDPPointer.Shape) -> Void)?
+    var onPointerForgotten: ((Int) -> Void)?
+    /// The pointer to show: a shape's id, 0 for the arrow, -1 for none.
+    var onShowPointer: ((Int) -> Void)?
     var onConnected: (() -> Void)?
     /// Once, however it ended: empty when asked to, else why, with
     /// FreeRDP's error code (0 when there is none).
@@ -136,6 +141,20 @@ final class RDPEngineConnection {
 
         func serverClipboard(_ text: String) {
             onMain { $0.onServerClipboard?(text) }
+        }
+
+        func pointerShape(id: Int, rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
+            guard let shape = RDPPointer.Shape(rgba: rgba, width: width, height: height, hotX: hotX, hotY: hotY)
+            else { return }
+            onMain { $0.onPointerShape?(id, shape) }
+        }
+
+        func pointerForgotten(id: Int) {
+            onMain { $0.onPointerForgotten?(id) }
+        }
+
+        func showPointer(id: Int) {
+            onMain { $0.onShowPointer?(id) }
         }
 
         func connected() {
