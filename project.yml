@@ -34,6 +34,7 @@ targets:
     sources:
       - path: Sources
       - path: Shared
+      - path: SharedRDP
       - path: Resources/Fonts
         type: folder
       - path: Resources/Licenses
@@ -47,6 +48,9 @@ targets:
         embed: true
         copy:
           destination: executables
+      # The RDP engine, in Contents/XPCServices.
+      - target: TermsteadRDP
+        embed: true
     settings:
       base:
         # The bundle id names the UserDefaults domain, and the Keychain service
@@ -101,6 +105,54 @@ targets:
           CODE_SIGN_IDENTITY: "-"
           CODE_SIGNING_REQUIRED: NO
           ENABLE_HARDENED_RUNTIME: YES
+        Release:
+          DEPLOYMENT_POSTPROCESSING: YES
+    configFiles:
+      Release: Config/Signing.xcconfig
+
+  # FreeRDP in a sandboxed process of its own, one per remote desktop; see
+  # SharedRDP/RDPProtocol.swift. Its C libraries come from
+  # scripts/build-rdp-deps.sh, into Vendor/rdp.
+  TermsteadRDP:
+    type: xpc-service
+    platform: macOS
+    sources:
+      - path: Helpers/RDP
+        excludes:
+          - Info.plist
+          - TermsteadRDP.entitlements
+      - path: SharedRDP
+    preBuildScripts:
+      - name: Check the RDP libraries
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ ! -f "$PROJECT_DIR/Vendor/rdp/.versions" ]; then
+            echo "error: The RDP engine's libraries are missing: run scripts/build-rdp-deps.sh"
+            exit 1
+          fi
+    settings:
+      base:
+        PRODUCT_NAME: TermsteadRDP
+        PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead.rdp
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Helpers/RDP/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Helpers/RDP/TermsteadRDP.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: Helpers/RDP/rdp_bridge.h
+        # Relative to the project folder, whose path has a space in it.
+        HEADER_SEARCH_PATHS: [Vendor/rdp/include, Vendor/rdp/include/freerdp3, Vendor/rdp/include/winpr3]
+        LIBRARY_SEARCH_PATHS: [Vendor/rdp/lib]
+        OTHER_LDFLAGS: [-lfreerdp-client3, -lrdpsnd-common, -lfreerdp3, -lwinpr3, -lssl, -lcrypto, -lz,
+                        -framework, AVFoundation, -framework, AudioToolbox, -framework, CoreAudio,
+                        -framework, Carbon, -framework, IOKit, -framework, Security]
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+        DEAD_CODE_STRIPPING: YES
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: NO
+          ENABLE_HARDENED_RUNTIME: NO
         Release:
           DEPLOYMENT_POSTPROCESSING: YES
     configFiles:
