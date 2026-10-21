@@ -211,6 +211,7 @@ struct PaneView: View {
                         takesFocus: isFocused,
                         onFocus: { connectionStore.focus(pane: pane) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay { RDPQuestionView(desktop: desktop) }
             } else if let connection = connectionStore.active(in: pane) {
                 TerminalPane(connection: connection, theme: theme,
                              font: themeStore.terminalFont(size: connection.fontSize),

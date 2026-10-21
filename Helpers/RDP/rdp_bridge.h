@@ -25,6 +25,10 @@ typedef struct {
 	/// The certificate chain as PEM. Returns whether to go on.
 	bool (*verify_certificate)(void* user, const char* pem, size_t length, const char* host,
 	                           uint16_t port);
+	/// Credentials the server wants and the session lacks. Fills the three
+	/// with strings from malloc, or returns false to give up.
+	bool (*authenticate)(void* user, const char* username, const char* domain, char** out_username,
+	                     char** out_domain, char** out_password);
 	void (*connected)(void* user);
 } tsr_callbacks;
 
@@ -50,6 +54,8 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks);
 const char* tsr_run(tsr_session* session);
 /// Ends `tsr_run` from any thread.
 void tsr_stop(tsr_session* session);
+/// FreeRDP's last error, once `tsr_run` has returned.
+uint32_t tsr_last_error(tsr_session* session);
 void tsr_free(tsr_session* session);
 
 bool tsr_send_scancode(tsr_session* session, uint16_t scancode, bool extended, bool down);

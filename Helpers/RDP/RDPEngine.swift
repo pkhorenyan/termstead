@@ -13,6 +13,9 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     private var session: OpaquePointer?
     private var surface: IOSurfaceRef?
     private var isStarted = false
+    /// Gives up the question the session's thread is waiting on, if any:
+    /// a tab closed meanwhile must not leave that thread blocked for good.
+    private var cancelQuestion: (() -> Void)?
 
     /// Changed areas, gathered between messages to the app: FreeRDP ends a
     /// paint for every update, a few hundred a second while a window moves.
@@ -73,6 +76,10 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     func clipboard(_ text: String) {}
 
     func disconnect() {
+        lock.lock()
+        let cancel = cancelQuestion
+        lock.unlock()
+        cancel?()
         withSession {
             tsr_stop($0)
             return true
@@ -102,6 +109,15 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             let text = String(decoding: UnsafeRawBufferPointer(start: pem, count: length), as: UTF8.self)
             return RDPEngine.from(user).verifyCertificate(pem: text, host: String(cString: host), port: Int(port))
         }
+        callbacks.authenticate = { user, username, domain, outUser, outDomain, outPassword in
+            let given = RDPEngine.from(user).askCredentials(user: username.map { String(cString: $0) } ?? "",
+                                                            domain: domain.map { String(cString: $0) } ?? "")
+            guard let given else { return false }
+            outUser?.pointee = strdup(given.user)
+            outDomain?.pointee = strdup(given.domain)
+            outPassword?.pointee = strdup(given.password)
+            return true
+        }
         callbacks.connected = { user in RDPEngine.from(user).client?.connected() }
 
         // FreeRDP copies every string into its settings, so these need only
@@ -124,7 +140,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
 
         guard let created = tsr_new(&params, &callbacks) else {
             close(socket)
-            client?.disconnected(reason: "The RDP engine could not start.")
+            client?.disconnected(reason: "The RDP engine could not start.", code: 0)
             return
         }
         lock.lock()
@@ -132,12 +148,13 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         lock.unlock()
 
         let reason = String(cString: tsr_run(created))
+        let code = Int(tsr_last_error(created))
 
         lock.lock()
         session = nil
         lock.unlock()
         tsr_free(created)
-        client?.disconnected(reason: reason)
+        client?.disconnected(reason: reason, code: code)
     }
 
     private static func from(_ user: UnsafeMutableRawPointer?) -> RDPEngine {
@@ -200,35 +217,72 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     }
 
     /// Waits for the app, which may be waiting for the user. A connection
-    /// lost meanwhile counts as no.
+    /// lost meanwhile, or the session stopped, counts as no.
     private func verifyCertificate(pem: String, host: String, port: Int) -> Bool {
-        guard let connection else { return false }
-        let answer = Answer()
-        let proxy = connection.remoteObjectProxyWithErrorHandler { _ in answer.give(false) } as? any RDPClientProtocol
-        guard let proxy else { return false }
-        proxy.verifyCertificate(pem: pem, host: host, port: port) { trusted in answer.give(trusted) }
-        return answer.wait()
+        ask(otherwise: false) { proxy, answer in
+            proxy.verifyCertificate(pem: pem, host: host, port: port) { answer($0) }
+        }
+    }
+
+    private struct Credentials: Sendable {
+        var user: String
+        var domain: String
+        var password: String
+    }
+
+    private func askCredentials(user: String, domain: String) -> Credentials? {
+        ask(otherwise: nil) { proxy, answer in
+            proxy.askCredentials(user: user, domain: domain) { ok, user, domain, password in
+                answer(ok ? Credentials(user: user, domain: domain, password: password) : nil)
+            }
+        }
+    }
+
+    /// Blocks the session's thread on a question to the app.
+    private func ask<T: Sendable>(otherwise fallback: T,
+                                  _ question: (any RDPClientProtocol, @escaping @Sendable (T) -> Void) -> Void) -> T {
+        guard let connection else { return fallback }
+        let answer = Answer<T>(fallback: fallback)
+        let proxy = connection.remoteObjectProxyWithErrorHandler { _ in answer.give(fallback) } as? any RDPClientProtocol
+        guard let proxy else { return fallback }
+        lock.lock()
+        cancelQuestion = { answer.give(fallback) }
+        lock.unlock()
+        question(proxy) { answer.give($0) }
+        let value = answer.wait()
+        lock.lock()
+        cancelQuestion = nil
+        lock.unlock()
+        return value
     }
 }
 
-/// A yes or no from another thread, given once.
-private final class Answer: @unchecked Sendable {
+/// An answer from another thread, given once.
+private final class Answer<T: Sendable>: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private let lock = NSLock()
-    private var value: Bool?
+    private var value: T
+    private var given = false
 
-    func give(_ answer: Bool) {
+    init(fallback: T) {
+        value = fallback
+    }
+
+    func give(_ answer: T) {
         lock.lock()
-        let first = value == nil
-        if first { value = answer }
+        let first = !given
+        if first {
+            given = true
+            value = answer
+        }
         lock.unlock()
         if first { semaphore.signal() }
     }
 
-    func wait() -> Bool {
+    func wait() -> T {
         semaphore.wait()
         lock.lock()
         defer { lock.unlock() }
-        return value ?? false
+        return value
     }
 }

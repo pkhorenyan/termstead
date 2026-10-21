@@ -9,10 +9,11 @@ struct RDPLaunch: Equatable, Sendable {
     var port: Int
     var user: String
     var domain: String
-    /// From the Keychain; empty when none is saved, and then the server asks
-    /// (xrdp shows its own login screen).
+    /// From the Keychain; empty when none is saved, and then the tab asks.
     var password: String
     var options: RDPOptions
+    /// Where a password typed into the tab is saved, when the user asks.
+    var passwordAccount: String?
 
     init(session: Session, password: String) {
         host = session.host
@@ -21,6 +22,7 @@ struct RDPLaunch: Equatable, Sendable {
         domain = session.rdp.domain
         self.password = password
         options = session.rdp
+        passwordAccount = SSHLaunch.sessionPasswordAccount(session.id)
     }
 }
 
@@ -39,6 +41,42 @@ final class RDPDesktop {
     private(set) var phase: Phase = .ended("")
     /// The remote desktop in pixels, once there is one.
     private(set) var size: CGSize?
+
+    /// A certificate macOS does not trust and the user has not trusted
+    /// before, or one that changed: asked in the tab, as ssh asks about a
+    /// host key in the terminal.
+    struct CertificateQuestion: Equatable {
+        var host: String
+        var port: Int
+        var subject: String
+        var fingerprint: String
+        /// Why macOS does not trust it.
+        var problem: String
+        /// Another certificate was trusted for this server before.
+        var changed: Bool
+    }
+
+    /// The server wants a login the session does not have, or refused the
+    /// one it has.
+    struct LoginQuestion: Equatable {
+        var host: String
+        var user: String
+        var domain: String
+        /// Why it is asked again: the server refused the last one.
+        var problem: String?
+        /// The session has a Keychain entry to save the password to.
+        var canSave: Bool
+    }
+
+    private(set) var certificateQuestion: CertificateQuestion?
+    private(set) var loginQuestion: LoginQuestion?
+    @ObservationIgnored private var certificateAnswer: ((Bool) -> Void)?
+    @ObservationIgnored private var loginAnswer: ((RDPLogin?, Bool) -> Void)?
+    /// How it ended, when the user is why: the engine reports only that the
+    /// connection was cancelled.
+    @ObservationIgnored private var endedByUser: String?
+    @ObservationIgnored var knownHosts = RDPKnownHosts.shared
+    @ObservationIgnored var keychain = KeychainStore.shared
 
     @ObservationIgnored let view = RDPDesktopView()
     @ObservationIgnored private var engine: RDPEngineConnection?
@@ -113,6 +151,7 @@ final class RDPDesktop {
     /// Ends the session, as asked: no `onEnded`.
     func stop() {
         attempt += 1
+        dropQuestions()
         engine?.close()
         engine = nil
         view.show(nil)
@@ -120,11 +159,44 @@ final class RDPDesktop {
         if phase != .ended("") { phase = .ended("") }
     }
 
-    private func connect(_ launch: RDPLaunch, socket open: @MainActor () async throws -> FileHandle,
+    // MARK: - Questions, from the tab
+
+    func answerCertificate(trust: Bool) {
+        let answer = certificateAnswer
+        certificateAnswer = nil
+        certificateQuestion = nil
+        answer?(trust)
+    }
+
+    /// `nil` gives up. `save` puts the password in the Keychain for the
+    /// session, as the session form would.
+    func answerLogin(_ login: RDPLogin?, save: Bool) {
+        let answer = loginAnswer
+        loginAnswer = nil
+        loginQuestion = nil
+        answer?(login, save)
+    }
+
+    private func dropQuestions() {
+        certificateQuestion = nil
+        loginQuestion = nil
+        certificateAnswer = nil
+        loginAnswer = nil
+    }
+
+    /// FreeRDP's errors for a login the server turned down
+    /// (FREERDP_ERROR_CONNECT_*: authentication failed, logon failure,
+    /// wrong password, no or missing credentials).
+    nonisolated static func isRefusedLogin(_ code: Int) -> Bool {
+        [0x0002_0009, 0x0002_0014, 0x0002_0015, 0x0002_001B].contains(code)
+    }
+
+    private func connect(_ launch: RDPLaunch, socket open: @escaping @MainActor () async throws -> FileHandle,
                          attempt current: Int) async {
         let (width, height, scale) = await desktopSize(for: launch.options)
         guard current == attempt else { return }
         options = launch.options
+        endedByUser = nil
         let socket: FileHandle
         do {
             socket = try await open()
@@ -161,17 +233,84 @@ final class RDPDesktop {
             guard let self, current == attempt else { return }
             view.surfaceChanged()
         }
-        engine.onVerifyCertificate = { [weak self] pem, host, port, reply in
-            // Checking against macOS's trust and asking the user come with
-            // the certificate prompt; until then the chain is only logged.
-            self?.log?("Server certificate for \(host):\(port) accepted without checking.")
-            reply(true)
+        engine.onVerifyCertificate = { [weak self] pem, _, _, reply in
+            guard let self, current == attempt else { return reply(false) }
+            Task { await self.check(pem, for: launch, attempt: current, reply: reply) }
         }
-        engine.onDisconnected = { [weak self] reason in
+        engine.onAskCredentials = { [weak self] user, domain, reply in
+            guard let self, current == attempt else { return reply(nil) }
+            ask(launch, user: user, domain: domain, problem: nil) { [weak self] login, save in
+                if login == nil { self?.endedByUser = "Login cancelled." }
+                if let login, save { self?.save(login.password, for: launch) }
+                reply(login)
+            }
+        }
+        engine.onDisconnected = { [weak self] reason, code in
             guard let self, current == attempt else { return }
-            end(reason.isEmpty ? "The session ended." : reason)
+            if Self.isRefusedLogin(code) {
+                askAgain(launch, socket: open)
+            } else {
+                end(endedByUser ?? (reason.isEmpty ? "The session ended." : reason))
+            }
         }
         engine.connect(settings, socket: socket)
+    }
+
+    /// Trusted by macOS for this host, or trusted by the user before, it
+    /// goes ahead; otherwise the tab asks.
+    private func check(_ pem: String, for launch: RDPLaunch, attempt current: Int,
+                       reply: @escaping @Sendable (Bool) -> Void) async {
+        guard let certificate = RDPCertificate(pem: pem) else { return reply(false) }
+        let known = knownHosts.fingerprint(host: launch.host, port: launch.port)
+        if known == certificate.fingerprint { return reply(true) }
+        guard let problem = await certificate.systemDistrust(for: launch.host) else { return reply(true) }
+        guard current == attempt else { return reply(false) }
+        certificateQuestion = CertificateQuestion(host: launch.host, port: launch.port,
+                                                  subject: certificate.subject,
+                                                  fingerprint: certificate.fingerprint,
+                                                  problem: problem, changed: known != nil)
+        certificateAnswer = { [weak self] trust in
+            if trust {
+                self?.knownHosts.trust(certificate.fingerprint, host: launch.host, port: launch.port)
+            } else {
+                self?.endedByUser = "The server's certificate was not trusted."
+            }
+            reply(trust)
+        }
+    }
+
+    private func ask(_ launch: RDPLaunch, user: String, domain: String, problem: String?,
+                     answer: @escaping (RDPLogin?, Bool) -> Void) {
+        loginQuestion = LoginQuestion(host: launch.host, user: user.isEmpty ? launch.user : user,
+                                      domain: domain.isEmpty ? launch.domain : domain,
+                                      problem: problem, canSave: launch.passwordAccount != nil)
+        loginAnswer = answer
+    }
+
+    /// The server refused the login: ask for another, and connect again
+    /// with it — over a new socket, the old one is spent.
+    private func askAgain(_ launch: RDPLaunch, socket: @escaping @MainActor () async throws -> FileHandle) {
+        engine?.close()
+        engine = nil
+        ask(launch, user: launch.user, domain: launch.domain,
+            problem: "The user name or password is incorrect.") { [weak self] login, save in
+            guard let self else { return }
+            guard let login else { return end("Login cancelled.") }
+            if save { self.save(login.password, for: launch) }
+            var next = launch
+            next.user = login.user
+            next.domain = login.domain
+            next.password = login.password
+            attempt += 1
+            let current = attempt
+            log?("Logging in again as \(login.user)…")
+            Task { [weak self] in await self?.connect(next, socket: socket, attempt: current) }
+        }
+    }
+
+    private func save(_ password: String, for launch: RDPLaunch) {
+        guard let account = launch.passwordAccount, !password.isEmpty else { return }
+        keychain.set(password, for: account)
     }
 
     // MARK: - Size
@@ -200,6 +339,7 @@ final class RDPDesktop {
     }
 
     private func end(_ reason: String) {
+        dropQuestions()
         engine?.close()
         engine = nil
         view.show(nil)

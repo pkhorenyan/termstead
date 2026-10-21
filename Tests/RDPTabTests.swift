@@ -16,7 +16,10 @@ struct RDPTabTests {
     private func open(in connections: ConnectionStore) async throws -> Connection {
         connections.connect(sessionID: "lab-rdp", in: SessionStore.sample())
         let tab = try #require(connections.active)
-        await wait(upTo: 20) { tab.desktop?.phase == .showing }
+        let desktop = try #require(tab.desktop)
+        // Before the certificate arrives: connecting is asynchronous.
+        desktop.knownHosts = TestLabRDP.knownHosts
+        await TestLabRDP.waitUntilShowing(desktop)
         return tab
     }
 
@@ -60,7 +63,7 @@ struct RDPTabTests {
         // Noticed within a few tens of milliseconds; the restart takes about
         // ten seconds, launchd's pause before it starts a crashed service again.
         tab.restart()
-        await wait(upTo: 20) { desktop.phase == .showing }
+        await TestLabRDP.waitUntilShowing(desktop)
         #expect(desktop.phase == .showing)
         #expect(tab.state.isRunning)
         connections.closeAll()
@@ -134,6 +137,7 @@ final class RDPTunnelTests {
         let tab = Connection(sessionID: id, title: id, address: session.statusAddress,
                              keyDescription: "RDP", kind: .rdp)
         tab.desktop?.availableSize = { (CGSize(width: 800, height: 600), 1) }
+        tab.desktop?.knownHosts = TestLabRDP.knownHosts
         var launch = RDPLaunch(session: session, password: "lab")
         launch.options.sound = false
         tab.start(launch, tunnel: plan)
@@ -143,7 +147,7 @@ final class RDPTunnelTests {
     @Test func theDesktopComesThroughTheBastion() async throws {
         let tab = try open("lab-rdp-via-bastion")
         let desktop = try #require(tab.desktop)
-        await wait(upTo: 30) { desktop.phase == .showing }
+        await TestLabRDP.waitUntilShowing(desktop)
         #expect(desktop.phase == .showing)
         #expect(desktop.size == CGSize(width: 800, height: 600))
         #expect(tab.isLoggedIn)
@@ -156,7 +160,7 @@ final class RDPTunnelTests {
     @Test func theTunnelEndingEndsTheDesktop() async throws {
         let tab = try open("lab-rdp-via-bastion")
         let desktop = try #require(tab.desktop)
-        await wait(upTo: 30) { desktop.phase == .showing }
+        await TestLabRDP.waitUntilShowing(desktop)
         try #require(desktop.phase == .showing)
 
         kill(tab.terminalView.process.shellPid, SIGTERM)
@@ -167,7 +171,7 @@ final class RDPTunnelTests {
         #expect(screen.contains("Press Return to reconnect."))
 
         tab.restart()
-        await wait(upTo: 30) { desktop.phase == .showing }
+        await TestLabRDP.waitUntilShowing(desktop)
         #expect(desktop.phase == .showing)
         tab.close()
     }

@@ -20,6 +20,25 @@ enum TestLabRDP {
         }
         return result == 0
     }()
+
+    /// Certificates trusted in tests go here, never to the user's file.
+    static let knownHosts = RDPKnownHosts(url: FileManager.default.temporaryDirectory
+        .appendingPathComponent("termstead-rdp-known-hosts-\(UUID().uuidString)"))
+
+    /// Waits for the desktop, answering what the tab asks on the way: the
+    /// lab's self-signed certificate is trusted, the login is the lab's.
+    @MainActor
+    static func waitUntilShowing(_ desktop: RDPDesktop, seconds: Double = 30,
+                                 password: String = "lab") async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while desktop.phase != .showing, Date() < deadline {
+            if desktop.certificateQuestion != nil { desktop.answerCertificate(trust: true) }
+            if desktop.loginQuestion != nil {
+                desktop.answerLogin(RDPLogin(user: "lab", domain: "", password: password), save: false)
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
 }
 
 /// The RDP engine, TermsteadRDP.xpc, against the lab's xrdp: the app opens
@@ -74,7 +93,7 @@ struct RDPEngineTests {
             certificateAsked = pem.contains("BEGIN CERTIFICATE") && host == "rdp"
             reply(true)
         }
-        engine.onDisconnected = { ended = $0 }
+        engine.onDisconnected = { reason, _ in ended = reason }
 
         engine.connect(settings(), socket: try await RDPSocket.connect(host: "127.0.0.1", port: 3390))
         await wait(upTo: 20) { surface.map { drawnPixels(in: $0) > 100 } ?? false || ended != nil }
@@ -95,7 +114,7 @@ struct RDPEngineTests {
         var ended: String?
         engine.onSurface = { made, _, _ in surface = made }
         engine.onVerifyCertificate = { _, _, _, reply in reply(false) }
-        engine.onDisconnected = { ended = $0 }
+        engine.onDisconnected = { reason, _ in ended = reason }
 
         engine.connect(settings(), socket: try await RDPSocket.connect(host: "127.0.0.1", port: 3390))
         await wait(upTo: 20) { ended != nil }

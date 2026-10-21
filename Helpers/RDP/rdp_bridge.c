@@ -79,17 +79,39 @@ static int tsr_verify_x509(freerdp* instance, const BYTE* data, size_t length, c
 	           : 0;
 }
 
-/// Credentials still missing: go on with what there is. A server that has
-/// its own login screen (xrdp) shows it; one that needs NLA refuses, and
-/// the app says so.
+static char* nonempty(char* value)
+{
+	if (value && !value[0]) {
+		free(value);
+		return NULL;
+	}
+	return value;
+}
+
+/// Credentials still missing: the app asks the user, in the tab. Anything
+/// but the desktop's own login (a gateway, a smartcard PIN) goes on without,
+/// which this build does not support anyway.
 static BOOL tsr_authenticate(freerdp* instance, char** username, char** password, char** domain,
                              rdp_auth_reason reason)
 {
-	(void)instance;
-	(void)username;
-	(void)password;
-	(void)domain;
-	(void)reason;
+	tsr_session* session = session_of(instance->context);
+	if ((reason != AUTH_NLA && reason != AUTH_TLS && reason != AUTH_RDP) ||
+	    !session->callbacks.authenticate)
+		return TRUE;
+	char* user = NULL;
+	char* realm = NULL;
+	char* secret = NULL;
+	if (!session->callbacks.authenticate(session->callbacks.user, *username, *domain, &user, &realm,
+	                                     &secret))
+		return FALSE;
+	// Empty is none: an empty password would still be sent as one, and
+	// xrdp then tries to log in with it instead of showing its own screen.
+	free(*username);
+	*username = nonempty(user);
+	free(*domain);
+	*domain = nonempty(realm);
+	free(*password);
+	*password = nonempty(secret);
 	return TRUE;
 }
 
@@ -353,6 +375,11 @@ void tsr_stop(tsr_session* session)
 {
 	session->stopping = true;
 	freerdp_abort_connect_context(session->context);
+}
+
+uint32_t tsr_last_error(tsr_session* session)
+{
+	return freerdp_get_last_error(session->context);
 }
 
 void tsr_free(tsr_session* session)

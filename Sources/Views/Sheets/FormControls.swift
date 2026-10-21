@@ -35,6 +35,9 @@ struct SBTextField: View {
     var placeholder: String
     var font: Font
     var isSecure: Bool = false
+    /// Takes the keyboard when it appears: a question asked inside a tab has
+    /// no window of its own to pick a first field.
+    var focusOnAppear = false
     /// The ring follows the keyboard. It used to be a flag the form set on
     /// its first field, so it stayed there while Tab moved on.
     @FocusState private var isFocused: Bool
@@ -54,6 +57,10 @@ struct SBTextField: View {
         .padding(.horizontal, 12)
         .frame(height: 36)
         .background(FieldBackground(theme: theme, focused: isFocused))
+        .onAppear {
+            // After the view is in the window, or the request goes nowhere.
+            if focusOnAppear { DispatchQueue.main.async { isFocused = true } }
+        }
     }
 }
 

@@ -109,9 +109,14 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
     /// The server's certificate chain, as PEM, for the app to decide on:
     /// trusted by macOS for this host, trusted before, or ask the user.
     func verifyCertificate(pem: String, host: String, port: Int, reply: @escaping @Sendable (Bool) -> Void)
+    /// The server wants a user name and password the session does not
+    /// have. `reply` with what the user typed, or `ok` false to give up.
+    func askCredentials(user: String, domain: String,
+                        reply: @escaping @Sendable (_ ok: Bool, _ user: String, _ domain: String, _ password: String) -> Void)
     /// Text copied on the server.
     func serverClipboard(_ text: String)
     func connected()
-    /// The session ended; `reason` is empty when it ended as asked.
-    func disconnected(reason: String)
+    /// The session ended; `reason` is empty when it ended as asked. `code`
+    /// is FreeRDP's last error, so a refused password can be asked again.
+    func disconnected(reason: String, code: Int)
 }

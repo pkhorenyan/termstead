@@ -12,10 +12,15 @@ final class RDPEngineConnection {
     var onChange: ((CGRect) -> Void)?
     /// The server's certificate chain as PEM; answer whether to go on.
     var onVerifyCertificate: ((_ pem: String, _ host: String, _ port: Int, _ reply: @escaping @Sendable (Bool) -> Void) -> Void)?
+    /// The server wants a login the session lacks; answer with what the
+    /// user typed, or `nil` to give up.
+    var onAskCredentials: ((_ user: String, _ domain: String,
+                            _ reply: @escaping @Sendable (RDPLogin?) -> Void) -> Void)?
     var onServerClipboard: ((String) -> Void)?
     var onConnected: (() -> Void)?
-    /// Once, however it ended: empty when asked to, else why.
-    var onDisconnected: ((String) -> Void)?
+    /// Once, however it ended: empty when asked to, else why, with
+    /// FreeRDP's error code (0 when there is none).
+    var onDisconnected: ((String, Int) -> Void)?
 
     private let connection: NSXPCConnection
     private var didEnd = false
@@ -30,7 +35,7 @@ final class RDPEngineConnection {
         // The engine's process died: a crash in FreeRDP ends every desktop.
         let ended: @Sendable () -> Void = { [weak self] in
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.ended("The RDP engine stopped.") }
+                MainActor.assumeIsolated { self?.ended("The RDP engine stopped.", code: 0) }
             }
         }
         connection.interruptionHandler = ended
@@ -77,10 +82,10 @@ final class RDPEngineConnection {
         connection.invalidate()
     }
 
-    fileprivate func ended(_ reason: String) {
+    fileprivate func ended(_ reason: String, code: Int) {
         guard !didEnd else { return }
         didEnd = true
-        onDisconnected?(reason)
+        onDisconnected?(reason, code)
         connection.invalidate()
     }
 
@@ -115,6 +120,20 @@ final class RDPEngineConnection {
             }
         }
 
+        func askCredentials(user: String, domain: String,
+                            reply: @escaping @Sendable (Bool, String, String, String) -> Void) {
+            onMain { owner in
+                guard let ask = owner.onAskCredentials else { return reply(false, "", "", "") }
+                ask(user, domain) { login in
+                    if let login {
+                        reply(true, login.user, login.domain, login.password)
+                    } else {
+                        reply(false, "", "", "")
+                    }
+                }
+            }
+        }
+
         func serverClipboard(_ text: String) {
             onMain { $0.onServerClipboard?(text) }
         }
@@ -123,8 +142,8 @@ final class RDPEngineConnection {
             onMain { $0.onConnected?() }
         }
 
-        func disconnected(reason: String) {
-            onMain { $0.ended(reason) }
+        func disconnected(reason: String, code: Int) {
+            onMain { $0.ended(reason, code: code) }
         }
     }
 }
@@ -133,4 +152,11 @@ final class RDPEngineConnection {
 /// is shared memory, safe to pass along; the type just does not say so.
 private struct SurfaceBox: @unchecked Sendable {
     let surface: IOSurface
+}
+
+/// A user name, domain and password typed into the tab.
+struct RDPLogin: Equatable, Sendable {
+    var user: String
+    var domain: String
+    var password: String
 }

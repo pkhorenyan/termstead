@@ -131,8 +131,10 @@ struct RDPTypingTests {
         desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
         // The keys typed are US positions, whatever this Mac's layout is now.
         desktop.keyboardLayout = { 0x409 }
+        desktop.knownHosts = TestLabRDP.knownHosts
         desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
-        await wait(upTo: 20) { desktop.phase == .showing }
+        // No password at the tab's question: xrdp then shows its own login.
+        await TestLabRDP.waitUntilShowing(desktop, password: "")
         try #require(desktop.phase == .showing)
         try await Task.sleep(for: .seconds(1))
         let loginScreen = try #require(centre(of: desktop))
@@ -222,8 +224,9 @@ struct RDPResizeTests {
         launch.options.sound = false
         var tab = CGSize(width: 800, height: 600)
         desktop.availableSize = { (tab, 1) }
+        desktop.knownHosts = TestLabRDP.knownHosts
         desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
-        await wait(upTo: 20) { desktop.phase == .showing }
+        await TestLabRDP.waitUntilShowing(desktop)
         try #require(desktop.size == CGSize(width: 800, height: 600))
         // The display channel comes up a moment after the desktop does.
         try await Task.sleep(for: .seconds(2))
