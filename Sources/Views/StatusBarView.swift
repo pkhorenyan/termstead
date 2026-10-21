@@ -60,8 +60,18 @@ struct StatusBarView: View {
                 }
 
                 // Only the size: "UTF-8 · xterm-256color" was the same on
-                // every tab, always, so it told nobody anything.
-                if tab.columns > 0 {
+                // every tab, always, so it told nobody anything. A remote
+                // desktop's is in pixels; its terminal's means nothing there.
+                // It has no server load: that is read over ssh, and an RDP
+                // tab has no ssh to its server.
+                if let desktop = tab.desktop {
+                    if let size = desktop.size {
+                        // Verbatim: a localized Text groups the digits, "2 432".
+                        Text(verbatim: "\(Int(size.width))×\(Int(size.height))")
+                            .font(SBFont.mono(11.5))
+                            .help("Remote desktop size in pixels")
+                    }
+                } else if tab.columns > 0 {
                     Text("\(tab.columns)×\(tab.rows)")
                         .font(SBFont.mono(11.5))
                         .help("Terminal size: columns × rows")
