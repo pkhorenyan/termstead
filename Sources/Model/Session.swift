@@ -137,8 +137,12 @@ struct RDPOptions: Hashable, Codable, Sendable {
     var domain = ""
     var display: Display = .fitTab
     /// The desktop at the screen's own pixels, scaled 200% so text keeps its
-    /// size; off, it is drawn at half the pixels and stretched.
+    /// size; off, it is drawn at half the pixels and stretched. It also says
+    /// who zooms: the server, sharply (Windows does; xrdp ignores it), or
+    /// this Mac, by asking for fewer pixels and stretching them.
     var sharpOnRetina = true
+    /// How big everything on the desktop looks, in percent.
+    var zoom = 100
     /// Text copied on either side can be pasted on the other.
     var clipboard = true
     var sound = true
@@ -153,6 +157,7 @@ struct RDPOptions: Hashable, Codable, Sendable {
         domain = try values.decodeIfPresent(String.self, forKey: .domain) ?? defaults.domain
         display = try values.decodeIfPresent(Display.self, forKey: .display) ?? defaults.display
         sharpOnRetina = try values.decodeIfPresent(Bool.self, forKey: .sharpOnRetina) ?? defaults.sharpOnRetina
+        zoom = try values.decodeIfPresent(Int.self, forKey: .zoom) ?? defaults.zoom
         clipboard = try values.decodeIfPresent(Bool.self, forKey: .clipboard) ?? defaults.clipboard
         sound = try values.decodeIfPresent(Bool.self, forKey: .sound) ?? defaults.sound
     }

@@ -341,6 +341,12 @@ read from there, never stored on `Session`.
 - **Size**: the desktop fits the tab at its pixels with Windows at 200% on
   a Retina screen ("Sharp on Retina"), and follows the tab through Display
   Control once its size holds for 0.3 s. A fixed size is only scaled.
+- **Zoom** is the session's (100–300%) and ⌘+ / ⌘− / ⌘0 in the tab (the
+  menu's font size items, for a desktop). With "Sharp" on, Windows zooms:
+  it is asked for a larger scale at the same pixels (up to its 500%).
+  Off, this Mac does: fewer pixels, stretched. xrdp ignores the scale, so
+  only the second works there — there is no telling from the client which
+  kind of server it is, and the form says so.
 - **Keys go by position** (`RDPKeyboard`, WinPR's Apple table with fixes),
   ⌘ stays with the Mac — except the Edit menu's commands, which the
   desktop view takes and sends as Ctrl and the same key (⌘V hands the

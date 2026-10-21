@@ -398,7 +398,13 @@ struct SessionSheet: View {
                         }
                     }
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    FormLabel("Zoom")
+                    SegmentedPicker(options: RDPDesktop.zoomSteps.map(ZoomChoice.init), selection: zoomChoice,
+                                    label: \.label, title: "Zoom", fontSize: 12)
+                }
                 checkbox("Sharp on Retina displays", isOn: $rdp.sharpOnRetina)
+                InsetNote(text: "Sharp: Windows draws text and windows at the zoom itself. Linux servers (xrdp) ignore it and look small — turn Sharp off for them, and the picture is enlarged here instead.")
                 checkbox("Share the clipboard: text and files", isOn: $rdp.clipboard)
                 checkbox("Play sound", isOn: $rdp.sound)
             }
@@ -415,6 +421,17 @@ struct SessionSheet: View {
         }
         .toggleStyle(.checkbox)
         .tint(theme.accent.color)
+    }
+
+    /// A zoom step, for the segmented picker.
+    struct ZoomChoice: Identifiable, Hashable {
+        var percent: Int
+        var id: Int { percent }
+        var label: String { "\(percent)%" }
+    }
+
+    private var zoomChoice: Binding<ZoomChoice> {
+        Binding(get: { ZoomChoice(percent: rdp.zoom) }, set: { rdp.zoom = $0.percent })
     }
 
     /// The picker's two choices; a fixed size's numbers live in their fields.

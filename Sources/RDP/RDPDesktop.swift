@@ -95,6 +95,8 @@ final class RDPDesktop {
     /// What the session looks like, from its settings when it opened.
     @ObservationIgnored private var options = RDPOptions()
     @ObservationIgnored private var pendingResize: Task<Void, Never>?
+    /// The scale Windows was last asked to draw at, in percent.
+    @ObservationIgnored private var desktopScale = 0
     /// How long the tab's size must hold before the desktop follows it.
     /// Longer than a terminal's: the server redraws the whole screen.
     static let resizeDelay: Duration = .milliseconds(300)
@@ -245,6 +247,7 @@ final class RDPDesktop {
         settings.width = width
         settings.height = height
         settings.desktopScale = scale
+        desktopScale = scale
         settings.keyboardLayout = RDPKeyboard.sessionLayoutID
         settings.clipboard = launch.options.clipboard
         settings.sound = launch.options.sound
@@ -539,6 +542,35 @@ final class RDPDesktop {
 
     // MARK: - Size
 
+    /// The zoom steps ⌘+ and ⌘− go through, and the session form offers.
+    nonisolated static let zoomSteps = [100, 125, 150, 175, 200, 250, 300]
+
+    /// ⌘+ and ⌘− in the tab, until ⌘0; 0 is the session's own. It outlives
+    /// a reconnect, as a terminal's font size does.
+    private(set) var zoomOverride = 0
+    var zoom: Int { zoomOverride == 0 ? options.zoom : zoomOverride }
+
+    /// The next step up or down, or `nil` at the end, or where zooming
+    /// changes nothing: a fixed size this Mac stretches is stretched to fit
+    /// already.
+    func zoomed(by delta: Int) -> Int? {
+        guard phase == .showing, options.sharpOnRetina || options.display == .fitTab else { return nil }
+        let steps = Self.zoomSteps
+        let next = delta > 0 ? steps.first { $0 > zoom } : steps.last { $0 < zoom }
+        return next
+    }
+
+    func zoom(by delta: Int) {
+        guard let next = zoomed(by: delta) else { return }
+        zoomOverride = next == options.zoom ? 0 : next
+        resizeToFit()
+    }
+
+    func resetZoom() {
+        zoomOverride = 0
+        resizeToFit()
+    }
+
     /// The tab changed size, or moved to a screen of another scale. A
     /// desktop that fits its tab follows once the size holds still; one of
     /// a fixed size is only scaled.
@@ -554,8 +586,9 @@ final class RDPDesktop {
 
     private func resizeToFit() {
         guard phase == .showing, let engine, let available = availableSize() else { return }
-        let fit = Self.fit(points: available.size, screenScale: available.scale, options: options)
-        guard CGSize(width: fit.width, height: fit.height) != size else { return }
+        let fit = Self.fit(points: available.size, screenScale: available.scale, options: options, zoom: zoom)
+        guard CGSize(width: fit.width, height: fit.height) != size || fit.scale != desktopScale else { return }
+        desktopScale = fit.scale
         // The server answers with a desktop of the new size, as a new
         // surface; a server without Display Control ignores it, and the
         // picture is scaled instead.
@@ -583,22 +616,30 @@ final class RDPDesktop {
         }
         return Self.fit(points: available?.size ?? CGSize(width: 1280, height: 800),
                         screenScale: available?.scale ?? NSScreen.main?.backingScaleFactor ?? 1,
-                        options: options)
+                        options: options, zoom: zoomOverride == 0 ? options.zoom : zoomOverride)
     }
 
     /// The desktop for a tab of `points`: its pixels on a Retina screen with
     /// Windows at 200%, so text keeps its size and is sharp; one pixel a
     /// point otherwise. A fixed size is the session's own, scaled to fit.
     /// RDP takes an even width, and nothing outside 200…8192.
-    nonisolated static func fit(points: CGSize, screenScale: CGFloat,
-                                options: RDPOptions) -> (width: Int, height: Int, scale: Int) {
+    ///
+    /// `zoom` above 100 is done by the server while "Sharp" is on — Windows
+    /// asked to draw at a larger scale, up to the 500% it takes — and by
+    /// this Mac otherwise: fewer pixels, stretched to the tab. A server
+    /// that ignores the scale (xrdp) zooms only the second way, and there
+    /// is no telling from here which kind it is.
+    nonisolated static func fit(points: CGSize, screenScale: CGFloat, options: RDPOptions,
+                                zoom: Int? = nil) -> (width: Int, height: Int, scale: Int) {
+        let zoom = Double(min(max(zoom ?? options.zoom, 100), 300)) / 100
         let sharp = options.sharpOnRetina && screenScale >= 2
-        let scale = sharp ? 200 : 100
+        let base = sharp ? 200.0 : 100.0
+        let scale = options.sharpOnRetina ? min(Int((base * zoom).rounded()), 500) : 100
         switch options.display {
         case .fixed(let width, let height):
             return (width, height, scale)
         case .fitTab:
-            let factor = sharp ? screenScale : 1
+            let factor = sharp ? screenScale : options.sharpOnRetina ? 1 : 1 / zoom
             let width = min(max(Int(points.width * factor), 200), 8192) & ~1
             let height = min(max(Int(points.height * factor), 200), 8192)
             return (width, height, scale)

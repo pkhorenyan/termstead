@@ -49,6 +49,7 @@ struct SessionKindTests {
     /// Options added in a later version must not make older files unreadable.
     @Test func missingOptionsTakeTheirDefaults() throws {
         let options = try JSONDecoder().decode(RDPOptions.self, from: Data(#"{"domain":"LAB"}"#.utf8))
+        #expect(options.zoom == 100)
         #expect(options.domain == "LAB")
         #expect(options.display == .fitTab)
         #expect(options.sharpOnRetina && options.clipboard && options.sound)

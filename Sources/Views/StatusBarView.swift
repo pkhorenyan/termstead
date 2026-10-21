@@ -71,6 +71,11 @@ struct StatusBarView: View {
                         Text(verbatim: "\(Int(size.width))×\(Int(size.height))")
                             .font(SBFont.mono(11.5))
                             .help("Remote desktop size in pixels")
+                        if desktop.zoom != 100 {
+                            Text(verbatim: "\(desktop.zoom)%")
+                                .font(SBFont.mono(11.5))
+                                .help("Zoom: ⌘+ and ⌘− change it, ⌘0 goes back to the session's")
+                        }
                     }
                 } else if tab.columns > 0 {
                     Text("\(tab.columns)×\(tab.rows)")

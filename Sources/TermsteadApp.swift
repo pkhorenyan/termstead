@@ -138,9 +138,16 @@ struct TermsteadApp: App {
             Button("Smaller") { zoom(by: -1) }
                 .keyboardShortcut("-", modifiers: .command)
                 .disabled(!canZoom(by: -1))
-            Button("Default Font Size") { connectionStore.active?.fontSize = nil }
-                .keyboardShortcut("0", modifiers: .command)
-                .disabled(connectionStore.active?.fontSize == nil || formIsOpen)
+            // In a remote desktop the same keys zoom it (`RDPDesktop.zoom`).
+            if let desktop = connectionStore.active?.desktop {
+                Button("Default Zoom") { desktop.resetZoom() }
+                    .keyboardShortcut("0", modifiers: .command)
+                    .disabled(desktop.zoomOverride == 0 || formIsOpen)
+            } else {
+                Button("Default Font Size") { connectionStore.active?.fontSize = nil }
+                    .keyboardShortcut("0", modifiers: .command)
+                    .disabled(connectionStore.active?.fontSize == nil || formIsOpen)
+            }
             Divider()
             // ⌘D and ⇧⌘D as in iTerm2; the same four layouts as the buttons
             // beside the gear.
@@ -246,12 +253,14 @@ struct TermsteadApp: App {
 
     private func zoom(by delta: Int) {
         guard let connection = connectionStore.active else { return }
+        if let desktop = connection.desktop { return desktop.zoom(by: delta) }
         connection.fontSize = themeStore.zoomedSize(from: connection.fontSize, by: delta)
     }
 
     /// False at either end of the range, so the menu shows there is no further to go.
     private func canZoom(by delta: Int) -> Bool {
         guard let connection = connectionStore.active, !formIsOpen else { return false }
+        if let desktop = connection.desktop { return desktop.zoomed(by: delta) != nil }
         let size = connection.fontSize ?? themeStore.terminalFontSize
         return (themeStore.zoomedSize(from: connection.fontSize, by: delta) ?? themeStore.terminalFontSize) != size
     }

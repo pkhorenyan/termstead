@@ -17,7 +17,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   network access.
 - The desktop fits the tab and follows it when the window is resized or the
   pane changes, sharp on Retina screens (Windows at 200%), or keeps a fixed
-  size scaled to fit.
+  size scaled to fit. Zoom, 100–300%, is set per session and changed in the
+  tab with ⌘+, ⌘− and ⌘0: Windows redraws sharply at the larger size;
+  for Linux servers, which ignore it, turn Sharp off and the picture is
+  enlarged instead.
 - Keyboard and mouse: keys by position, as Microsoft's client sends them,
   with ⌘ shortcuts kept for Termstead; ⌘C, ⌘X, ⌘V, ⌘A, ⌘Z and ⇧⌘Z in a
   remote desktop are Ctrl and the same key there; Send Ctrl+Alt+Del and Send

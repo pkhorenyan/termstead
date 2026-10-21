@@ -325,6 +325,35 @@ struct RDPSizeTests {
         let fit = RDPDesktop.fit(points: CGSize(width: 50, height: 9000), screenScale: 1, options: options())
         #expect(fit.width == 200 && fit.height == 8192)
     }
+
+    // MARK: - Zoom
+
+    /// Sharp: Windows zooms, at the same pixels.
+    @Test func aSharpZoomIsTheServers() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 1000, height: 700), screenScale: 2, options: options(), zoom: 150)
+        #expect(fit.width == 2000 && fit.height == 1400 && fit.scale == 300)
+        // Windows takes up to 500%.
+        #expect(RDPDesktop.fit(points: CGSize(width: 1000, height: 700), screenScale: 2, options: options(),
+                               zoom: 300).scale == 500)
+        // A plain screen: 125% of 100.
+        #expect(RDPDesktop.fit(points: CGSize(width: 1000, height: 700), screenScale: 1, options: options(),
+                               zoom: 125).scale == 125)
+    }
+
+    /// Not sharp: fewer pixels, which the view stretches — for servers
+    /// that ignore the scale.
+    @Test func otherwiseThisMacZooms() {
+        let fit = RDPDesktop.fit(points: CGSize(width: 1000, height: 700), screenScale: 2,
+                                 options: options(sharp: false), zoom: 200)
+        #expect(fit.width == 500 && fit.height == 350 && fit.scale == 100)
+    }
+
+    @Test func theSessionsZoomIsTheDefault() {
+        var zoomed = options(sharp: false)
+        zoomed.zoom = 125
+        let fit = RDPDesktop.fit(points: CGSize(width: 1000, height: 700), screenScale: 2, options: zoomed)
+        #expect(fit.width == 800 && fit.height == 560)
+    }
 }
 
 /// Resizing a tab resizes the lab's desktop, through Display Control.
@@ -348,6 +377,33 @@ struct RDPResizeTests {
         desktop.tabSizeChanged()
         await wait(upTo: 15) { desktop.size == CGSize(width: 1024, height: 700) }
         #expect(desktop.size == CGSize(width: 1024, height: 700))
+        desktop.stop()
+    }
+
+    /// ⌘+ without "Sharp": the lab's xrdp ignores the scale, so the desktop
+    /// gets fewer pixels and the view stretches them; ⌘0 goes back.
+    @Test func zoomingAsksForFewerPixels() async throws {
+        let desktop = RDPDesktop()
+        var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+        launch.options.sound = false
+        launch.options.sharpOnRetina = false
+        desktop.availableSize = { (CGSize(width: 1000, height: 800), 2) }
+        desktop.knownHosts = TestLabRDP.knownHosts
+        desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+        await TestLabRDP.waitUntilShowing(desktop)
+        try #require(desktop.size == CGSize(width: 1000, height: 800))
+        try await Task.sleep(for: .seconds(2))
+
+        #expect(desktop.zoomed(by: -1) == nil)
+        desktop.zoom(by: 1)
+        #expect(desktop.zoom == 125)
+        await wait(upTo: 15) { desktop.size == CGSize(width: 800, height: 640) }
+        #expect(desktop.size == CGSize(width: 800, height: 640))
+
+        desktop.resetZoom()
+        #expect(desktop.zoom == 100)
+        await wait(upTo: 15) { desktop.size == CGSize(width: 1000, height: 800) }
+        #expect(desktop.size == CGSize(width: 1000, height: 800))
         desktop.stop()
     }
 
