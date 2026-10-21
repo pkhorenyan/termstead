@@ -140,6 +140,24 @@ final class RDPDesktop {
         press([RDPKeyboard.leftWindows])
     }
 
+    /// Edit ▸ Copy, Paste and the rest — ⌘C, ⌘V — in the desktop. A paste
+    /// first hands the server what is on the Mac's clipboard now, rather
+    /// than at the next look a second later.
+    func perform(_ command: RDPKeyboard.EditCommand) {
+        guard phase == .showing else { return }
+        if command == .paste, options.clipboard {
+            offerClipboard(force: true)
+            // The clipboard and the keys share the connection but not a
+            // queue on the server: give it the text before the keys.
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(100))
+                self?.press(command.keys)
+            }
+            return
+        }
+        press(command.keys)
+    }
+
     /// Opens `socket` and logs in over it.
     func start(_ launch: RDPLaunch, socket: @escaping @MainActor () async throws -> FileHandle) {
         stop()
@@ -361,8 +379,8 @@ final class RDPDesktop {
         clipboardWatch = nil
     }
 
-    private func offerClipboard() {
-        guard let engine, pasteboard.changeCount != seenChange else { return }
+    private func offerClipboard(force: Bool = false) {
+        guard let engine, force || pasteboard.changeCount != seenChange else { return }
         seenChange = pasteboard.changeCount
         guard let text = pasteboard.string(forType: .string) else { return }
         engine.clipboard(Self.serverText(text))
@@ -616,6 +634,21 @@ final class RDPDesktopView: NSView {
 
     /// No menu of ours: the right button belongs to the remote desktop.
     override func menu(for event: NSEvent) -> NSMenu? { nil }
+
+    // MARK: - Edit menu
+
+    // ⌘C, ⌘V and the rest reach the view as the Edit menu's actions, and go
+    // to the desktop as Ctrl and the same key (`RDPKeyboard.EditCommand`).
+    @objc func cut(_ sender: Any?) { desktop?.perform(.cut) }
+    @objc func copy(_ sender: Any?) { desktop?.perform(.copy) }
+    @objc func paste(_ sender: Any?) { desktop?.perform(.paste) }
+    @objc override func selectAll(_ sender: Any?) { desktop?.perform(.selectAll) }
+    @objc func undo(_ sender: Any?) { desktop?.perform(.undo) }
+    @objc func redo(_ sender: Any?) { desktop?.perform(.redo) }
+
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        desktop?.phase == .showing
+    }
 
     override func scrollWheel(with event: NSEvent) {
         let precise = event.hasPreciseScrollingDeltas

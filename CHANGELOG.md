@@ -19,9 +19,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pane changes, sharp on Retina screens (Windows at 200%), or keeps a fixed
   size scaled to fit.
 - Keyboard and mouse: keys by position, as Microsoft's client sends them,
-  with ⌘ shortcuts kept for Termstead; Send Ctrl+Alt+Del and Send Windows
-  Key in the Session menu and the tab's menu; the wheel and trackpad
-  scrolling both ways.
+  with ⌘ shortcuts kept for Termstead; ⌘C, ⌘X, ⌘V, ⌘A, ⌘Z and ⇧⌘Z in a
+  remote desktop are Ctrl and the same key there; Send Ctrl+Alt+Del and Send
+  Windows Key in the Session menu and the tab's menu; the wheel and
+  trackpad scrolling both ways.
 - The server's certificate is checked against macOS's trust; one macOS does
   not trust is asked about in the tab, with its fingerprint, and remembered
   once trusted. A certificate that changed is asked about as a change.

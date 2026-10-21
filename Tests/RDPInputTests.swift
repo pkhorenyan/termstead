@@ -78,6 +78,30 @@ struct RDPInputTests {
         #expect(RDPKeyboard.sessionLayoutID == 0x409)
     }
 
+    /// ⌘C on a Mac is Ctrl+C there: the same letters, by position.
+    @Test func editCommandsAreCtrlAndTheLetter() {
+        let control = RDPKeyboard.Key(0x1D)
+        #expect(RDPKeyboard.EditCommand.copy.keys == [control, key(kVK_ANSI_C)!])
+        #expect(RDPKeyboard.EditCommand.paste.keys == [control, key(kVK_ANSI_V)!])
+        #expect(RDPKeyboard.EditCommand.cut.keys == [control, key(kVK_ANSI_X)!])
+        #expect(RDPKeyboard.EditCommand.selectAll.keys == [control, key(kVK_ANSI_A)!])
+        #expect(RDPKeyboard.EditCommand.undo.keys == [control, key(kVK_ANSI_Z)!])
+        #expect(RDPKeyboard.EditCommand.redo.keys == [control, key(kVK_ANSI_Y)!])
+    }
+
+    /// The Edit menu reaches the desktop view, and is off until there is a
+    /// desktop to send it to.
+    @MainActor
+    @Test func theDesktopTakesTheEditMenu() {
+        let desktop = RDPDesktop()
+        let view = desktop.view
+        for action in ["cut:", "copy:", "paste:", "selectAll:", "undo:", "redo:"] {
+            #expect(view.responds(to: Selector(action)))
+        }
+        let item = NSMenuItem(title: "Paste", action: Selector(("paste:")), keyEquivalent: "v")
+        #expect(!view.validateMenuItem(item))
+    }
+
     // MARK: - Mouse
 
     /// A 1600×1000 desktop in a 1000×800 view: scaled to 1000×625, centred.

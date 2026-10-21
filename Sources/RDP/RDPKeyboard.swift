@@ -30,6 +30,24 @@ enum RDPKeyboard {
 
     static var isISO: Bool { KBGetLayoutType(Int16(LMGetKbdType())) == kKeyboardISO }
 
+    /// The Edit menu's commands, as a PC types them: what ⌘C and the rest
+    /// mean on a Mac is Ctrl and the same letter there — as in Microsoft's
+    /// own client. Ctrl+Y redoes in Windows.
+    enum EditCommand: CaseIterable {
+        case cut, copy, paste, selectAll, undo, redo
+
+        var keys: [Key] {
+            switch self {
+            case .cut: [leftControl, Key(0x2D)]
+            case .copy: [leftControl, Key(0x2E)]
+            case .paste: [leftControl, Key(0x2F)]
+            case .selectAll: [leftControl, Key(0x1E)]
+            case .undo: [leftControl, Key(0x2C)]
+            case .redo: [leftControl, Key(0x15)]
+            }
+        }
+    }
+
     static let leftControl = Key(0x1D)
     static let leftAlt = Key(0x38)
     static let leftWindows = Key(0x5B, extended: true)

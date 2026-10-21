@@ -342,7 +342,9 @@ read from there, never stored on `Session`.
   a Retina screen ("Sharp on Retina"), and follows the tab through Display
   Control once its size holds for 0.3 s. A fixed size is only scaled.
 - **Keys go by position** (`RDPKeyboard`, WinPR's Apple table with fixes),
-  ⌘ stays with the Mac, and the session always starts in US English (see
+  ⌘ stays with the Mac — except the Edit menu's commands, which the
+  desktop view takes and sends as Ctrl and the same key (⌘V hands the
+  clipboard over first) — and the session always starts in US English (see
   pitfalls). Ctrl+Alt+Del and the Windows key are in Session and the tab's
   menu.
 - **Certificates are the app's** (`ExternalCertificateManagement`): trusted
