@@ -980,6 +980,16 @@ These have each cost real time. They are not hypothetical.
   the session would use them freed. `tsr_run` calls `closing` first, and
   the engine drops its `session` under `lock`, which `withSession` holds
   through every call into FreeRDP.
+- **FreeRDP's threads need autorelease pools of their own.** The
+  session's thread and drdynvc's last as long as the session, and what a
+  call to the app autoreleases on them stays until the thread ends: every
+  512 KB piece of a file copied from the server was kept until the tab
+  closed — three copies of 47 MB took `TermsteadRDP` from 22 to 162 MB.
+  Each callback in `RDPEngine.run` that talks to the app drains its own
+  `autoreleasepool`, and a new one must too. To check, read
+  `ri_phys_footprint` (`proc_pid_rusage`) of `TermsteadRDP` across repeated
+  copies; it counts the whole process, so desktops other tests open at the
+  same time add to it.
 - **A question the engine waits on must be cancellable.** FreeRDP's thread
   blocks in the callback until the app answers; closing the tab meanwhile
   left it blocked for good. `RDPEngine.disconnect` gives up the question.

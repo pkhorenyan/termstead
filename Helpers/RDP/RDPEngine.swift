@@ -165,57 +165,82 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
     private func run(_ settings: RDPConnectSettings, socket: Int32) {
         var callbacks = tsr_callbacks()
         callbacks.user = Unmanaged.passUnretained(self).toOpaque()
+        // FreeRDP's threads last as long as the session, and what a call to
+        // the app autoreleases on one stays until the thread ends: every
+        // half-megabyte piece of a file copied from the server was kept until
+        // the tab closed (three copies of 47 MB took the engine from 22 to
+        // 162 MB). So each callback that talks to the app drains its own.
         callbacks.surface = { user, width, height, stride in
-            RDPEngine.from(user).makeSurface(width: Int(width), height: Int(height), stride: stride)
+            autoreleasepool {
+                RDPEngine.from(user).makeSurface(width: Int(width), height: Int(height), stride: stride)
+            }
         }
         callbacks.begin_paint = { user in RDPEngine.from(user).beginPaint() }
         callbacks.end_paint = { user, x, y, width, height in
             RDPEngine.from(user).endPaint(CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)))
         }
         callbacks.verify_certificate = { user, pem, length, host, port in
-            guard let pem, let host else { return false }
-            let text = String(decoding: UnsafeRawBufferPointer(start: pem, count: length), as: UTF8.self)
-            return RDPEngine.from(user).verifyCertificate(pem: text, host: String(cString: host), port: Int(port))
+            autoreleasepool {
+                guard let pem, let host else { return false }
+                let text = String(decoding: UnsafeRawBufferPointer(start: pem, count: length), as: UTF8.self)
+                return RDPEngine.from(user).verifyCertificate(pem: text, host: String(cString: host), port: Int(port))
+            }
         }
         callbacks.authenticate = { user, username, domain, outUser, outDomain, outPassword in
-            let given = RDPEngine.from(user).askCredentials(user: username.map { String(cString: $0) } ?? "",
-                                                            domain: domain.map { String(cString: $0) } ?? "")
-            guard let given else { return false }
-            outUser?.pointee = strdup(given.user)
-            outDomain?.pointee = strdup(given.domain)
-            outPassword?.pointee = strdup(given.password)
-            return true
+            autoreleasepool {
+                let given = RDPEngine.from(user).askCredentials(user: username.map { String(cString: $0) } ?? "",
+                                                                domain: domain.map { String(cString: $0) } ?? "")
+                guard let given else { return false }
+                outUser?.pointee = strdup(given.user)
+                outDomain?.pointee = strdup(given.domain)
+                outPassword?.pointee = strdup(given.password)
+                return true
+            }
         }
-        callbacks.connected = { user in RDPEngine.from(user).client?.connected() }
+        callbacks.connected = { user in autoreleasepool { RDPEngine.from(user).client?.connected() } }
         callbacks.closing = { user in RDPEngine.from(user).letGo() }
         callbacks.server_files = { user, files, count in
-            guard let files else { return }
-            let list = UnsafeBufferPointer(start: files, count: count).map { file in
-                RDPClipboardFile(name: file.name.map { String(cString: $0) } ?? "",
-                                 size: file.size == UInt64.max ? -1 : Int64(clamping: file.size),
-                                 isDirectory: file.directory, modified: file.modified)
+            autoreleasepool {
+                guard let files else { return }
+                let list = UnsafeBufferPointer(start: files, count: count).map { file in
+                    RDPClipboardFile(name: file.name.map { String(cString: $0) } ?? "",
+                                     size: file.size == UInt64.max ? -1 : Int64(clamping: file.size),
+                                     isDirectory: file.directory, modified: file.modified)
+                }
+                RDPEngine.from(user).client?.serverFiles(list)
             }
-            RDPEngine.from(user).client?.serverFiles(list)
         }
         callbacks.read_file = { user, stream, index, offset, length in
-            RDPEngine.from(user).readFile(stream: stream, index: Int(index), offset: Int64(clamping: offset),
-                                          length: Int(length))
+            autoreleasepool {
+                RDPEngine.from(user).readFile(stream: stream, index: Int(index), offset: Int64(clamping: offset),
+                                              length: Int(length))
+            }
         }
         callbacks.file_data = { user, stream, data, length in
-            RDPEngine.from(user).fileDataArrived(stream: stream, data: data.map { Data(bytes: $0, count: length) })
+            autoreleasepool {
+                RDPEngine.from(user).fileDataArrived(stream: stream, data: data.map { Data(bytes: $0, count: length) })
+            }
         }
         callbacks.clipboard = { user, text in
-            guard let text else { return }
-            RDPEngine.from(user).client?.serverClipboard(String(cString: text))
+            autoreleasepool {
+                guard let text else { return }
+                RDPEngine.from(user).client?.serverClipboard(String(cString: text))
+            }
         }
         callbacks.pointer_new = { user, id, rgba, width, height, hotX, hotY in
-            guard let rgba else { return }
-            let pixels = Data(bytes: rgba, count: Int(width) * Int(height) * 4)
-            RDPEngine.from(user).client?.pointerShape(id: Int(id), rgba: pixels, width: Int(width), height: Int(height),
-                                                      hotX: Int(hotX), hotY: Int(hotY))
+            autoreleasepool {
+                guard let rgba else { return }
+                let pixels = Data(bytes: rgba, count: Int(width) * Int(height) * 4)
+                RDPEngine.from(user).client?.pointerShape(id: Int(id), rgba: pixels, width: Int(width),
+                                                          height: Int(height), hotX: Int(hotX), hotY: Int(hotY))
+            }
         }
-        callbacks.pointer_free = { user, id in RDPEngine.from(user).client?.pointerForgotten(id: Int(id)) }
-        callbacks.pointer_set = { user, id in RDPEngine.from(user).client?.showPointer(id: Int(id)) }
+        callbacks.pointer_free = { user, id in
+            autoreleasepool { RDPEngine.from(user).client?.pointerForgotten(id: Int(id)) }
+        }
+        callbacks.pointer_set = { user, id in
+            autoreleasepool { RDPEngine.from(user).client?.showPointer(id: Int(id)) }
+        }
 
         // FreeRDP copies every string into its settings, so these need only
         // last through `tsr_new`.
