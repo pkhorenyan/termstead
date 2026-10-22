@@ -575,9 +575,11 @@ the app bundle. The static TTFs register Medium and SemiBold as separate
 families, so `SBFont` addresses every weight by its own PostScript name.
 
 The same folder carries Termstead's own license (GPL-3.0-or-later, a copy of
-`LICENSE`) and the MIT notices of SwiftTerm and Sparkle: GPLv3 wants its text
-with every copy of the app, and MIT its notice. Refresh `MIT-Sparkle.txt` when
-Sparkle is updated.
+`LICENSE`), the MIT notices of SwiftTerm and Sparkle, and the Apache-2.0 texts
+of FreeRDP and OpenSSL, which the RDP engine links statically: GPLv3 wants its
+text with every copy of the app, MIT its notice and Apache its license. Refresh
+`MIT-Sparkle.txt` when Sparkle is updated, and the two `Apache-2.0-*.txt` from
+the pinned archives when `build-rdp-deps.sh` moves to another version.
 
 ## Known pitfalls
 
