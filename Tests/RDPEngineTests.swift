@@ -164,3 +164,70 @@ struct RDPEngineTests {
         engines.forEach { $0.close() }
     }
 }
+
+/// A pretend server on the other end of a socket pair that answers every
+/// connection request by picking legacy RDP security, as a machine in the
+/// middle would. FreeRDP tries the other protocols in turn and gives up:
+/// nothing but connection requests may reach it — the next thing would have
+/// been the MCS request, and after it the password.
+@MainActor
+@Suite struct RDPLegacySecurityTests {
+    @Test func aServerWithoutTLSIsNotLoggedInTo() async throws {
+        var pair: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        let server = pair[1]
+        defer { close(server) }
+        let engine = RDPEngineConnection()
+        var ended: (reason: String, code: Int)?
+        engine.onDisconnected = { ended = ($0, $1) }
+        let settings = RDPConnectSettings()
+        settings.host = "legacy"
+        settings.user = "lab"
+        settings.password = "not for this server"
+        settings.sound = false
+        // Handed over and let go: the engine's end is the only one left, so
+        // the server reads to the end once the engine closes it.
+        engine.connect(settings, socket: FileHandle(fileDescriptor: pair[0], closeOnDealloc: true))
+
+        let received = await Task.detached { Self.pickLegacySecurity(on: server) }.value
+        #expect(!received.isEmpty)
+        // An X.224 Connection Request each (TPDU code 0xE0), and no data.
+        #expect(received.allSatisfy { $0.count > 5 && $0[0] == 0x03 && $0[5] == 0xE0 })
+        let deadline = Date().addingTimeInterval(10)
+        while ended == nil, Date() < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        #expect(ended?.code == 0x0002_000C)
+        engine.close()
+    }
+
+    /// Answers each PDU with a Connection Confirm whose RDP_NEG_RSP selects
+    /// protocol 0, PROTOCOL_RDP, until the engine closes its end; returns
+    /// what it was sent.
+    nonisolated private static func pickLegacySecurity(on fd: Int32) -> [[UInt8]] {
+        let confirm: [UInt8] = [0x03, 0x00, 0x00, 0x13, 0x0E, 0xD0, 0x00, 0x00, 0x12, 0x34, 0x00,
+                                0x02, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]
+        var received: [[UInt8]] = []
+        while received.count < 10 {
+            let header = read(fd, count: 4, seconds: 10)
+            guard header.count == 4 else { break }
+            let length = Int(header[2]) << 8 | Int(header[3])
+            received.append(header + read(fd, count: max(length - 4, 0), seconds: 10))
+            guard write(fd, confirm, confirm.count) == confirm.count else { break }
+        }
+        return received
+    }
+
+    nonisolated private static func read(_ fd: Int32, count: Int, seconds: Double) -> [UInt8] {
+        var out: [UInt8] = []
+        let deadline = Date().addingTimeInterval(seconds)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while out.count < count {
+            let left = Int32(max(deadline.timeIntervalSinceNow, 0) * 1000)
+            var waiting = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            guard left > 0, poll(&waiting, 1, left) > 0 else { break }
+            let got = Darwin.read(fd, &buffer, min(buffer.count, count - out.count))
+            guard got > 0 else { break }
+            out += buffer[0..<got]
+        }
+        return out
+    }
+}

@@ -31,6 +31,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The server's certificate is checked against macOS's trust; one macOS does
   not trust is asked about in the tab, with its fingerprint, and remembered
   once trusted. A certificate that changed is asked about as a change.
+  A server that offers only the old RDP security, which has no
+  certificate to check, is not logged in to.
 - A login the session has no password for, or the server refuses, is asked
   for in the tab, with Save to Keychain.
 - Text and files copied on either side can be pasted on the other: files

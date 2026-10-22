@@ -825,6 +825,10 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 	          freerdp_settings_set_uint32(settings, FreeRDP_KeyboardLayout, params->keyboard_layout) &&
 	          // The app decides on certificates: macOS's trust, or the user.
 	          freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) &&
+	          // TLS or nothing. Legacy RDP security has no certificate to
+	          // decide on: whoever answered would get the stored password.
+	          // Off, it is also refused when a server picks it unasked.
+	          freerdp_settings_set_bool(settings, FreeRDP_RdpSecurity, FALSE) &&
 	          // A reconnect needs a new socket, which only the app can open.
 	          freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, FALSE) &&
 	          freerdp_settings_set_bool(settings, FreeRDP_SupportGraphicsPipeline, TRUE) &&

@@ -362,7 +362,11 @@ read from there, never stored on `Session`.
   moving the pointer is ignored: the Mac's mouse is the user's.
 - **Certificates are the app's** (`ExternalCertificateManagement`): trusted
   by macOS for the host, or by the user before (`rdp_known_hosts` in
-  Application Support), or asked in the tab — a change in red. **A login**
+  Application Support), or asked in the tab — a change in red. TLS or
+  nothing: legacy RDP security has no certificate, and whoever answered
+  would get the stored password, so it is off (`FreeRDP_RdpSecurity`).
+  FreeRDP then also refuses a server that picks it unasked (`nego_recv`);
+  `RDPLegacySecurityTests` plays that server. **A login**
   missing or refused is asked in the tab too, and can be saved to the
   Keychain under the session's password account.
 - **The clipboard** carries text and files, both ways, while "Share the

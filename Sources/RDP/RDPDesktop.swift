@@ -332,6 +332,10 @@ final class RDPDesktop {
         case 0x0001_0005: "The same user connected to the server from elsewhere and took the session over."
         case 0x0001_000C:
             "The session ended on the server: its user logged off, or connected again from elsewhere and took the desktop over."
+        // FREERDP_ERROR_SECURITY_NEGO_CONNECT_FAILED: what a server that
+        // offers only legacy RDP security, refused by the engine, ends in.
+        case 0x0002_000C:
+            "The server and Termstead found no secure way to connect. Most likely the server offers only the old RDP security, which cannot show that it is the server you mean, so Termstead does not log in to it."
         default: reason.isEmpty ? "The session ended." : reason
         }
     }

@@ -57,6 +57,7 @@ struct RDPCertificateTests {
     @Test func theServersReasonsAreSaidPlainly() {
         #expect(RDPDesktop.explanation(code: 0x0001_000C, reason: "x").contains("connected again from elsewhere"))
         #expect(RDPDesktop.explanation(code: 0x0001_0005, reason: "x").contains("took the session over"))
+        #expect(RDPDesktop.explanation(code: 0x0002_000C, reason: "x").contains("old RDP security"))
         #expect(RDPDesktop.explanation(code: 0x0002_000D, reason: "transport failed") == "transport failed")
         #expect(RDPDesktop.explanation(code: 0, reason: "") == "The session ended.")
     }
