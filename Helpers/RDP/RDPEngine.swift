@@ -187,6 +187,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             return true
         }
         callbacks.connected = { user in RDPEngine.from(user).client?.connected() }
+        callbacks.closing = { user in RDPEngine.from(user).letGo() }
         callbacks.server_files = { user, files, count in
             guard let files else { return }
             let list = UnsafeBufferPointer(start: files, count: count).map { file in
@@ -256,6 +257,15 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         unanswered.forEach { $0(nil) }
         tsr_free(created)
         client?.disconnected(reason: reason, code: code)
+    }
+
+    /// The session is about to disconnect: from here on `withSession` finds
+    /// none. It holds `lock` through each call into FreeRDP, so once this
+    /// returns no call from the app is still inside.
+    private func letGo() {
+        lock.lock()
+        session = nil
+        lock.unlock()
     }
 
     private static func from(_ user: UnsafeMutableRawPointer?) -> RDPEngine {

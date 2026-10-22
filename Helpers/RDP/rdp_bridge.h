@@ -41,6 +41,10 @@ typedef struct {
 	bool (*authenticate)(void* user, const char* username, const char* domain, char** out_username,
 	                     char** out_domain, char** out_password);
 	void (*connected)(void* user);
+	/// The session is about to disconnect. Nothing may call into it from
+	/// now on but `tsr_free`: disconnecting frees the transport under any
+	/// input still on its way in.
+	void (*closing)(void* user);
 	/// Text copied on the server, UTF-8. Called on a channel's thread.
 	void (*clipboard)(void* user, const char* text);
 	/// Files copied on the server, in its order: folders before what is in

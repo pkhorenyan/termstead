@@ -973,6 +973,13 @@ These have each cost real time. They are not hypothetical.
   answer stale (`pending_stale`): taken as the new copy's, a file list
   became text on the Mac. And a tab closed before the engine's session
   existed must stop it once it does (`stopRequested`).
+- **Nothing may reach FreeRDP while it disconnects.** Its input functions
+  check that the session runs only on their way in, and
+  `freerdp_disconnect` frees the transport and fast-path state they go on
+  to use (`rdp_reset`): a mouse move from XPC's queue as the server ended
+  the session would use them freed. `tsr_run` calls `closing` first, and
+  the engine drops its `session` under `lock`, which `withSession` holds
+  through every call into FreeRDP.
 - **A question the engine waits on must be cancellable.** FreeRDP's thread
   blocks in the callback until the app answers; closing the tab meanwhile
   left it blocked for good. `RDPEngine.disconnect` gives up the question.

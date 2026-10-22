@@ -894,6 +894,13 @@ const char* tsr_run(tsr_session* session)
 		set_reason(session, "The server closed the connection.");
 	else
 		set_reason(session, freerdp_get_last_error_string(error));
+	// Input checks that the session runs only on its way in, and
+	// disconnecting frees the transport and fast-path state it goes on to
+	// use: a key or mouse move arriving as the server ends the session would
+	// use them freed, and take the engine down with every desktop in it.
+	// Once the engine lets go of the session, nothing reaches FreeRDP.
+	if (session->callbacks.closing)
+		session->callbacks.closing(session->callbacks.user);
 	freerdp_disconnect(instance);
 	return session->reason;
 }
