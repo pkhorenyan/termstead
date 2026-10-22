@@ -26,6 +26,28 @@
       "user": "postgres"
     },
     {
+      "auth": "password",
+      "host": "rdp",
+      "icon": "monitor",
+      "id": "dev-desktop",
+      "jumps": [
+        {
+          "auth": "session",
+          "host": "bastion-01",
+          "id": "9C1E4B2A-6F3D-4E8B-A5C7-2D1F0E9B8A63",
+          "keyPath": "~/.ssh/id_ed25519",
+          "user": ""
+        }
+      ],
+      "keyPath": "~/.ssh/id_ed25519",
+      "port": 3389,
+      "rdpOptions": {
+        "sound": false
+      },
+      "sessionKind": "rdp",
+      "user": "dev"
+    },
+    {
       "auth": "key",
       "host": "nas.local",
       "icon": "drive",
@@ -159,6 +181,11 @@
         {
           "session": {
             "_0": "staging-app"
+          }
+        },
+        {
+          "session": {
+            "_0": "dev-desktop"
           }
         }
       ],

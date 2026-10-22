@@ -167,7 +167,7 @@ Files tab: logs, a 20 MB file, odd names, symlinks, a read-only file and a
 folder that cannot be opened (`TestLab/entrypoint.sh`).
 
 **The README's screenshots** come from `TestLab/screenshots/shoot.sh`
-(`stage`, `open`, `panes`, `clean`). It uses the sample sessions without the
+(`stage`, `open`, `panes`, `desktop`, `clean`). It uses the sample sessions without the
 test lab, opens four tabs, and makes them look like real servers:
 - `prefix.conf` maps each sample address onto a lab container, `prod-web-02`
   through both jump hosts;
@@ -177,9 +177,19 @@ test lab, opens four tabs, and makes them look like real servers:
 - `panes` deals the four tabs out to a 2×2 layout with broadcast input on,
   and every server runs `fleet.sh` instead: the same commands, as if typed
   once.
+- `desktop` opens `dev-desktop`, the lab's xrdp through `bastion-01`, as a
+  user of its own (`desktop.sh`), and puts a file manager and a terminal on
+  its desktop from inside the container. It needs that user's password in
+  the Keychain for the session, added before and deleted after (see the
+  script's header).
 
 Nothing in them may show a real host, name or path. The sample host `nas`
-never gets a color.
+never gets a color. The window is set with
+`-window.frame.MainWindow "x y 1300 800 …"` and `-sidebar.width 282`; the
+copy saves that frame into the real defaults, so put the user's back after.
+`screencapture -l` on the session form returns its parent window: capture
+the form by its rectangle (`-R`, from `CGWindowListCopyWindowInfo`) with the
+app in front.
 
 ## Releases
 

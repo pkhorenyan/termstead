@@ -5,7 +5,7 @@
 <h1 align="center">Termstead</h1>
 
 <p align="center">
-  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.6.0-2F6FB5" alt="Version 0.6.0"></a>
+  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.7.0-2F6FB5" alt="Version 0.7.0"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-2F6FB5?logo=apple&logoColor=white" alt="macOS 14 or later">
   <img src="https://img.shields.io/badge/universal-Apple%20Silicon%20%2B%20Intel-2F6FB5" alt="Universal: Apple Silicon and Intel">
   <img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  A native macOS SSH client for people who keep a lot of servers in their head —
-  sessions in a tree, jump hosts, SFTP next to the terminal, and passwords in the
-  macOS Keychain. Built for anyone coming from MobaXterm who wants the same way
-  of working, as a real Mac app.
+  A native macOS SSH and RDP client for people who keep a lot of servers in their
+  head — sessions in a tree, jump hosts, SFTP next to the terminal, remote
+  desktops in tabs, and passwords in the macOS Keychain. Built for anyone coming
+  from MobaXterm who wants the same way of working, as a real Mac app.
 </p>
 
 ![Termstead with a live session](docs/images/main-window.png)
@@ -40,6 +40,13 @@
   any pane can be left out.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
+- **Remote desktops (RDP) in tabs.** An RDP session opens as a tab like any
+  other, in any pane, and through its jump hosts if it has them. The desktop
+  fits the tab and follows it as the window is resized, sharp on Retina
+  screens; zoom with ⌘+ and ⌘−. Text and files copy both ways — from Finder
+  into Explorer and back — and Ctrl+Alt+Del and the Windows key are in the
+  Session menu. The server's certificate is checked as a browser would, and
+  one you have not seen before is asked about in the tab.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -68,6 +75,8 @@
   Terminal.
 
 ![Four servers in four panes, with broadcast input on](docs/images/panes.png)
+
+![A remote desktop in a tab, reached through a jump host, next to ssh sessions](docs/images/rdp.png)
 
 <p align="center">
   <img src="docs/images/sftp.png" alt="The SFTP tab next to a session" width="56%">
@@ -102,6 +111,11 @@ against the project's signing key before it is installed.
   terminal as usual.
 - The ssh configuration for each connection is written to a private temporary
   folder, readable only by you, and deleted when the tab closes.
+- Remote desktops are drawn by **FreeRDP in a sandboxed helper with no network
+  access**: Termstead opens the connection and hands it over, so a flaw in the
+  RDP code has no network of its own and no way into your ssh sessions. A
+  server that offers no TLS, and so cannot prove who it is, is not logged in
+  to. Your clipboard reaches a remote desktop only while you are typing in it.
 - Sessions are stored in `~/Library/Application Support/Termstead/sessions.json`.
   Nothing is sent anywhere: no accounts, no analytics.
 
@@ -120,7 +134,7 @@ against the project's signing key before it is installed.
 | Broadcast input to the visible panes | ⌥⌘I |
 | Hide / show the sidebar | ⌃⌘S |
 | Find / Next / Previous | ⌘F / ⌘G / ⇧⌘G |
-| Text size in the tab: bigger / smaller / default | ⌘+ / ⌘− / ⌘0 |
+| Text size in the tab — or a remote desktop's zoom: bigger / smaller / default | ⌘+ / ⌘− / ⌘0 |
 | Settings | ⌘, |
 
 Double-click a session to connect. A closed tab keeps its output — press Return
@@ -143,7 +157,8 @@ and Return is enough to connect.
 ## Build from source
 
 ```sh
-brew install xcodegen
+brew install xcodegen cmake ninja
+scripts/build-rdp-deps.sh   # FreeRDP and OpenSSL for the RDP engine, once
 xcodegen generate
 xcodebuild -project Termstead.xcodeproj -scheme Termstead -configuration Release \
   -derivedDataPath build build
@@ -168,7 +183,10 @@ this app.
 
 It includes [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) by Miguel de
 Icaza (MIT), vendored with small patches,
-[Sparkle](https://sparkle-project.org) for updates (MIT), and the typefaces
+[Sparkle](https://sparkle-project.org) for updates (MIT),
+[FreeRDP](https://www.freerdp.com) for remote desktops and
+[OpenSSL](https://www.openssl.org) under it (both Apache-2.0; FreeRDP is
+built with a small patch, in `scripts/rdp-patches`), and the typefaces
 [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and
 [IBM Plex Sans](https://www.ibm.com/plex/), both under the SIL Open Font
 License 1.1. Their license texts travel inside the app, in
