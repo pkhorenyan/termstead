@@ -784,6 +784,9 @@ These have each cost real time. They are not hypothetical.
 - **The app icon must fill its whole canvas.** macOS 26 rounds an app icon
   itself; one drawn on Apple's older grid (a body inset in transparent margins)
   lands on a light plate in the Dock. `AppIcon.appiconset` is full bleed, square.
+  The README's `docs/images/icon.png` is not: nothing rounds it on GitHub, so
+  it is the artwork clipped to a rounded square, 256 px with a 57 px radius
+  and transparent corners, as macOS shows the icon.
 - **"no debug symbols in executable" after an `Info.plist` change is Xcode's,
   not ours.** The dSYM carries a copy of `Info.plist`, so an incremental
   Release build regenerates it from the executable it did not relink — one
