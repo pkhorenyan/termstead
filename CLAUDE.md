@@ -672,6 +672,14 @@ These have each cost real time. They are not hypothetical.
   monitor and the `processTerminated` call is commented out. `Connection`
   watches the pid with its own `DispatchSource`. SwiftTerm's exit code is also
   the raw `waitpid` status: decode it (`Connection.exitCode(fromWaitStatus:)`).
+- **A closed tab's ssh must still be collected.** SwiftTerm's `terminate`
+  signals the process and stops watching it at once, and `Connection.close`
+  ends the tab's own watch, so nobody called `waitpid`: every tab closed
+  while connected, every Save & reconnect and every stopped tunnel left a
+  zombie until Termstead quit (four after a few minutes of use; the limit
+  is 2666 processes per user). `close` hands the pid to `ProcessReaper`.
+  `aClosedTabLeavesNoZombie` checks it — a zombie still answers
+  `kill(pid, 0)`.
 - **SwiftTerm's delegate protocols are not actor-isolated** (the package is
   Swift 5 mode) but call back on the main queue. The relay copies what it needs
   into locals and uses `MainActor.assumeIsolated`; capturing `self` there is a

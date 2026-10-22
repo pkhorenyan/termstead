@@ -263,6 +263,10 @@ final class Connection: Identifiable {
         didClose = true
         stopLoadWatch()
         browser?.stop()
+        // SwiftTerm stops watching the process the moment `terminate` signals
+        // it, and the tab's own watch goes here: without this nobody called
+        // `waitpid`, and each closed tab left a zombie until Termstead quit.
+        if exitWatch != nil { ProcessReaper.shared.collect(terminalView.process.shellPid) }
         exitWatch?.cancel()
         exitWatch = nil
         desktop?.stop()
@@ -807,6 +811,38 @@ final class SSHTerminalView: LocalProcessTerminalView {
         guard process.running else { return }
         process.send(data: data)
         if data.contains(13) { onReturnWhileRunning?() }
+    }
+}
+
+/// Collects the ssh of a tab that has gone, whenever it exits, without
+/// telling anyone: there is no tab left to tell.
+final class ProcessReaper: @unchecked Sendable {
+    static let shared = ProcessReaper()
+
+    private let queue = DispatchQueue(label: "com.pavelkhorenyan.Termstead.reaper")
+    /// Touched only on `queue`. A source is kept until its process is
+    /// collected: one let go stops watching.
+    private var watching: [pid_t: any DispatchSourceProcess] = [:]
+
+    func collect(_ pid: pid_t) {
+        guard pid > 0 else { return }
+        queue.async { [self] in
+            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            source.setEventHandler { [self] in finish(pid) }
+            watching[pid] = source
+            source.resume()
+            // It may have exited before the watch began, and then nothing fires.
+            finish(pid)
+        }
+    }
+
+    /// Done once `waitpid` has it, or once there is nothing to collect —
+    /// SwiftTerm may have got there first.
+    private func finish(_ pid: pid_t) {
+        var status: Int32 = 0
+        let result = waitpid(pid, &status, WNOHANG)
+        guard result == pid || (result == -1 && errno == ECHILD) else { return }
+        watching.removeValue(forKey: pid)?.cancel()
     }
 }
 

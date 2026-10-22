@@ -190,6 +190,28 @@ final class ConnectionIntegrationTests {
         _ = await run("echo TERMSTEAD_$((7*8))_AGAIN", in: connection, until: "TERMSTEAD_56_AGAIN")
     }
 
+    /// A tab closed while ssh runs: its ssh is collected, not left a zombie
+    /// until Termstead quits. A zombie still answers `kill(pid, 0)`.
+    @Test func aClosedTabLeavesNoZombie() async throws {
+        try #require(FileManager.default.isExecutableFile(atPath: "/usr/sbin/sshd"))
+        try await startServer()
+        let session = directSession()
+        let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: true)
+        let connection = Connection(sessionID: session.id, title: session.id, address: "",
+                                    keyDescription: "", keychain: keychain)
+        connection.start(plan)
+        guard await run("echo TERMSTEAD_$((6*7))_OK", in: connection, until: "TERMSTEAD_42_OK") else {
+            connection.close()
+            return
+        }
+        let pid = connection.terminalView.process.shellPid
+        try #require(pid > 0)
+
+        connection.close()
+        let collected = (try? await awaitCondition(timeout: 10) { kill(pid, 0) == -1 && errno == ESRCH }) != nil
+        #expect(collected)
+    }
+
     @Test func passphraseComesFromTheKeychain() async throws {
         try #require(FileManager.default.isExecutableFile(atPath: "/usr/sbin/sshd"))
         try await startServer(passphrase: "correct horse")

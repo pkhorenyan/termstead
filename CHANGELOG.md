@@ -41,6 +41,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   clipboard reaches a remote desktop only while you are typing in it, and
   a password copied from a password manager only when you press ⌘V there.
 
+### Fixed
+
+- Closing a connected tab, reconnecting a session with Save & Reconnect, or
+  stopping a tunnel left its ssh behind as a defunct process until
+  Termstead quit. They are now cleaned up as they exit.
+
 ## [0.6.0] - 2026-10-20
 
 ### Added
