@@ -352,15 +352,29 @@ extension ThemeStore {
     /// Proportional fonts are left out on purpose — a terminal lays text out on
     /// a grid of equal cells, and anything else overlaps or leaves gaps.
     static func monospacedFamilies() -> [String] {
+        let manager = NSFontManager.shared
         let installed = Set(
-            (NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? [])
-                .compactMap { NSFont(name: $0, size: 12) }
-                .filter(canSetText)
-                .compactMap(\.familyName)
+            manager.availableFontFamilies
                 .filter { !$0.hasPrefix(".") && $0 != bundledFontFamily && $0 != systemFontFamily }
+                .filter { family in
+                    guard let face = manager.availableMembers(ofFontFamily: family)?.first,
+                          let name = face.first as? String,
+                          let font = NSFont(name: name, size: 12) else { return false }
+                    return canSetText(font) && (font.isFixedPitch || hasEvenLetters(font))
+                }
         )
         return [bundledFontFamily, systemFontFamily]
             + installed.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// A Nerd Font's plain variant (not "Mono") keeps its icons double
+    /// width, so the font is not flagged fixed-pitch — yet its letters are,
+    /// and it is what people install for a prompt.
+    private static func hasEvenLetters(_ font: NSFont) -> Bool {
+        let widths = ["i", "W", "m", "0", "."].map {
+            ($0 as NSString).size(withAttributes: [.font: font]).width
+        }
+        return widths.allSatisfy { abs($0 - widths[0]) < 0.01 }
     }
 
     /// Icon fonts are fixed-pitch too — Nerd Fonts ships a "Symbols" one with

@@ -28,6 +28,14 @@ struct TerminalFontTests {
         #expect(family(of: "a") == CTFontCopyFamilyName(base as CTFont) as String)
     }
 
+    /// A Nerd Font's plain variant is not flagged fixed-pitch: its icons
+    /// are double width. Its letters are, and it is offered.
+    @Test(.enabled(if: NSFontManager.shared.availableFontFamilies.contains("FiraCode Nerd Font"),
+                   "FiraCode Nerd Font not installed"))
+    func aNerdFontIsOffered() {
+        #expect(ThemeStore.monospacedFamilies().contains("FiraCode Nerd Font"))
+    }
+
     @Test func onlyMonospacedFamiliesAreOffered() {
         let families = ThemeStore.monospacedFamilies()
         // Menlo ships with every macOS; Helvetica is proportional.
@@ -37,7 +45,8 @@ struct TerminalFontTests {
         for family in families {
             let font = ThemeStore.font(family: family, size: 13)
             #expect(font != nil, "\(family) is listed but cannot be loaded")
-            #expect(font?.isFixedPitch == true, "\(family) is not monospaced")
+            let widths = ["i", "W", "m"].map { ($0 as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 13)]).width }
+            #expect(widths.allSatisfy { abs($0 - widths[0]) < 0.01 }, "\(family) is not monospaced: \(widths)")
             #expect(font.map { CharacterSet(charactersIn: "Aa0").isSubset(of: $0.coveredCharacterSet) } == true,
                     "\(family) has no letters to write with")
         }

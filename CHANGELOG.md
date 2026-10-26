@@ -29,6 +29,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The terminal font list offers Nerd Fonts' plain variants (FiraCode Nerd
+  Font and the like): their icons are double width, so macOS does not call
+  them monospaced, and the list left them out though their letters are.
 - Text no longer runs under the terminal's scroll bar after the font
   changes — a tab opening, or ⌘+ and ⌘−: the terminal counted its columns
   over its whole width, scroll bar included, until the window was resized.
