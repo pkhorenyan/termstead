@@ -25,7 +25,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   address field, and ⌥⌘T among its shortcuts.
 - The Files tab browses this Mac for a local terminal, and follows its
   `cd` as it follows a server's shell. Deleting moves to the Trash, a file
-  opens where it is, and dropping files copies them.
+  opens where it is, and dropping files copies them. Opening a local
+  terminal turns the sidebar to them, as logging in to a server does
+  (Settings ▸ Open SFTP after login).
 
 ### Changed
 

@@ -320,7 +320,8 @@ read from there, never stored on `Session`.
   the folder of the terminal's foreground process (`tcgetpgrp`,
   `PROC_PIDVNODEPATHINFO`), and paths go through `realpath`, which names
   `/private/var` as the kernel does — `URL.resolvingSymlinksInPath` drops
-  `/private`, and every Return looked like a move. `TabMemory` keeps it as `local`.
+  `/private`, and every Return looked like a move. The shell's start
+  calls `onLogin`, so the sidebar turns to SFTP as after a server login. `TabMemory` keeps it as `local`.
 - **The Files tab** rides the same connection (see the pitfall on
   `ControlMaster` below), so it never asks for a password twice.
 - **Login** is when ssh's control socket (`cm` in the work directory)

@@ -271,6 +271,9 @@ final class Connection: Identifiable {
                                   execName: "-" + (shell as NSString).lastPathComponent,
                                   currentDirectory: NSHomeDirectory())
         watchForExit(of: terminalView.process.shellPid)
+        // Nothing to log in to: the shell's start is its login, and the
+        // sidebar turns to this Mac's files as it does to a server's.
+        onLogin?()
     }
 
     /// The shell the user's account names, as `chsh` set it.

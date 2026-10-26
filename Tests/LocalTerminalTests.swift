@@ -103,6 +103,19 @@ struct LocalTerminalTests {
         #expect(FileManager.default.contents(atPath: folder.appendingPathComponent("inner/note.txt").path) == Data("hello".utf8))
     }
 
+    /// Opening one turns the sidebar to its files, as a server's login does.
+    @Test func openingALocalTabShowsItsFiles() async throws {
+        let tabs = ConnectionStore()
+        defer { tabs.closeAll() }
+        let app = AppState(defaults: UserDefaults(suiteName: "local-files-\(UUID())")!)
+        tabs.onLogin = { connection in Task { await app.showFiles(afterLoginOf: connection, in: tabs) } }
+        #expect(app.sidebarTab == .sessions)
+        tabs.openLocalTerminal()
+        await wait(upTo: 5) { app.sidebarTab == .files }
+        #expect(app.sidebarTab == .files)
+        #expect(tabs.active?.fileBrowser.path == NSHomeDirectory())
+    }
+
     @Test func aLocalTabIsRememberedAndReopened() {
         let tabs = ConnectionStore()
         defer { tabs.closeAll() }
