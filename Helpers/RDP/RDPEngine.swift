@@ -242,11 +242,7 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             autoreleasepool { RDPEngine.from(user).client?.showPointer(id: Int(id)) }
         }
 
-        // The shared folder is open to this process for the whole session,
-        // through the token the app issued for it; without one, no drive.
-        let access = settings.sharedFolder.isEmpty ? nil : SandboxExtension.consume(settings.sharedFolderAccess)
-        defer { access.map(SandboxExtension.release) }
-        let folder = access == nil ? nil : URL(fileURLWithPath: settings.sharedFolder, isDirectory: true)
+        let folder = settings.sharedFolder.isEmpty ? nil : URL(fileURLWithPath: settings.sharedFolder, isDirectory: true)
 
         // FreeRDP copies every string into its settings, so these need only
         // last through `tsr_new`.

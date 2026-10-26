@@ -110,8 +110,10 @@ targets:
     configFiles:
       Release: Config/Signing.xcconfig
 
-  # FreeRDP in a sandboxed process of its own, one per remote desktop; see
-  # SharedRDP/RDPProtocol.swift. Its C libraries come from
+  # FreeRDP in a process of its own, so a crash in it ends the remote
+  # desktops and not the app; see SharedRDP/RDPProtocol.swift. Not
+  # sandboxed: a shared Mac folder is opened by FreeRDP itself. Its C
+  # libraries come from
   # scripts/build-rdp-deps.sh, into Vendor/rdp.
   TermsteadRDP:
     type: xpc-service
@@ -120,7 +122,6 @@ targets:
       - path: Helpers/RDP
         excludes:
           - Info.plist
-          - TermsteadRDP.entitlements
       - path: SharedRDP
     preBuildScripts:
       - name: Check the RDP libraries
@@ -136,7 +137,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead.rdp
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Helpers/RDP/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Helpers/RDP/TermsteadRDP.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: Helpers/RDP/rdp_bridge.h
         # Relative to the project folder, whose path has a space in it.
         HEADER_SEARCH_PATHS: [Vendor/rdp/include, Vendor/rdp/include/freerdp3, Vendor/rdp/include/winpr3]

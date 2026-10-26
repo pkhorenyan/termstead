@@ -256,14 +256,7 @@ final class RDPDesktop {
         settings.keyboardLayout = RDPKeyboard.sessionLayoutID
         settings.clipboard = launch.options.clipboard
         settings.sound = launch.options.sound
-        if let folder = sharedFolder(launch.options) {
-            if let access = SandboxExtension.issue(readWrite: folder) {
-                settings.sharedFolder = folder
-                settings.sharedFolderAccess = access
-            } else {
-                log?("The shared folder could not be opened to the remote desktop; connecting without it.")
-            }
-        }
+        settings.sharedFolder = sharedFolder(launch.options) ?? ""
 
         let engine = RDPEngineConnection()
         self.engine = engine

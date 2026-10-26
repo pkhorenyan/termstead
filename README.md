@@ -111,10 +111,8 @@ against the project's signing key before it is installed.
   terminal as usual.
 - The ssh configuration for each connection is written to a private temporary
   folder, readable only by you, and deleted when the tab closes.
-- Remote desktops are drawn by **FreeRDP in a sandboxed helper with no network
-  access**: Termstead opens the connection and hands it over, so a flaw in the
-  RDP code has no network of its own, no way into your ssh sessions, and no
-  files but the one folder a session shares. A
+- Remote desktops are drawn by **FreeRDP in a process of its own**: a crash
+  in it ends the remote desktops, not Termstead or its ssh sessions. A
   server that offers no TLS, and so cannot prove who it is, is not logged in
   to. Your clipboard reaches a remote desktop only while you are typing in it.
 - Sessions are stored in `~/Library/Application Support/Termstead/sessions.json`.

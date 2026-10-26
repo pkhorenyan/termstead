@@ -3,13 +3,15 @@ import IOSurface
 
 /// What passes between Termstead and its RDP engine, `TermsteadRDP.xpc`.
 ///
-/// The engine is FreeRDP in a process of its own, sandboxed and with no
-/// network: the app opens the connection (directly, or through an ssh
-/// tunnel's Unix socket) and hands over the socket. A crash or an exploit in
-/// FreeRDP's C code then takes down the remote desktops, not the app and
-/// every ssh session in it, and an exploit has no network to reach. The desktop is drawn into an IOSurface the two
-/// processes share, so a frame is never copied: the engine says which part
-/// changed, and the app's layer shows it.
+/// The engine is FreeRDP in a process of its own: a crash in its C code takes
+/// down the remote desktops, not the app and every ssh session in it. The app
+/// opens the connection (directly, or through an ssh tunnel's Unix socket)
+/// and hands over the socket. It is not sandboxed, as RDP clients on the Mac
+/// mostly are not: a shared folder is FreeRDP's to open, and handing a
+/// sandboxed process access to a folder the user picked takes private API.
+/// The desktop is drawn into an IOSurface the two processes share, so a frame
+/// is never copied: the engine says which part changed, and the app's layer
+/// shows it.
 enum RDPService {
     /// The XPC service's bundle identifier.
     static let name = "com.pavelkhorenyan.Termstead.rdp"
@@ -95,11 +97,8 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
     @objc var clipboard = true
     @objc var sound = true
     /// A Mac folder the server sees as a drive, named after the folder;
-    /// empty for none. `sharedFolderAccess` is the token that lets the
-    /// engine, which has no file access of its own, into that one folder
-    /// (`SandboxExtension`).
+    /// empty for none.
     @objc var sharedFolder = ""
-    @objc var sharedFolderAccess = ""
 
     override init() { super.init() }
 
@@ -116,7 +115,6 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
         coder.encode(clipboard, forKey: "clipboard")
         coder.encode(sound, forKey: "sound")
         coder.encode(sharedFolder, forKey: "sharedFolder")
-        coder.encode(sharedFolderAccess, forKey: "sharedFolderAccess")
     }
 
     init?(coder: NSCoder) {
@@ -135,7 +133,6 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
         clipboard = coder.decodeBool(forKey: "clipboard")
         sound = coder.decodeBool(forKey: "sound")
         sharedFolder = string("sharedFolder")
-        sharedFolderAccess = string("sharedFolderAccess")
         super.init()
     }
 }

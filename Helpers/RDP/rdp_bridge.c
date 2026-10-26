@@ -761,7 +761,7 @@ static bool set_string(rdpSettings* settings, FreeRDP_Settings_Keys_String key, 
 }
 
 /// Warnings and errors to the unified log: an XPC service's stderr goes
-/// nowhere, and the sandbox keeps the old syslog out.
+/// nowhere.
 /// `log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
 /// Once per process: the root log is shared, and two desktops starting
 /// together each replaced its appender under the other, which crashed the

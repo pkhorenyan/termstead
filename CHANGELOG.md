@@ -13,6 +13,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   form, it shows up on the server as a drive, to open, save and copy files
   in while connected.
 
+### Changed
+
+- The RDP engine no longer runs in a sandbox, as RDP clients on the Mac
+  mostly do not: a shared folder is opened by FreeRDP itself. It still runs
+  in a process of its own, so a crash in it ends only the remote desktops.
+
 ## [0.7.0] - 2026-10-22
 
 ### Added
