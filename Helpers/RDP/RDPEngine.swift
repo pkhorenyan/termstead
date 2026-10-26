@@ -242,10 +242,21 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
             autoreleasepool { RDPEngine.from(user).client?.showPointer(id: Int(id)) }
         }
 
+        // The shared folder is open to this process for the whole session,
+        // through the token the app issued for it; without one, no drive.
+        let access = settings.sharedFolder.isEmpty ? nil : SandboxExtension.consume(settings.sharedFolderAccess)
+        defer { access.map(SandboxExtension.release) }
+        let folder = access == nil ? nil : URL(fileURLWithPath: settings.sharedFolder, isDirectory: true)
+
         // FreeRDP copies every string into its settings, so these need only
         // last through `tsr_new`.
         let strings = [settings.host, settings.user, settings.domain, settings.password].map { strdup($0) }
         defer { strings.forEach { free($0) } }
+        let drive = folder.map { (path: strdup($0.path), name: strdup($0.lastPathComponent)) }
+        defer {
+            free(drive?.path)
+            free(drive?.name)
+        }
         var params = tsr_params()
         params.host = UnsafePointer(strings[0])
         params.port = UInt16(clamping: settings.port)
@@ -258,6 +269,8 @@ final class RDPEngine: NSObject, RDPEngineProtocol, @unchecked Sendable {
         params.keyboard_layout = UInt32(clamping: settings.keyboardLayout)
         params.clipboard = settings.clipboard
         params.sound = settings.sound
+        params.drive_path = UnsafePointer(drive?.path)
+        params.drive_name = UnsafePointer(drive?.name)
         params.socket = socket
 
         guard let created = tsr_new(&params, &callbacks) else {

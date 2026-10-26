@@ -1,0 +1,16 @@
+--- a/channels/rdpdr/client/rdpdr_main.c
++++ b/channels/rdpdr/client/rdpdr_main.c
+@@ -1760,6 +1760,13 @@
+ 			                         RDPDR_CHANNEL_STATE_CLIENT_CAPS, RDPDR_CHANNEL_STATE_READY,
+ 			                         RDPDR_CHANNEL_STATE_USER_LOGGEDON);
+ 		case PAKID_CORE_USER_LOGGEDON:
++			/* Termstead: xrdp sends User Logged On before its capabilities,
++			 * which offer the PDU, so the check below failed and the packet
++			 * was dropped — and drives, which wait for it, were never
++			 * announced. Still dropped, it is remembered for the announce
++			 * once the capabilities are in. */
++			if (!rdpdr->haveServerCaps)
++				rdpdr->userLoggedOn = TRUE;
+ 			if (!rdpdr_check_extended_pdu_flag(rdpdr, RDPDR_USER_LOGGEDON_PDU))
+ 				return FALSE;
+ 

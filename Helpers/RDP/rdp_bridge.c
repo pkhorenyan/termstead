@@ -9,6 +9,7 @@
 #include <freerdp/client.h>
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/client/channels.h>
+#include <freerdp/client/cmdline.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/disp.h>
 #include <freerdp/codec/color.h>
@@ -848,6 +849,13 @@ tsr_session* tsr_new(const tsr_params* params, const tsr_callbacks* callbacks)
 		// Played nowhere: not here, and not on the server either.
 		ok = freerdp_settings_set_bool(settings, FreeRDP_AudioPlayback, FALSE) &&
 		     freerdp_settings_set_bool(settings, FreeRDP_RemoteConsoleAudio, FALSE);
+	}
+
+	if (ok && params->drive_path) {
+		const char* const drive[] = { "drive", params->drive_name ? params->drive_name : "Mac",
+			                          params->drive_path };
+		ok = freerdp_settings_set_bool(settings, FreeRDP_DeviceRedirection, TRUE) &&
+		     freerdp_client_add_device_channel(settings, ARRAYSIZE(drive), drive);
 	}
 
 	rdpTransportIo io = *freerdp_get_io_callbacks(context);

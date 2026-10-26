@@ -387,3 +387,22 @@ enum KeyFilePicker {
         return (url.path as NSString).abbreviatingWithTildeInPath
     }
 }
+
+/// The folder a remote desktop shares, `~` abbreviated.
+@MainActor
+enum FolderPicker {
+    static func choose(startingAt current: String) -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Share"
+        panel.message = "Choose a folder the remote desktop can open"
+        let expanded = (current as NSString).expandingTildeInPath
+        panel.directoryURL = URL(fileURLWithPath: expanded.isEmpty ? NSHomeDirectory() : expanded,
+                                 isDirectory: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return (url.path as NSString).abbreviatingWithTildeInPath
+    }
+}

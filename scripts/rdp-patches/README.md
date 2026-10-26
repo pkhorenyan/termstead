@@ -12,3 +12,9 @@ upstream.
   CONNECTION_STATE_FINALIZATION_CLIENT_SYNC found". After a deactivation,
   updates are accepted from the finalization on; the desktop already has its
   new size by then.
+- `freerdp-rdpdr-early-logon.patch` — FreeRDP 3 announces drives only once
+  the server says the user has logged on. xrdp says so before sending its
+  capabilities, which are what offer that packet, and FreeRDP dropped it as
+  unexpected: a shared Mac folder never reached the session. It is still
+  dropped, but remembered, so the device announce that follows includes the
+  drives. Windows sends it after its capabilities, which is unchanged.

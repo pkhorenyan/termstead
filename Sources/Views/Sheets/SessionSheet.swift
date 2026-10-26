@@ -409,6 +409,20 @@ struct SessionSheet: View {
                 checkbox("Play sound", isOn: $rdp.sound)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .bottom, spacing: 8) {
+                    FormField(label: "Shared folder (optional)") {
+                        SBTextField(text: $rdp.sharedFolder, placeholder: "None", font: SBFont.mono(13))
+                    }
+                    Button("Choose…") {
+                        if let path = FolderPicker.choose(startingAt: rdp.sharedFolder) { rdp.sharedFolder = path }
+                    }
+                    .buttonStyle(SecondaryButtonStyle(theme: theme, height: 36,
+                                                      horizontalPadding: 14, filled: true))
+                }
+                InsetNote(text: "The server sees this folder as a drive, and can read and write in it while connected.")
+            }
+
             jumpHostsSection
         }
     }
@@ -894,6 +908,7 @@ struct SessionSheet: View {
     private var rdpOptionsToSave: RDPOptions {
         var options = rdp
         options.domain = rdp.domain.trimmingCharacters(in: .whitespaces)
+        options.sharedFolder = rdp.sharedFolder.trimmingCharacters(in: .whitespaces)
         switch displayChoice {
         case .fitTab:
             options.display = .fitTab

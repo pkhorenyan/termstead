@@ -94,6 +94,12 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
     @objc var keyboardLayout = 0x409
     @objc var clipboard = true
     @objc var sound = true
+    /// A Mac folder the server sees as a drive, named after the folder;
+    /// empty for none. `sharedFolderAccess` is the token that lets the
+    /// engine, which has no file access of its own, into that one folder
+    /// (`SandboxExtension`).
+    @objc var sharedFolder = ""
+    @objc var sharedFolderAccess = ""
 
     override init() { super.init() }
 
@@ -109,6 +115,8 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
         coder.encode(keyboardLayout, forKey: "keyboardLayout")
         coder.encode(clipboard, forKey: "clipboard")
         coder.encode(sound, forKey: "sound")
+        coder.encode(sharedFolder, forKey: "sharedFolder")
+        coder.encode(sharedFolderAccess, forKey: "sharedFolderAccess")
     }
 
     init?(coder: NSCoder) {
@@ -126,6 +134,8 @@ final class RDPConnectSettings: NSObject, NSSecureCoding, @unchecked Sendable {
         keyboardLayout = coder.decodeInteger(forKey: "keyboardLayout")
         clipboard = coder.decodeBool(forKey: "clipboard")
         sound = coder.decodeBool(forKey: "sound")
+        sharedFolder = string("sharedFolder")
+        sharedFolderAccess = string("sharedFolderAccess")
         super.init()
     }
 }

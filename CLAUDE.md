@@ -398,6 +398,13 @@ read from there, never stored on `Session`.
   files. Progress and a stop button are in the status bar, whatever tab is
   in front. Names from the server that would leave that folder (`..`, an
   absolute path) stop the download.
+- **A shared folder** (`RDPOptions.sharedFolder`) is a drive on the
+  server, named after the folder (xrdp keeps its first eight characters,
+  the DOS name). FreeRDP's `drive` device serves it from the engine, which
+  has no file access: the app issues a read-write sandbox extension for that
+  folder (`SandboxExtension`) and the engine consumes it for the session.
+  A folder gone since the session was saved is said in the tab, and the
+  desktop connects without it.
 - **FreeRDP's log** goes to the unified log:
   `/usr/bin/log show --predicate 'subsystem == "com.pavelkhorenyan.Termstead.rdp"'`
   (in zsh, `log` alone is a shell builtin).
@@ -1013,6 +1020,26 @@ These have each cost real time. They are not hypothetical.
   `ri_phys_footprint` (`proc_pid_rusage`) of `TermsteadRDP` across repeated
   copies; it counts the whole process, so desktops other tests open at the
   same time add to it.
+- **A URL sent over XPC gives a sandboxed service no access.** Sending the
+  shared folder as an `NSURL` looked like it worked: the test read the
+  Mac's file through the drive. It read it only through the
+  `temporary-exception.files.absolute-path.read-only` on `/` that Xcode
+  adds to a Debug build's sandboxed targets; writing was refused
+  (`deny(1) file-write-create` in the kernel's log), and
+  `files.user-selected.read-write` changed nothing. Check a sandboxed
+  target's file access in Release, or by writing. The folder now travels
+  as a path plus a token from `sandbox_extension_issue_file`.
+- **xrdp says the user logged on before saying it can.** FreeRDP 3
+  announces drives only after the server's User Logged On packet, and
+  checks that the server's capabilities offer it; xrdp sends the packet
+  before its capabilities, so it was dropped and no drive was ever
+  announced. `scripts/rdp-patches/freerdp-rdpdr-early-logon.patch` keeps it
+  in mind.
+- **A new `Vendor/rdp` does not relink the engine.** The libraries come in
+  through `OTHER_LDFLAGS`, which Xcode does not track: after
+  `build-rdp-deps.sh`, touch `Helpers/RDP/rdp_bridge.c`, or the engine keeps
+  the old FreeRDP. Entitlements the same: a change to
+  `TermsteadRDP.entitlements` is signed in only when the target rebuilds.
 - **A question the engine waits on must be cancellable.** FreeRDP's thread
   blocks in the callback until the app answers; closing the tab meanwhile
   left it blocked for good. `RDPEngine.disconnect` gives up the question.

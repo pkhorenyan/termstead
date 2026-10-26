@@ -146,6 +146,9 @@ struct RDPOptions: Hashable, Codable, Sendable {
     /// Text copied on either side can be pasted on the other.
     var clipboard = true
     var sound = true
+    /// A folder on this Mac the server sees as a drive, `~` abbreviated;
+    /// empty for none. The server can read and write in it while connected.
+    var sharedFolder = ""
 
     init() {}
 
@@ -160,6 +163,7 @@ struct RDPOptions: Hashable, Codable, Sendable {
         zoom = try values.decodeIfPresent(Int.self, forKey: .zoom) ?? defaults.zoom
         clipboard = try values.decodeIfPresent(Bool.self, forKey: .clipboard) ?? defaults.clipboard
         sound = try values.decodeIfPresent(Bool.self, forKey: .sound) ?? defaults.sound
+        sharedFolder = try values.decodeIfPresent(String.self, forKey: .sharedFolder) ?? defaults.sharedFolder
     }
 }
 

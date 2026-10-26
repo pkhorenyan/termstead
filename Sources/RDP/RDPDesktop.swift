@@ -256,6 +256,14 @@ final class RDPDesktop {
         settings.keyboardLayout = RDPKeyboard.sessionLayoutID
         settings.clipboard = launch.options.clipboard
         settings.sound = launch.options.sound
+        if let folder = sharedFolder(launch.options) {
+            if let access = SandboxExtension.issue(readWrite: folder) {
+                settings.sharedFolder = folder
+                settings.sharedFolderAccess = access
+            } else {
+                log?("The shared folder could not be opened to the remote desktop; connecting without it.")
+            }
+        }
 
         let engine = RDPEngineConnection()
         self.engine = engine
@@ -317,6 +325,19 @@ final class RDPDesktop {
             }
         }
         engine.connect(settings, socket: socket)
+    }
+
+    /// The session's shared folder, if it still exists; a folder gone since
+    /// is said in the tab, and the desktop connects without it.
+    private func sharedFolder(_ options: RDPOptions) -> String? {
+        let path = (options.sharedFolder.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+        guard !path.isEmpty else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            log?("The shared folder \(options.sharedFolder) is not there; connecting without it.")
+            return nil
+        }
+        return path
     }
 
     /// The server's reasons for ending a session (ERRINFO_*, in FreeRDP's

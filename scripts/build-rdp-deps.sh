@@ -97,8 +97,9 @@ build_freerdp() {
     local tree="$WORK/$arch/freerdp-build"
     rm -rf "$tree"
     # Only the library a client needs, and the channels Termstead uses
-    # left at their defaults. rdpdr stays, with no devices behind it: sound,
-    # the heartbeat and network autodetection need it registered. Everything that pulls in another library
+    # left at their defaults. rdpdr stays, with one kind of device behind
+    # it — a drive, for a shared Mac folder: sound, the heartbeat and network
+    # autodetection need it registered anyway. Everything that pulls in another library
     # (X11, SDL, ffmpeg, cups, pcsc, libusb, krb5, json) is off.
     cmake -S "$WORK/src/freerdp-$FREERDP_VERSION" -B "$tree" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
@@ -125,7 +126,7 @@ build_freerdp() {
         -DWITH_MACAUDIO=ON \
         -DCHANNEL_URBDRC=OFF -DCHANNEL_TSMF=OFF -DCHANNEL_PRINTER=OFF -DCHANNEL_SMARTCARD=OFF \
         -DCHANNEL_SERIAL=OFF -DCHANNEL_PARALLEL=OFF -DCHANNEL_RDPECAM=OFF -DCHANNEL_AUDIN=OFF \
-        -DCHANNEL_DRIVE=OFF -DCHANNEL_SSHAGENT=OFF -DCHANNEL_RDP2TCP=OFF \
+        -DCHANNEL_DRIVE=ON -DCHANNEL_SSHAGENT=OFF -DCHANNEL_RDP2TCP=OFF \
         -DCHANNEL_REMDESK=OFF \
         >"$WORK/$arch-freerdp-cmake.log"
     cmake --build "$tree" -j "$JOBS" >"$WORK/$arch-freerdp-build.log"

@@ -312,6 +312,48 @@ struct RDPClipboardTests {
         desktop.stop()
     }
 
+    /// A shared Mac folder is a drive in the session — xrdp shows it in
+    /// `~/thinclient_drives` — readable and writable from there, although
+    /// the engine itself has no file access: the folder's URL brings it.
+    @Test func aSharedFolderIsADriveThere() async throws {
+        // Eight characters at most: xrdp names a drive by its DOS name.
+        let name = "sh\(Int.random(in: 1000...9999))"
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("from the Mac\n".utf8).write(to: folder.appendingPathComponent("mac.txt"))
+
+        let desktop = RDPDesktop()
+        desktop.knownHosts = TestLabRDP.knownHosts
+        desktop.pasteboard = NSPasteboard(name: .init("termstead-test-\(UUID().uuidString)"))
+        desktop.availableSize = { (CGSize(width: 800, height: 600), 1) }
+        var launch = RDPLaunch(session: SessionStore.sample().session("lab-rdp")!, password: "lab")
+        launch.options.sound = false
+        launch.options.sharedFolder = folder.path
+        desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 3390) }
+        defer { desktop.stop() }
+        await TestLabRDP.waitUntilShowing(desktop)
+        try #require(desktop.phase == .showing)
+
+        let drive = "~/thinclient_drives/\(name)"
+        var listed = ""
+        let deadline = Date().addingTimeInterval(20)
+        while !listed.contains("mac.txt"), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(500))
+            listed = asLab("ls \(drive) 2>/dev/null").output
+        }
+        #expect(listed.contains("mac.txt"), "the drive never showed the Mac's file")
+        #expect(asLab("cat \(drive)/mac.txt").output == "from the Mac\n")
+
+        _ = asLab("printf 'from xrdp' > \(drive)/server.txt")
+        let written = folder.appendingPathComponent("server.txt")
+        let until = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: written.path), Date() < until {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        #expect((try? String(contentsOf: written, encoding: .utf8)) == "from xrdp")
+    }
+
     @Test func textCopiedThereComesHere() async throws {
         let pasteboard = NSPasteboard(name: .init("termstead-test-\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }

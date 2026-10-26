@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A remote desktop can share a folder on this Mac: chosen in the session
+  form, it shows up on the server as a drive, to open, save and copy files
+  in while connected.
+
 ## [0.7.0] - 2026-10-22
 
 ### Added

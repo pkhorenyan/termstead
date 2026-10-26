@@ -79,6 +79,10 @@ typedef struct {
 	uint32_t keyboard_layout;
 	bool clipboard;
 	bool sound;
+	/// A Mac folder the server sees as a drive called `drive_name`; NULL
+	/// for none.
+	const char* drive_path;
+	const char* drive_name;
 	/// Connected to the server already; the session takes it over.
 	int socket;
 } tsr_params;

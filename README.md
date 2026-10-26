@@ -44,8 +44,8 @@
   other, in any pane, and through its jump hosts if it has them. The desktop
   fits the tab and follows it as the window is resized, sharp on Retina
   screens; zoom with ⌘+ and ⌘−. Text and files copy both ways — from Finder
-  into Explorer and back — and Ctrl+Alt+Del and the Windows key are in the
-  Session menu. The server's certificate is checked as a browser would, and
+  into Explorer and back — a Mac folder can be shared as a drive, and
+  Ctrl+Alt+Del and the Windows key are in the Session menu. The server's certificate is checked as a browser would, and
   one you have not seen before is asked about in the tab.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
@@ -113,7 +113,8 @@ against the project's signing key before it is installed.
   folder, readable only by you, and deleted when the tab closes.
 - Remote desktops are drawn by **FreeRDP in a sandboxed helper with no network
   access**: Termstead opens the connection and hands it over, so a flaw in the
-  RDP code has no network of its own and no way into your ssh sessions. A
+  RDP code has no network of its own, no way into your ssh sessions, and no
+  files but the one folder a session shares. A
   server that offers no TLS, and so cannot prove who it is, is not logged in
   to. Your clipboard reaches a remote desktop only while you are typing in it.
 - Sessions are stored in `~/Library/Application Support/Termstead/sessions.json`.
