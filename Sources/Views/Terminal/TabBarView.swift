@@ -72,6 +72,16 @@ struct TabBarView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New tab")
+            .contextMenu {
+                Button("New Tab…") {
+                    connectionStore.focus(pane: pane)
+                    appState.route = .quickConnect
+                }
+                Button("New Local Terminal") {
+                    connectionStore.focus(pane: pane)
+                    connectionStore.openLocalTerminal()
+                }
+            }
 
             Spacer(minLength: 0)
 
@@ -195,10 +205,12 @@ struct TabBarView: View {
     }
 
     /// Another tab to the same place, in the same pane: the session as saved,
-    /// or the same address.
+    /// the same address, or another shell on this Mac.
     private func duplicate(_ tab: Connection) {
         connectionStore.focus(pane: pane)
-        if let id = tab.sessionID {
+        if tab.isLocalShell {
+            connectionStore.openLocalTerminal()
+        } else if let id = tab.sessionID {
             connectionStore.connect(sessionID: id, in: sessionStore, newTab: true)
         } else {
             connectionStore.connect(address: tab.address)

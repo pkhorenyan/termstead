@@ -110,6 +110,7 @@ How each screen is reached in normal use:
 | Group settings | a group's context menu |
 | Port forwarding | a session's context menu, in the sidebar or on its tab |
 | Quick connect | ⌘K (the first-launch screen's own field, otherwise a form); ⌘T for a new tab |
+| Local terminal | ⌥⌘T, Session ▸ New Local Terminal, or a right-click on the tab strip's + |
 | Settings | ⌘, or the gear at the trailing end of the titlebar |
 | Files (SFTP) | the SFTP tab on the sidebar's left rail |
 
@@ -308,6 +309,13 @@ read from there, never stored on `Session`.
 - **Host keys** are ssh's business: the first connection to a server asks yes/no
   in the terminal, against the real `known_hosts`.
 - **Closed tabs** keep their output. Press Return to reconnect.
+- **A local terminal** (`Connection.isLocalShell`,
+  `ConnectionStore.openLocalTerminal`, ⌥⌘T) runs the account's login shell
+  (`getpwuid`, started as `-zsh` so it reads the profile — an app launched
+  from Finder has no `PATH` of the user's) in the home folder instead of
+  ssh. No plan, no work directory, no login: the Files tab, server load and
+  tunnels have nothing to ride, and Return after `exit` starts the shell
+  again. `TabMemory` keeps it as `local`.
 - **The Files tab** rides the same connection (see the pitfall on
   `ControlMaster` below), so it never asks for a password twice.
 - **Login** is when ssh's control socket (`cm` in the work directory)

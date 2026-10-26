@@ -38,6 +38,8 @@
   another pane's strip to move it there. Broadcast input types into every
   visible pane at once — a yellow line marks each pane that takes it, and
   any pane can be left out.
+- **Your Mac's own terminal, in a tab** (⌥⌘T): your shell, at home, beside
+  the servers — in any pane, and part of broadcast input like the rest.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
 - **Remote desktops (RDP) in tabs.** An RDP session opens as a tab like any
@@ -127,6 +129,7 @@ against the project's signing key before it is installed.
 | Session settings | ⌘I |
 | Quick connect by address | ⌘K |
 | New tab / Close tab | ⌘T / ⌘W |
+| New local terminal | ⌥⌘T |
 | Previous / next tab | ⇧⌘[ / ⇧⌘] |
 | Split vertically / horizontally | ⌘D / ⇧⌘D |
 | Previous / next pane | ⌘[ / ⌘] |

@@ -207,6 +207,9 @@ struct TermsteadApp: App {
             Button("New Tab…") { appState.route = .quickConnect }
             .keyboardShortcut("t", modifiers: .command)
             .disabled(formIsOpen)
+            Button("New Local Terminal") { connectionStore.openLocalTerminal() }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(formIsOpen)
             Button("Close Tab") {
                 if let id = connectionStore.active?.id {
                     appState.requestClose(id, in: connectionStore,

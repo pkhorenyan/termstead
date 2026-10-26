@@ -292,6 +292,16 @@ final class ConnectionStore {
         }
     }
 
+    /// A shell on this Mac, in a tab like any other: broadcast input, Find
+    /// and the panes work in it as in a server's.
+    func openLocalTerminal() {
+        let shell = (Connection.loginShell as NSString).lastPathComponent
+        let connection = Connection(sessionID: nil, title: "Local", address: "This Mac",
+                                    keyDescription: shell, isLocalShell: true)
+        add(connection)
+        connection.startLocalShell()
+    }
+
     func close(_ id: UUID) {
         guard let index = connections.firstIndex(where: { $0.id == id }) else { return }
         let closing = connections[index]

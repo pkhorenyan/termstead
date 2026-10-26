@@ -9,6 +9,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A local terminal: Session ▸ New Local Terminal (⌥⌘T), or a right-click on
+  the tab strip's +, opens your Mac's own shell in a tab, at home, beside the
+  servers. It splits into panes, takes broadcast input, and comes back with
+  "Reopen tabs at launch"; after `exit`, Return starts it again.
 - A remote desktop can share a folder on this Mac: chosen in the session
   form, it shows up on the server as a drive, to open, save and copy files
   in while connected.

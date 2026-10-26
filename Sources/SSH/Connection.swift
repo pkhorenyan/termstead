@@ -71,6 +71,9 @@ final class Connection: Identifiable {
     /// connection that opens them ("Start Port Forwarding"). Kept out of the
     /// tab strip (`ConnectionStore.tunnels`) unless it needs the user.
     let isTunnelOnly: Bool
+    /// The Mac's own shell, not a server: no ssh, no Files tab, no server
+    /// load, and Return after `exit` starts the shell again.
+    let isLocalShell: Bool
     /// SSH, or a remote desktop. An RDP tab still has its terminal: it
     /// shows how connecting went until the desktop is up, and why it ended.
     let kind: SessionKind
@@ -90,9 +93,11 @@ final class Connection: Identifiable {
     @ObservationIgnored var onEnded: (() -> Void)?
 
     init(sessionID: String?, title: String, address: String, keyDescription: String,
-         keychain: KeychainStore = .shared, isTunnelOnly: Bool = false, kind: SessionKind = .ssh) {
+         keychain: KeychainStore = .shared, isTunnelOnly: Bool = false, kind: SessionKind = .ssh,
+         isLocalShell: Bool = false) {
         self.keychain = keychain
         self.isTunnelOnly = isTunnelOnly
+        self.isLocalShell = isLocalShell
         self.kind = kind
         desktop = kind == .rdp ? RDPDesktop() : nil
         self.sessionID = sessionID
@@ -244,7 +249,36 @@ final class Connection: Identifiable {
         return made
     }
 
+    /// The user's login shell, in their home folder, as Terminal starts it:
+    /// a leading "-" in its name makes it a login shell, which reads the
+    /// profile — the app's own environment, from Finder, has no `PATH` of
+    /// the user's.
+    func startLocalShell() {
+        guard !didClose, isLocalShell else { return }
+        let shell = Self.loginShell
+        state = .running
+        terminalView.startProcess(executable: shell, args: [], environment: Self.environment(extra: [:]),
+                                  execName: "-" + (shell as NSString).lastPathComponent,
+                                  currentDirectory: NSHomeDirectory())
+        watchForExit(of: terminalView.process.shellPid)
+    }
+
+    /// The shell the user's account names, as `chsh` set it.
+    nonisolated static var loginShell: String {
+        if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {
+            let path = String(cString: shell)
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+        return "/bin/zsh"
+    }
+
     func restart() {
+        if isLocalShell {
+            guard !state.isRunning else { return }
+            terminalView.feed(text: "\r\n")
+            startLocalShell()
+            return
+        }
         if let desktopLaunch, !state.isRunning {
             terminalView.feed(text: "\r\n")
             // As it last logged in: a login typed into the tab included.
@@ -421,9 +455,10 @@ final class Connection: Identifiable {
         // A desktop's tunnel gone takes the desktop with it.
         desktop?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
-        let reason = desktopEndReason ?? "Connection closed\(detail)."
+        let reason = desktopEndReason ?? (isLocalShell ? "The shell exited\(detail)." : "Connection closed\(detail).")
+        let again = isLocalShell ? "start it again" : "reconnect"
         desktopEndReason = nil
-        terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to reconnect.\u{1b}[0m\r\n")
+        terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to \(again).\u{1b}[0m\r\n")
     }
 
     fileprivate func sizeChanged(columns: Int, rows: Int) {

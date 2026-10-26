@@ -11,6 +11,8 @@ struct TabMemory: Codable, Equatable, Sendable {
         var sessionID: String?
         /// A quick connection's address, as it was typed.
         var address: String?
+        /// A shell on this Mac.
+        var local: Bool?
         /// The pane it was in; `nil` before there were panes, and for the first.
         var pane: Int?
     }
@@ -38,7 +40,8 @@ struct TabMemory: Codable, Equatable, Sendable {
         // forwarding is started by hand, and would come back as a terminal.
         let all = store.connections.filter { !$0.isTunnelOnly }
         tabs = all.map { connection in
-            var tab = connection.sessionID.map { Tab(sessionID: $0) } ?? Tab(address: connection.address)
+            var tab = connection.isLocalShell ? Tab(local: true)
+                : connection.sessionID.map { Tab(sessionID: $0) } ?? Tab(address: connection.address)
             tab.pane = connection.pane == 0 ? nil : connection.pane
             return tab
         }
@@ -70,7 +73,7 @@ struct TabMemory: Codable, Equatable, Sendable {
         var renumbered: [Int: Int] = [:]
         for (index, tab) in tabs.enumerated() {
             if let id = tab.sessionID, sessions.session(id) == nil { continue }
-            if tab.sessionID == nil, (tab.address ?? "").isEmpty { continue }
+            if tab.sessionID == nil, tab.local != true, (tab.address ?? "").isEmpty { continue }
             renumbered[index] = kept.count
             kept.append(tab)
         }
@@ -88,7 +91,9 @@ struct TabMemory: Codable, Equatable, Sendable {
         var opened: [UUID] = []
         for tab in plan.tabs {
             connections.focus(pane: min(tab.pane ?? 0, layout.paneCount - 1))
-            if let id = tab.sessionID {
+            if tab.local == true {
+                connections.openLocalTerminal()
+            } else if let id = tab.sessionID {
                 // A new tab each time: two tabs on one session stay two.
                 connections.connect(sessionID: id, in: sessions, newTab: true)
             } else if let address = tab.address {

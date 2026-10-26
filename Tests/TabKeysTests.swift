@@ -67,6 +67,17 @@ struct TabKeysTests {
         #expect(!items.contains { $0.action == #selector(NSWindow.performClose(_:)) })
     }
 
+    /// ⌥⌘T opens a local terminal, and nothing else in the menus has it —
+    /// a stock item with the same key would take it, as File ▸ Close took ⌘W.
+    @Test func optionCommandTOpensALocalTerminal() {
+        let items = (NSApp.mainMenu?.items ?? []).compactMap { $0.submenu }.flatMap { $0.items }
+        let optionCommandT = items.filter {
+            $0.keyEquivalent == "t"
+                && $0.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]) == [.command, .option]
+        }
+        #expect(optionCommandT.map(\.title) == ["New Local Terminal"])
+    }
+
     /// With no menu item closing windows, a form closes itself on ⌘W.
     @Test func commandWClosesAForm() {
         let window = FormWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
