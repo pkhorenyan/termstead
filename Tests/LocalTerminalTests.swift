@@ -61,6 +61,48 @@ struct LocalTerminalTests {
         #expect(await run("echo TERMSTEAD_$((7*8))_AGAIN", in: tab, until: "TERMSTEAD_56_AGAIN"))
     }
 
+    /// The Files panel browses this Mac for a local tab, and follows its `cd`.
+    @Test func theFilesPanelFollowsALocalShell() async throws {
+        let made = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sb-local-" + UUID().uuidString.prefix(8).lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: made.appendingPathComponent("inner"), withIntermediateDirectories: true)
+        // As the kernel names it: /private/var, not /var.
+        let folder = URL(fileURLWithPath: try #require(LocalFiles.realPath(made.path)))
+        try Data("hello".utf8).write(to: folder.appendingPathComponent("note.txt"))
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let tabs = ConnectionStore()
+        defer { tabs.closeAll() }
+        tabs.openLocalTerminal()
+        let tab = try #require(tabs.active)
+        let source = try #require(tab.files)
+        #expect(source.isLocal)
+        #expect(try await source.home() == NSHomeDirectory())
+
+        #expect(await run("cd '\(folder.path)' && echo TERMSTEAD_$((3*5))_IN", in: tab, until: "TERMSTEAD_15_IN"))
+        #expect(await source.terminalDirectory() == folder.path)
+
+        let browser = tab.fileBrowser
+        browser.isShown = true
+        browser.start()
+        await wait(upTo: 5) { browser.path == folder.path }
+        #expect(browser.problem == nil)
+        #expect(browser.visibleFiles.map(\.name) == ["inner", "note.txt"])
+        #expect(browser.visibleFiles.last?.size == 5)
+        #expect(browser.visibleFiles.last?.permissions.count == 9)
+
+        browser.makeDirectory(named: "made")
+        await wait(upTo: 5) { browser.files.contains { $0.name == "made" } }
+        let newFolder = try #require(browser.files.first { $0.name == "made" })
+        browser.rename(newFolder, to: "renamed")
+        await wait(upTo: 5) { browser.files.contains { $0.name == "renamed" } }
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("renamed").path))
+
+        browser.upload([folder.appendingPathComponent("note.txt")], into: folder.appendingPathComponent("inner").path)
+        await wait(upTo: 5) { FileManager.default.fileExists(atPath: folder.appendingPathComponent("inner/note.txt").path) }
+        #expect(FileManager.default.contents(atPath: folder.appendingPathComponent("inner/note.txt").path) == Data("hello".utf8))
+    }
+
     @Test func aLocalTabIsRememberedAndReopened() {
         let tabs = ConnectionStore()
         defer { tabs.closeAll() }

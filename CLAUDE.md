@@ -248,7 +248,7 @@ scripts/release.sh 0.2.0
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
 | `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
-| `Sources/SFTP/` | `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
+| `Sources/SFTP/` | `FileSource` (what the Files tab browses) with `LocalFiles` (this Mac, for a local terminal), `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts`, `RDPClipboardFiles` (files copied either way) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
 | `Helpers/RDP/` | `TermsteadRDP.xpc`, the RDP engine: FreeRDP behind `rdp_bridge.c`, driven by `RDPEngine.swift`, in `Contents/XPCServices` |
@@ -313,9 +313,14 @@ read from there, never stored on `Session`.
   `ConnectionStore.openLocalTerminal`, ⌥⌘T) runs the account's login shell
   (`getpwuid`, started as `-zsh` so it reads the profile — an app launched
   from Finder has no `PATH` of the user's) in the home folder instead of
-  ssh. No plan, no work directory, no login: the Files tab, server load and
-  tunnels have nothing to ride, and Return after `exit` starts the shell
-  again. `TabMemory` keeps it as `local`.
+  ssh. No plan, no work directory, no login: server load and tunnels have
+  nothing to ride, and Return after `exit` starts the shell again. The
+  Files tab browses this Mac instead (`LocalFiles`, behind the same
+  `FileSource` as `SFTPClient`): "follow the terminal" asks the kernel for
+  the folder of the terminal's foreground process (`tcgetpgrp`,
+  `PROC_PIDVNODEPATHINFO`), and paths go through `realpath`, which names
+  `/private/var` as the kernel does — `URL.resolvingSymlinksInPath` drops
+  `/private`, and every Return looked like a move. `TabMemory` keeps it as `local`.
 - **The Files tab** rides the same connection (see the pitfall on
   `ControlMaster` below), so it never asks for a password twice.
 - **Login** is when ssh's control socket (`cm` in the work directory)

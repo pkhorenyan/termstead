@@ -63,8 +63,10 @@ final class FileBrowser {
     }()
 
     /// Overridable for tests; the real one belongs to the tab.
-    @ObservationIgnored var clientOverride: SFTPClient?
-    var client: SFTPClient? { clientOverride ?? connection?.sftp }
+    @ObservationIgnored var clientOverride: (any FileSource)?
+    var client: (any FileSource)? { clientOverride ?? connection?.files }
+    /// This Mac's files, for a local terminal.
+    var isLocal: Bool { client?.isLocal ?? connection?.isLocalShell ?? false }
 
     /// Where downloads go.
     @ObservationIgnored var downloadsDirectory = FileManager.default.urls(for: .downloadsDirectory,
@@ -342,6 +344,11 @@ final class FileBrowser {
     /// and uploads it again each time that app saves it.
     private func edit(_ file: RemoteFile) async {
         guard let client else { return }
+        if client.isLocal {
+            // Already on this Mac: opened where it is, nothing to send back.
+            RemoteEdit.open(URL(fileURLWithPath: file.path))
+            return
+        }
         if let existing = edits[file.path] {
             existing.open()
             return
@@ -401,7 +408,9 @@ final class RemoteEdit {
         watch()
     }
 
-    func open() {
+    func open() { Self.open(local) }
+
+    static func open(_ local: URL) {
         // A file with no app of its own — `nginx.conf`, `.bashrc` — opens as
         // text rather than in the "choose an application" dialog.
         let workspace = NSWorkspace.shared

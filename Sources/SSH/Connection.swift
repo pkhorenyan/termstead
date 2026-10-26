@@ -240,6 +240,16 @@ final class Connection: Identifiable {
                           alias: plan.target.alias)
     }
 
+    /// What the Files panel browses: the server over SFTP, or this Mac for
+    /// a local terminal.
+    var files: (any FileSource)? {
+        if isLocalShell {
+            guard state.isRunning else { return nil }
+            return LocalFiles(shellPID: terminalView.process.shellPid, terminalFD: terminalView.process.childfd)
+        }
+        return sftp
+    }
+
     /// The tab's file browser, made the first time the Files panel shows it.
     @ObservationIgnored private var browser: FileBrowser?
     var fileBrowser: FileBrowser {

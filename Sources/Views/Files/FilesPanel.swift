@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The sidebar's Files tab: the active tab's server, browsed over SFTP.
+/// The sidebar's Files tab: the active tab's server, browsed over SFTP, or
+/// this Mac's disk for a local terminal.
 struct FilesPanel: View {
     @Environment(\.theme) private var theme
     @Environment(ConnectionStore.self) private var connectionStore
@@ -99,9 +100,15 @@ private struct FileBrowserView: View {
             }
             Button("Cancel", role: .cancel) { deleting = nil }
         } message: {
-            Text(deleting?.kind == .directory
-                 ? "The folder and everything in it are deleted from \(title). This cannot be undone."
-                 : "The file is deleted from \(title). This cannot be undone.")
+            if browser.isLocal {
+                Text(deleting?.kind == .directory
+                     ? "The folder and everything in it are moved to the Trash."
+                     : "The file is moved to the Trash.")
+            } else {
+                Text(deleting?.kind == .directory
+                     ? "The folder and everything in it are deleted from \(title). This cannot be undone."
+                     : "The file is deleted from \(title). This cannot be undone.")
+            }
         }
     }
 
@@ -250,7 +257,7 @@ private struct FileBrowserView: View {
 
     /// Dragging a row to Finder downloads it: the promise is kept only once
     /// Finder asks for the file, into a folder of the system's choosing.
-    private static func provider(for file: RemoteFile, client: SFTPClient?) -> NSItemProvider {
+    private static func provider(for file: RemoteFile, client: (any FileSource)?) -> NSItemProvider {
         let provider = NSItemProvider()
         provider.suggestedName = file.name
         guard let client else { return provider }
@@ -279,8 +286,8 @@ private struct FileBrowserView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = "Upload"
-        panel.message = "Upload to \(browser.path ?? "the server")"
+        panel.prompt = browser.isLocal ? "Copy" : "Upload"
+        panel.message = "\(browser.isLocal ? "Copy" : "Upload") to \(browser.path ?? "the server")"
         guard panel.runModal() == .OK else { return }
         browser.upload(panel.urls)
     }

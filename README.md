@@ -61,7 +61,8 @@
   the sidebar turns to it as soon as you are logged in. It
   can follow the terminal's current folder; drag files in to upload and out to
   download; open a remote file in its Mac app and it is uploaded again each
-  time you save.
+  time you save. In a local terminal it shows this Mac's files, following
+  the shell's folder the same way.
 - **Import from `~/.ssh/config`** — your existing hosts become sessions in one
   click.
 - **Find in the output** (⌘F), with the scrollback size of your choice.
