@@ -90,6 +90,19 @@ struct TabMemoryTests {
         #expect(lost.reopenable(in: sessions).active == nil)
     }
 
+    /// A remote desktop's tab comes back as one, and starts connecting.
+    @Test func aRemoteDesktopTabIsReopened() {
+        let sessions = SessionStore.sample()
+        let memory = TabMemory(tabs: [.init(sessionID: "nas"), .init(sessionID: "lab-rdp")], active: 1)
+        let tabs = ConnectionStore()
+        defer { tabs.closeAll() }
+        memory.reopen(in: tabs, sessions: sessions)
+        let desktop = tabs.connections.last
+        #expect(desktop?.kind == .rdp)
+        #expect(desktop?.desktop?.phase == .connecting)
+        #expect(tabs.active === desktop)
+    }
+
     @Test func closingSeveralTabsAsksOnceWhileAnyIsLive() {
         let tabs = store([(nil, "a"), (nil, "b"), (nil, "c")])
         let ids = tabs.connections.prefix(2).map(\.id)
