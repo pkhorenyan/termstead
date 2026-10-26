@@ -301,8 +301,25 @@ extension ThemeStore {
         let font = Self.font(family: terminalFontFamily, size: points)
             ?? Self.font(family: Self.bundledFontFamily, size: points)
             ?? .monospacedSystemFont(ofSize: points, weight: .regular)
-        return fontLigatures ? font : Self.withoutLigatures(font)
+        let symbols = Self.withSymbols(font)
+        return fontLigatures ? symbols : Self.withoutLigatures(symbols)
     }
+
+    /// Nerd Font symbols, where they are installed, for the glyphs the font
+    /// lacks: prompts such as powerlevel10k's draw their icons from there,
+    /// and without it each showed as a box. The text keeps its own font.
+    static func withSymbols(_ font: NSFont) -> NSFont {
+        guard let family = symbolFontFamily else { return font }
+        let fallback = NSFontDescriptor(fontAttributes: [.family: family])
+        let descriptor = font.fontDescriptor.addingAttributes([.cascadeList: [fallback]])
+        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
+    }
+
+    /// The Nerd Font symbols family installed, the single-width one first.
+    nonisolated static let symbolFontFamily: String? = {
+        let installed = Set(CTFontManagerCopyAvailableFontFamilyNames() as? [String] ?? [])
+        return ["Symbols Nerd Font Mono", "Symbols Nerd Font"].first { installed.contains($0) }
+    }()
 
     /// Common ligatures and contextual alternates off — JetBrains Mono keeps
     /// its code ligatures in the latter.

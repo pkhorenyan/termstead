@@ -9,19 +9,29 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- A local terminal: Session ▸ New Local Terminal (⌥⌘T), or a right-click on
-  the tab strip's +, opens your Mac's own shell in a tab, at home, beside the
+- A local terminal: the terminal button beside the tab strip's +, Session ▸
+  New Local Terminal (⌥⌘T) or the sidebar's menu opens your Mac's own shell in a tab, at home, beside the
   servers. It splits into panes, takes broadcast input, and comes back with
   "Reopen tabs at launch"; after `exit`, Return starts it again.
 - A remote desktop can share a folder on this Mac: chosen in the session
   form, it shows up on the server as a drive, to open, save and copy files
   in while connected.
 
+- Prompt icons, such as powerlevel10k's, show in the terminal when a Nerd
+  Font's symbols are installed: glyphs the terminal's font lacks are drawn
+  from "Symbols Nerd Font Mono", and the text keeps its own font.
+
 ### Changed
 
 - The RDP engine no longer runs in a sandbox, as RDP clients on the Mac
   mostly do not: a shared folder is opened by FreeRDP itself. It still runs
   in a process of its own, so a crash in it ends only the remote desktops.
+
+### Fixed
+
+- Text no longer runs under the terminal's scroll bar after the font
+  changes — a tab opening, or ⌘+ and ⌘−: the terminal counted its columns
+  over its whole width, scroll bar included, until the window was resized.
 
 ## [0.7.0] - 2026-10-22
 

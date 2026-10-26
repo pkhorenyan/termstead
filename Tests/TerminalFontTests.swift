@@ -12,6 +12,22 @@ struct TerminalFontTests {
         #expect(Set(families).count == families.count, "no family listed twice")
     }
 
+    /// A prompt's icon (powerlevel10k's, from the Nerd Fonts' private use
+    /// area) is drawn from the installed symbols font; the text is not.
+    @Test(.enabled(if: ThemeStore.symbolFontFamily != nil, "no Nerd Font symbols installed"))
+    func promptIconsComeFromTheSymbolsFont() throws {
+        let base = try #require(ThemeStore.font(family: ThemeStore.bundledFontFamily, size: 13))
+        let font = ThemeStore.withSymbols(base) as CTFont
+        func family(of text: String) -> String {
+            let used = CTFontCreateForString(font, text as CFString, CFRange(location: 0, length: (text as NSString).length))
+            return CTFontCopyFamilyName(used) as String
+        }
+        // A folder from the Nerd Fonts' Font Awesome set: JetBrains Mono has
+        // the powerline arrows itself, but none of these.
+        #expect(family(of: "\u{F07C}") == ThemeStore.symbolFontFamily, "drawn from \(family(of: "\u{F07C}"))")
+        #expect(family(of: "a") == CTFontCopyFamilyName(base as CTFont) as String)
+    }
+
     @Test func onlyMonospacedFamiliesAreOffered() {
         let families = ThemeStore.monospacedFamilies()
         // Menlo ships with every macOS; Helvetica is proportional.

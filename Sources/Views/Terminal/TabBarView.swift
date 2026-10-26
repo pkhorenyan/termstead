@@ -72,16 +72,24 @@ struct TabBarView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New tab")
-            .contextMenu {
-                Button("New Tab…") {
-                    connectionStore.focus(pane: pane)
-                    appState.route = .quickConnect
-                }
-                Button("New Local Terminal") {
-                    connectionStore.focus(pane: pane)
-                    connectionStore.openLocalTerminal()
-                }
+            .help("New tab")
+
+            // This Mac's shell, a click away, as MobaXterm's "Start local
+            // terminal" is: a context menu on + was found by nobody.
+            Button {
+                connectionStore.focus(pane: pane)
+                connectionStore.openLocalTerminal()
+            } label: {
+                Image(systemName: "apple.terminal")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.textMuted.color)
+                    .frame(width: 30)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New local terminal")
+            .help("New local terminal (⌥⌘T)")
 
             Spacer(minLength: 0)
 

@@ -110,7 +110,7 @@ How each screen is reached in normal use:
 | Group settings | a group's context menu |
 | Port forwarding | a session's context menu, in the sidebar or on its tab |
 | Quick connect | ⌘K (the first-launch screen's own field, otherwise a form); ⌘T for a new tab |
-| Local terminal | ⌥⌘T, Session ▸ New Local Terminal, or a right-click on the tab strip's + |
+| Local terminal | ⌥⌘T, Session ▸ New Local Terminal, the terminal button beside the tab strip's +, or the sidebar's blank-space menu |
 | Settings | ⌘, or the gear at the trailing end of the titlebar |
 | Files (SFTP) | the SFTP tab on the sidebar's left rail |
 
@@ -908,6 +908,19 @@ These have each cost real time. They are not hypothetical.
   solid fill with its own text color, through the vendored
   `selectedTextForegroundColor` patch); the view swaps it for the
   translucent selection style when a selection is made any other way.
+- **SwiftTerm counted a new font's columns over its whole width**, scroll
+  bar included, while a resize counts them without it: after a tab was put
+  in its pane or zoomed, two or three columns ran under the scroll bar
+  until the window was resized. Fixed in the vendored `resetFont`
+  (PATCHES.md); `theColumnsFitBesideTheScrollBar` checks it with
+  SwiftTerm's own `getOptimalFrameSize`.
+- **Prompt icons come from a cascade list.** powerlevel10k and the like draw
+  icons from Nerd Fonts' private use area; `ThemeStore.withSymbols` adds an
+  installed "Symbols Nerd Font Mono" to the terminal font's
+  `.cascadeList`, and the vendored `FontSet.withFeatures` carries it to the
+  bold and italic faces, which `NSFontManager.convert` derives without it.
+  JetBrains Mono has the powerline arrows itself; test with a glyph it
+  lacks (U+F07C).
 - **SwiftTerm's `font` setter clears the selection**, even for the same
   font. `TerminalStyle` sets it only when it changed; otherwise every theme
   change dropped a find match or the user's selection.

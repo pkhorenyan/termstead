@@ -320,6 +320,7 @@ struct SidebarView: View {
         Button("New Session…") { appState.route = .newSession(parentGroupID: nil) }
         Button("New Group…") { appState.route = .newGroup(parentGroupID: nil) }
         Button("Quick Connect…") { appState.route = .quickConnect }
+        Button("New Local Terminal") { connectionStore.openLocalTerminal() }
         Divider()
         Button("Import from ~/.ssh/config") {
             Task { await appState.importSSHConfig(into: sessionStore) }

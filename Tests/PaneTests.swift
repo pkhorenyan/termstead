@@ -290,6 +290,41 @@ struct PaneWindowTests {
         return (window, store, appState)
     }
 
+    /// A terminal's columns and its scroll bar fit its view: after a
+    /// resize, and after a change of font — SwiftTerm counted a new font's
+    /// columns over the whole width, and text ran under the scroll bar.
+    @Test func theColumnsFitBesideTheScrollBar() async throws {
+        let (window, store, _) = try await window(.single, tabs: [[]])
+        defer { store.closeAll(); window.close() }
+        store.openLocalTerminal()
+        let tab = try #require(store.active)
+        for _ in 0..<40 { try await Task.sleep(for: .milliseconds(50)) }
+        let view = tab.terminalView
+        // SwiftTerm's own measure: its columns at its cell width, and its
+        // scroll bar.
+        let used = view.getOptimalFrameSize().width
+        #expect(used <= view.bounds.width + 1,
+                "\(view.getTerminal().cols) columns take \(used) in a view \(view.bounds.width) wide")
+
+        // A long line, then a narrower window: nothing on screen may be
+        // longer than the columns the terminal now has.
+        view.send(txt: "printf 'X%.0s' $(seq 1 300); echo\r")
+        for _ in 0..<40 { try await Task.sleep(for: .milliseconds(50)) }
+        window.setFrame(NSRect(x: 120, y: 120, width: 600, height: 500), display: true)
+        for _ in 0..<40 { try await Task.sleep(for: .milliseconds(50)) }
+        let terminal = view.getTerminal()
+        let longest = (0..<terminal.rows).compactMap { terminal.getLine(row: $0)?.translateToString(trimRight: true).count }.max() ?? 0
+        #expect(longest <= terminal.cols, "a line of \(longest) in \(terminal.cols) columns, view \(view.bounds.width) wide")
+        #expect(view.getOptimalFrameSize().width <= view.bounds.width + 1,
+                "after the resize \(terminal.cols) columns take \(view.getOptimalFrameSize().width) in \(view.bounds.width)")
+
+        // ⌘+ in the tab: a wider cell must mean fewer columns.
+        tab.fontSize = 20
+        for _ in 0..<20 { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(view.getOptimalFrameSize().width <= view.bounds.width + 1,
+                "at a larger font \(terminal.cols) columns take \(view.getOptimalFrameSize().width) in \(view.bounds.width)")
+    }
+
     /// A point of SwiftUI's global space as an event's window location.
     private func windowPoint(_ point: CGPoint, in window: NSWindow) -> NSPoint {
         let content = window.contentView!

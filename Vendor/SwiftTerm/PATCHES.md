@@ -49,5 +49,15 @@ cells (box drawing and block elements included) take it.
 settings. Termstead turns ligatures off through those settings (Settings ▸
 Appearance ▸ Ligatures), and bold or italic text still drew them.
 `FontSet.withFeatures(of:_:)` carries the base font's `.featureSettings` over to
-each derived font.
+each derived font, and its `.cascadeList` with them: the fonts glyphs the
+base font lacks come from (Termstead's Nerd Font symbols, for prompt icons).
 
+
+## resetFont: columns less the scroll bar
+
+Setting a font recomputed the columns from the view's whole width, while a
+change of size (`processSizeChange`) counts it less the scroll bar
+(`getEffectiveWidth`). After every font change — a tab put in its pane, ⌘+
+and ⌘− — the terminal had two or three columns too many, and their text ran
+under the scroll bar until the window was resized. `resetFont` counts the
+way `processSizeChange` does.

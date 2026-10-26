@@ -58,11 +58,16 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         }
 
         /// Termstead patch: `NSFontManager.convert` drops the base font's
-        /// feature settings (ligatures off, say), so bold and italic text
-        /// would not follow them. They are carried over.
+        /// feature settings (ligatures off, say) and its cascade list (the
+        /// fonts missing glyphs come from), so bold and italic text would
+        /// follow neither. They are carried over.
         static func withFeatures(of base: NSFont, _ font: NSFont) -> NSFont {
-            guard let features = base.fontDescriptor.object(forKey: .featureSettings) else { return font }
-            let descriptor = font.fontDescriptor.addingAttributes([.featureSettings: features])
+            var carried: [NSFontDescriptor.AttributeName: Any] = [:]
+            for key in [NSFontDescriptor.AttributeName.featureSettings, .cascadeList] {
+                if let value = base.fontDescriptor.object(forKey: key) { carried[key] = value }
+            }
+            guard !carried.isEmpty else { return font }
+            let descriptor = font.fontDescriptor.addingAttributes(carried)
             return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
         }
 

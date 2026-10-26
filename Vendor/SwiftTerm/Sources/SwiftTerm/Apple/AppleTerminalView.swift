@@ -72,7 +72,9 @@ extension TerminalView {
     {
         resetCaches()
         self.cellDimension = computeFontDimensions ()
-        let newCols = Int(frame.width / cellDimension.width)
+        // TERMSTEAD PATCH (see PATCHES.md): less the scroll bar, as
+        // processSizeChange counts; the whole width put text under it.
+        let newCols = Int(getEffectiveWidth(size: frame.size) / cellDimension.width)
         let newRows = Int(frame.height / cellDimension.height)
         resize(cols: newCols, rows: newRows)
         updateCaretView()
