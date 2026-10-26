@@ -9,11 +9,14 @@ struct EmptyStateView: View {
     @FocusState private var addressFocused: Bool
 
     /// Only what does something on this screen: with no sessions and no tabs,
-    /// New Tab and Close Tab have nothing to act on.
+    /// New Tab and Close Tab have nothing to act on. An even count, so the
+    /// two columns end level.
     private let shortcuts = [
         ("Quick connect", "⌘K"),
         ("New session", "⌘N"),
         ("New group", "⇧⌘N"),
+        ("Local terminal", "⌥⌘T"),
+        ("Sidebar", "⌃⌘S"),
         ("Settings", "⌘,"),
     ]
 
@@ -64,6 +67,18 @@ struct EmptyStateView: View {
                 .buttonStyle(PrimaryButtonStyle(theme: theme, height: 42,
                                                 horizontalPadding: 18, fontSize: 14))
             }
+
+            // This Mac's own shell needs no address: the one way in from
+            // here that asks nothing.
+            Button {
+                connectionStore.openLocalTerminal()
+            } label: {
+                Label("Open a Local Terminal", systemImage: "apple.terminal")
+            }
+            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 34, horizontalPadding: 14,
+                                              fontSize: 13, filled: true))
+            .help("Your Mac's own shell, in a tab (⌥⌘T)")
+            .padding(.top, -8)
 
             VStack(spacing: 0) {
                 Divider1(theme.border)

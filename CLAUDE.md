@@ -110,7 +110,7 @@ How each screen is reached in normal use:
 | Group settings | a group's context menu |
 | Port forwarding | a session's context menu, in the sidebar or on its tab |
 | Quick connect | ⌘K (the first-launch screen's own field, otherwise a form); ⌘T for a new tab |
-| Local terminal | ⌥⌘T, Session ▸ New Local Terminal, the terminal button beside the tab strip's +, or the sidebar's blank-space menu |
+| Local terminal | ⌥⌘T, Session ▸ New Local Terminal, the terminal button beside the tab strip's +, the sidebar's blank-space menu, or the welcome screen's button |
 | Settings | ⌘, or the gear at the trailing end of the titlebar |
 | Files (SFTP) | the SFTP tab on the sidebar's left rail |
 

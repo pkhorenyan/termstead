@@ -21,6 +21,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Font's symbols are installed: glyphs the terminal's font lacks are drawn
   from "Symbols Nerd Font Mono", and the text keeps its own font.
 
+- The welcome screen opens a local terminal too: a button under the
+  address field, and ⌥⌘T among its shortcuts.
 - The Files tab browses this Mac for a local terminal, and follows its
   `cd` as it follows a server's shell. Deleting moves to the Trash, a file
   opens where it is, and dropping files copies them.
