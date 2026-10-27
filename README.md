@@ -40,6 +40,8 @@
   any pane can be left out.
 - **Your Mac's own terminal, in a tab** (⌥⌘T): your shell, at home, beside
   the servers — in any pane, and part of broadcast input like the rest.
+- **Snippets.** Commands you type often, sent with a double-click or ⌃1–⌃9
+  to the tab in front — or to every pane with broadcast input.
 - **Session logs.** A tab's output to a plain-text file with the time on
   each line, for a session always or for any tab when you choose.
 - **Tabs come back by themselves.** A connection dropped by sleep, Wi-Fi or
@@ -135,6 +137,7 @@ against the project's signing key before it is installed.
 | Quick connect by address | ⌘K |
 | New tab / Close tab | ⌘T / ⌘W |
 | New local terminal | ⌥⌘T |
+| Send snippet 1–9 | ⌃1 – ⌃9 |
 | Previous / next tab | ⇧⌘[ / ⇧⌘] |
 | Split vertically / horizontally | ⌘D / ⇧⌘D |
 | Previous / next pane | ⌘[ / ⌘] |

@@ -5,6 +5,7 @@ struct TermsteadApp: App {
     @State private var themeStore = ThemeStore()
     @State private var storage: SessionStorage
     @State private var sessionStore: SessionStore
+    @State private var snippetStore: SnippetStore
     @State private var appState = AppState()
     @State private var connectionStore = ConnectionStore()
     @State private var updater = AppUpdater()
@@ -23,6 +24,7 @@ struct TermsteadApp: App {
         let storage = SessionStorage.forThisLaunch()
         _storage = State(initialValue: storage)
         _sessionStore = State(initialValue: storage.makeStore())
+        _snippetStore = State(initialValue: SnippetStore.forThisLaunch(storage))
     }
 
     var body: some Scene {
@@ -36,6 +38,7 @@ struct TermsteadApp: App {
                 }
                 .environment(themeStore)
                 .environment(sessionStore)
+                .environment(snippetStore)
                 .environment(storage)
                 .environment(connectionStore)
                 .environment(appState)
@@ -219,6 +222,26 @@ struct TermsteadApp: App {
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(connectionStore.active == nil || formIsOpen)
             Divider()
+            Menu("Snippets") {
+                // ⌃1 to ⌃9 for the first nine: ⌘1… are left free, as tabs'
+                // numbers in other terminals.
+                ForEach(Array(snippetStore.snippets.prefix(9).enumerated()), id: \.element.id) { index, snippet in
+                    Button(snippet.name) { connectionStore.send(snippet) }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .control)
+                        .disabled(connectionStore.snippetTarget == nil || formIsOpen)
+                }
+                ForEach(snippetStore.snippets.dropFirst(9)) { snippet in
+                    Button(snippet.name) { connectionStore.send(snippet) }
+                        .disabled(connectionStore.snippetTarget == nil || formIsOpen)
+                }
+                if !snippetStore.snippets.isEmpty { Divider() }
+                Button("New Snippet…") { appState.route = .snippet(id: nil) }
+                    .disabled(formIsOpen)
+                Button("Show Snippets") {
+                    appState.isSidebarHidden = false
+                    appState.sidebarTab = .snippets
+                }
+            }
             Button(connectionStore.active?.isLogging == true ? "Stop Logging" : "Start Logging") {
                 guard let tab = connectionStore.active else { return }
                 if tab.isLogging { tab.stopLog() } else { connectionStore.startLog(tab) }

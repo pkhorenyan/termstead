@@ -113,6 +113,8 @@ How each screen is reached in normal use:
 | Local terminal | ⌥⌘T, Session ▸ New Local Terminal, the terminal button beside the tab strip's +, the sidebar's blank-space menu, or the welcome screen's button |
 | Settings | ⌘, or the gear at the trailing end of the titlebar |
 | Files (SFTP) | the SFTP tab on the sidebar's left rail |
+| Snippets | the Snippets tab on the rail, or Session ▸ Snippets ▸ Show Snippets; a snippet's form from its "+" or context menu (`-sb-route snippet`, `-sb-sidebar snippets`) |
+| Logs | Settings ▸ Terminal ▸ Logs (the folder), a session's "Log to file", Start Logging in a tab's or the Session menu |
 
 The forms are windows of their own, not sheets, so they can be moved aside. A
 group's color and a session's icon are set in them; the sidebar only shows them.
@@ -246,7 +248,7 @@ scripts/release.sh 0.2.0
 | `Sources/AppUpdater.swift` | Sparkle: the daily check and "Check for Updates…" |
 | `Sources/AboutPanel.swift` | The standard About panel, with links to the website and the source |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
-| `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
+| `Sources/Model/` | `SessionStore` (the tree and all editing), `Snippet` and `SnippetStore` (`snippets.json`), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
 | `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `SessionLog` (a tab's output to a file), `NetworkWatch` (whether there is a network, for reconnecting), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `FileSource` (what the Files tab browses) with `LocalFiles` (this Mac, for a local terminal), `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts`, `RDPClipboardFiles` (files copied either way) |
@@ -262,6 +264,7 @@ scripts/release.sh 0.2.0
 | `Sources/Views/Terminal/` | `PaneLayoutView` (the panes, `PaneSplit` dividers, `PaneView`, `EmptyPaneView`), tab bar and its mouse layer (`TabInteraction`: select, drag to reorder with edge scrolling or onto another pane, middle-click; `TabStripScrolling`: the wheel), find bar and `TerminalPane` (mounts a pane's active SwiftTerm view, applies the theme) |
 | `Sources/Views/Sheets/` | Session and group forms plus their controls, and the color picker. They are *windows* now, not sheets; the names are historical |
 | `Sources/Views/Files/` | `FilesPanel`, the sidebar's Files tab |
+| `Sources/Views/Snippets/` | `SnippetsPanel`, the sidebar's Snippets tab (the form is `Sheets/SnippetSheet`) |
 | `Sources/Views/Settings/` | The Settings window: appearance and terminal behaviour |
 | `Sources/Window/` | `WindowConfigurator` (window chrome, titlebar accessory, traffic lights) `FormWindow` (the forms, as movable child windows) and `AppModal` (app-modal running for the forms and Settings) |
 | `Sources/Components/` | Reusable controls, `ThemeSwatch`, `PromptGlyph`, `FlowRow` |
@@ -309,6 +312,15 @@ read from there, never stored on `Session`.
 - **Host keys** are ssh's business: the first connection to a server asks yes/no
   in the terminal, against the real `known_hosts`.
 - **Closed tabs** keep their output. Press Return to reconnect.
+- **Snippets** (`SnippetStore`, beside `sessions.json`; in memory, with
+  samples or none, whenever the tree is not the user's own). Sent with
+  `SSHTerminalView.sendSnippet`, which marks them as a paste is: a
+  double-click in the sidebar has a mouse event in progress, and typing
+  during one is not broadcast (`aSnippetIsBroadcastLikeTyping`). Lines go
+  as typed, `\r` each, not as a bracketed paste, which a shell would hold
+  until Return. The keyboard goes back to the terminal after a send.
+  ⌃1–⌃9 take the first nine; with Mission Control's "Switch to Desktop N"
+  turned on, macOS keeps those keys for itself.
 - **Logs** (`SessionLog`, `Connection.startLog`): a session's "Log to
   file" (`Session.logs`) starts one as its tab opens, before ssh, so the
   login is in it; Start Logging in the tab's or the Session menu does it

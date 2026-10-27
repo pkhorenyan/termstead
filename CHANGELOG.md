@@ -33,6 +33,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every 60 s, waiting meanwhile for a network, and Return connects at
   once. `exit` is left alone. Settings ▸ Terminal ▸ Reconnect when the
   connection drops, on by default.
+- Snippets: saved commands, sent to the tab in front with a double-click —
+  and to every pane while broadcast input is on — from a Snippets tab on
+  the sidebar's rail, or Session ▸ Snippets, where the first nine have
+  ⌃1 to ⌃9. A snippet types its lines as if typed, with Return after the
+  last one unless it is left on the prompt to finish by hand.
 - Session logs: a tab's output written to a file as plain text, with the
   time on each line — no colors or control codes, and nothing a
   full-screen program such as vim draws. "Log to file" in a session's form

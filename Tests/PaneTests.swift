@@ -535,4 +535,34 @@ struct PaneWindowTests {
         #expect(screen(left).contains("SOLO") && !screen(right).contains("SOLO"),
                 "a pane left out still got the typing")
     }
+
+    /// A snippet is sent with a double-click in the sidebar — a mouse event
+    /// in progress, which would keep typing from being broadcast — and still
+    /// reaches every pane, as a paste does.
+    @Test func aSnippetIsBroadcastLikeTyping() async throws {
+        let (window, store, _) = try await window(.sideBySide, tabs: [["left"], ["right"]])
+        defer { store.closeAll(); window.close() }
+        for pane in 0..<2 {
+            store.active(in: pane)!.terminalView.startProcess(executable: "/bin/cat", args: [],
+                                                              environment: nil, execName: "cat")
+        }
+        let left = try #require(store.active(in: 0)?.terminalView)
+        let right = try #require(store.active(in: 1)?.terminalView)
+        store.focus(pane: 0)
+        store.toggleBroadcast()
+        try await settle()
+        func screen(_ view: SSHTerminalView) -> String {
+            String(decoding: view.getTerminal().getBufferAsData(), as: UTF8.self)
+        }
+        let click = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                       clickCount: 2, pressure: 1)
+        left.eventInProgress = { click }
+        store.send(Snippet(name: "two", text: "FIRST\nSECOND"))
+        left.eventInProgress = { nil }
+        try await settle()
+        #expect(screen(left).contains("FIRST") && screen(left).contains("SECOND"))
+        #expect(screen(right).contains("FIRST") && screen(right).contains("SECOND"),
+                "the snippet did not reach the other pane")
+    }
 }

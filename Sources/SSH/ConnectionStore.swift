@@ -77,6 +77,21 @@ final class ConnectionStore {
         didSet { updateLoadWatches() }
     }
 
+    /// The tab a snippet goes to: the one in front, while its program runs.
+    /// A remote desktop has no shell to type into.
+    var snippetTarget: Connection? {
+        guard let tab = active, tab.state.isRunning, tab.desktop == nil else { return nil }
+        return tab
+    }
+
+    /// Typed into the tab in front — and, with broadcast input on, into the
+    /// other panes as well — which then has the keyboard, to go on from there.
+    func send(_ snippet: Snippet) {
+        guard let tab = snippetTarget else { return }
+        tab.terminalView.sendSnippet(snippet)
+        tab.terminalView.window?.makeFirstResponder(tab.terminalView)
+    }
+
     /// Settings ▸ Logs: where tabs write their logs.
     var logFolder = ThemeStore.defaultLogFolder
 

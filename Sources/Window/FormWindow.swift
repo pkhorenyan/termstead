@@ -15,6 +15,7 @@ struct FormWindowPresenter: NSViewRepresentable {
     var themeStore: ThemeStore
     var sessionStore: SessionStore
     var connectionStore: ConnectionStore
+    var snippetStore: SnippetStore
 
     func makeNSView(context: Context) -> NSView {
         let view = ProbeView()
@@ -46,7 +47,7 @@ struct FormWindowPresenter: NSViewRepresentable {
             return
         }
         host.present(route: route, theme: theme, themeStore: themeStore,
-                     sessionStore: sessionStore, connectionStore: connectionStore)
+                     sessionStore: sessionStore, connectionStore: connectionStore, snippetStore: snippetStore)
     }
 
     private final class ProbeView: NSView {
@@ -81,7 +82,8 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
     private static let dropFromTop: CGFloat = 56
 
     func present(route: AppState.Route, theme: Theme, themeStore: ThemeStore,
-                 sessionStore: SessionStore, connectionStore: ConnectionStore) {
+                 sessionStore: SessionStore, connectionStore: ConnectionStore,
+                 snippetStore: SnippetStore = SnippetStore(url: nil)) {
         // Closing the form hands the keyboard back to the main window, and
         // SwiftUI can update the presenter right there, inside the close. With
         // the window already let go, that update opened the form again: a
@@ -94,8 +96,8 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
             // everything typed into the new form is dropped until a field is
             // clicked. A window opened with the form already in it takes care of
             // that itself.
-            open(route: route, themeStore: themeStore,
-                 sessionStore: sessionStore, connectionStore: connectionStore)
+            open(route: route, themeStore: themeStore, sessionStore: sessionStore,
+                 connectionStore: connectionStore, snippetStore: snippetStore)
         }
 
         guard let window else { return }
@@ -131,8 +133,8 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
         close()
     }
 
-    private func open(route: AppState.Route, themeStore: ThemeStore,
-                      sessionStore: SessionStore, connectionStore: ConnectionStore) {
+    private func open(route: AppState.Route, themeStore: ThemeStore, sessionStore: SessionStore,
+                      connectionStore: ConnectionStore, snippetStore: SnippetStore) {
         inheritedCorner = window.map { NSPoint(x: $0.frame.minX, y: $0.frame.maxY) }
         close()
 
@@ -141,6 +143,7 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
                 .environment(themeStore)
                 .environment(sessionStore)
                 .environment(connectionStore)
+                .environment(snippetStore)
         )
         let controller = NSHostingController(rootView: content)
         let window = FormWindow(contentViewController: controller)
@@ -278,6 +281,8 @@ private struct FormRoot: View {
             GroupSheet(mode: .edit(groupID: id))
         case .quickConnect:
             QuickConnectSheet()
+        case .snippet(let id):
+            SnippetSheet(snippetID: id)
         }
     }
 }
@@ -293,6 +298,7 @@ extension AppState.Route {
         case .newGroup: "New group"
         case .groupSettings: "Group settings"
         case .quickConnect: "Quick connect"
+        case .snippet(let id): id == nil ? "New snippet" : "Edit snippet"
         }
     }
 }

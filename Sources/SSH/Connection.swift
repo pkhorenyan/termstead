@@ -843,6 +843,14 @@ final class SSHTerminalView: LocalProcessTerminalView {
         }
     }
 
+    /// A snippet, as typed: to this tab's program, and through broadcast
+    /// input to the other panes, as a paste is.
+    func sendSnippet(_ snippet: Snippet) {
+        isPasting = true
+        defer { isPasting = false }
+        send(txt: snippet.keystrokes)
+    }
+
     private func pasteWithoutAsking(_ sender: Any) {
         isPasting = true
         defer { isPasting = false }

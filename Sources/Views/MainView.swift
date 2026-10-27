@@ -5,6 +5,7 @@ struct MainView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(ThemeStore.self) private var themeStore
     @Environment(SessionStore.self) private var sessionStore
+    @Environment(SnippetStore.self) private var snippetStore
     @Environment(AppState.self) private var appState
     @Environment(SessionStorage.self) private var storage
     @Environment(ConnectionStore.self) private var connectionStore
@@ -191,7 +192,9 @@ struct MainView: View {
             if defaults.bool(forKey: "sb-broadcast"), !connectionStore.isBroadcasting {
                 connectionStore.toggleBroadcast()
             }
-            if defaults.string(forKey: "sb-sidebar") == "files" { appState.sidebarTab = .files }
+            if let tab = defaults.string(forKey: "sb-sidebar").flatMap(AppState.SidebarTab.init) {
+                appState.sidebarTab = tab
+            }
             // The tabs open at the last quit, once per launch and only into an
             // empty strip — the window can appear again later in the run.
             if storage.isTheUsersOwn, themeStore.reopenTabsAtLaunch, !appState.didReopenTabs,
@@ -214,7 +217,8 @@ struct MainView: View {
                                 theme: theme,
                                 themeStore: themeStore,
                                 sessionStore: sessionStore,
-                                connectionStore: connectionStore)
+                                connectionStore: connectionStore,
+                                snippetStore: snippetStore)
         )
     }
 

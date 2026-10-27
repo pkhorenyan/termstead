@@ -30,6 +30,8 @@ final class AppState {
         case newGroup(parentGroupID: String?)
         case groupSettings(id: String)
         case quickConnect
+        /// `nil` for a new snippet.
+        case snippet(id: UUID?)
 
         var id: String {
             switch self {
@@ -39,6 +41,7 @@ final class AppState {
             case .newGroup(let parent): "newGroup:\(parent ?? "-")"
             case .groupSettings(let id): "groupSettings:\(id)"
             case .quickConnect: "quickConnect"
+            case .snippet(let id): "snippet:\(id?.uuidString ?? "-")"
             }
         }
     }
@@ -97,6 +100,7 @@ final class AppState {
         case "portForwarding":
             route = .portForwarding(sessionID: UserDefaults.standard.string(forKey: "sb-session") ?? "prod-web-01")
         case "quickConnect": route = .quickConnect
+        case "snippet": route = .snippet(id: nil)
         case "groupSettings":
             // `-sb-group <id>` picks which one.
             route = .groupSettings(id: UserDefaults.standard.string(forKey: "sb-group") ?? "web")
@@ -111,11 +115,23 @@ final class AppState {
 
     /// What the sidebar shows: the session tree, or the active tab's files.
     enum SidebarTab: String, CaseIterable, Identifiable {
-        case sessions, files
+        case sessions, files, snippets
         var id: String { rawValue }
         /// MobaXterm's names, since the rail copies MobaXterm's.
-        var label: String { self == .sessions ? "Sessions" : "SFTP" }
-        var symbol: String { self == .sessions ? "server.rack" : "folder" }
+        var label: String {
+            switch self {
+            case .sessions: "Sessions"
+            case .files: "SFTP"
+            case .snippets: "Snippets"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .sessions: "server.rack"
+            case .files: "folder"
+            case .snippets: "text.badge.plus"
+            }
+        }
     }
 
     var sidebarTab: SidebarTab = .sessions

@@ -65,8 +65,10 @@ struct SidebarView: View {
             .allowsHitTesting(showsSessions)
             .accessibilityHidden(!showsSessions)
 
-            if !showsSessions {
-                FilesPanel()
+            switch appState.sidebarTab {
+            case .sessions: EmptyView()
+            case .files: FilesPanel()
+            case .snippets: SnippetsPanel()
             }
         }
         .padding(.horizontal, 10)
