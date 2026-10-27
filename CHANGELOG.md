@@ -64,6 +64,16 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- File transfers no longer hold up the rest of the app: sftp and other
+  work that waits on a process, a socket or the disk runs on threads of
+  its own instead of Swift's shared ones, which a few long transfers could
+  use up — a local terminal's Files tab was seen loading for over 15 s.
+- Two logs started in the same second for one session — Duplicate Tab,
+  tabs reopened at launch — no longer write into one file: each gets its
+  own, readable by you alone.
+- A Telnet tab no longer ends with exit code 141 when typing meets a
+  server that has just closed, and Ctrl-D on a line-mode server's empty
+  line goes to the server instead of closing the connection.
 - The terminal font list offers Nerd Fonts' plain variants (FiraCode Nerd
   Font and the like): their icons are double width, so macOS does not call
   them monospaced, and the list left them out though their letters are.

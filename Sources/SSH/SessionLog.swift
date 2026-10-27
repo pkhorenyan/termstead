@@ -160,11 +160,26 @@ final class SessionLog: @unchecked Sendable {
     /// the tab and the time.
     init(folder: URL, title: String, address: String, now: Date = Date()) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        url = folder.appendingPathComponent("\(Self.fileName(title)) \(Self.fileDate.string(from: now)).log")
-        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        // A file of its own, never one already there: two tabs of a session
+        // opened within the same second — Duplicate Tab, tabs reopened at
+        // launch — would otherwise truncate each other's log and write into
+        // one file. Only the user may read it: a log holds what the server
+        // printed, which may well be secret.
+        let base = "\(Self.fileName(title)) \(Self.fileDate.string(from: now))"
+        var candidate = folder.appendingPathComponent(base + ".log")
+        var number = 1
+        var descriptor = Darwin.open(candidate.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        while descriptor < 0, errno == EEXIST, number < 100 {
+            number += 1
+            candidate = folder.appendingPathComponent("\(base) (\(number)).log")
+            descriptor = Darwin.open(candidate.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
         }
-        handle = try FileHandle(forWritingTo: url)
+        guard descriptor >= 0 else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: candidate.path,
+                                                           NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)])
+        }
+        url = candidate
+        handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         let started = DateFormatter.localizedString(from: now, dateStyle: .long, timeStyle: .medium)
         write(["Termstead log — \(title) (\(address)) — \(started)", ""])
     }

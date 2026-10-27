@@ -456,8 +456,10 @@ read from there, never stored on `Session`.
 - **Files** (`RDPClipboardFiles.swift`). Copied on the Mac, they are offered
   as a flat list, folders first (`RDPLocalFiles`); the server reads them by
   index as it pastes, and the app reads only files in that list, off the
-  main thread (`RDPOfferedFiles`) — an engine gone wrong can ask for
-  nothing else on the Mac. Links are left out. Copied on the server, they
+  main thread (`RDPOfferedFiles`) — a server can ask for nothing else on
+  the Mac through the clipboard. (An engine gone wrong could, now that it
+  is not sandboxed: it reads the disk with the user's rights.) Links are
+  left out. Copied on the server, they
   are fetched once the keyboard leaves the desktop (a copy and paste within
   the server fetches nothing) into `$TMPDIR/Termstead Clipboard`
   (`RDPFileDownload`), with the Mac's clipboard emptied meanwhile so a
@@ -863,6 +865,12 @@ These have each cost real time. They are not hypothetical.
   Release build regenerates it from the executable it did not relink — one
   that has already lost its debug information — and warns per architecture.
   A clean build (and so `release.sh`'s archive) has no warning; check there.
+- **Blocking work goes to GCD, not to a task** (`BlockingWork`).
+  `Task.detached` runs on Swift's shared pool — a thread per core, none
+  added for a thread that blocks — and `sftp` transfers held theirs for as
+  long as they ran: with a few at once a local terminal's Files tab sat
+  loading past 15 s (seen in the full test suite). Processes to wait for,
+  copies, sockets, `ssh -G` and certificate checks all go through it.
 - **A view that reads a store from the environment crashes a test that
   builds it without one.** `SnippetStore` came in for the Snippets tab,
   and every test that mounts `MainView` or the sidebar died with "No

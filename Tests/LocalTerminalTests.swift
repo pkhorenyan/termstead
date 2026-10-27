@@ -111,8 +111,10 @@ struct LocalTerminalTests {
         tabs.onLogin = { connection in Task { await app.showFiles(afterLoginOf: connection, in: tabs) } }
         #expect(app.sidebarTab == .sessions)
         tabs.openLocalTerminal()
-        // Generous: beside the suites that run sshd and ssh in parallel,
-        // the listing's detached task once took longer than 5 s to run.
+        // Alone this takes a tenth of a second. In the full suite it waited
+        // past 15 s while sftp blocked Swift's shared threads, which
+        // `BlockingWork` ended; it still waits past 5 s now and then, behind
+        // something else running in parallel that was not found.
         await wait(upTo: 15) { app.sidebarTab == .files }
         let browser = tabs.active?.fileBrowser
         #expect(app.sidebarTab == .files, "path \(browser?.path ?? "-"), problem \(browser?.problem ?? "-"), loading \(browser?.isLoading ?? false)")

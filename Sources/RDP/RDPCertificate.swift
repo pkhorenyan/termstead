@@ -43,7 +43,7 @@ struct RDPCertificate: Equatable, Sendable {
     /// `nil` when trusted, else why not, in macOS's words.
     func systemDistrust(for host: String) async -> String? {
         let chain = chain
-        return await Task.detached {
+        return await BlockingWork.wait {
             let certificates = chain.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
             var trust: SecTrust?
             guard !certificates.isEmpty,
@@ -54,7 +54,7 @@ struct RDPCertificate: Equatable, Sendable {
             var error: CFError?
             if SecTrustEvaluateWithError(trust, &error) { return nil }
             return (error as (any Error)?)?.localizedDescription ?? "macOS does not trust it."
-        }.value
+        }
     }
 }
 

@@ -325,8 +325,11 @@ final class RDPDesktop {
     private func sharedFolder(_ options: RDPOptions) -> String? {
         let path = (options.sharedFolder.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
         guard !path.isEmpty else { return nil }
+        // Absolute only: a relative path would be found against whatever
+        // folder each process happens to run in.
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
             log?("The shared folder \(options.sharedFolder) is not there; connecting without it.")
             return nil
         }
@@ -476,7 +479,7 @@ final class RDPDesktop {
             engine.clipboard(text)
             return
         }
-        let files = await Task.detached { RDPLocalFiles.collect(urls) }.value
+        let files = await BlockingWork.wait { RDPLocalFiles.collect(urls) }
         // Copied again meanwhile, or the session gone: that offer is stale.
         guard self.engine === engine, pasteboard.changeCount == change else { return }
         engine.clipboard(text, files: files.entries.isEmpty ? nil : files)

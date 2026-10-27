@@ -237,13 +237,13 @@ final class TestLabTests {
     /// Whether the other end closed `fd` within `seconds`: `false` when the
     /// wait simply ran out with the connection still open.
     private static func closedByPeer(_ fd: Int32, within seconds: Int) async -> Bool {
-        await Task.detached {
+        await BlockingWork.wait {
             var timeout = timeval(tv_sec: seconds, tv_usec: 0)
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             var byte: UInt8 = 0
             let count = read(fd, &byte, 1)
             return count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
-        }.value
+        }
     }
 
     /// Connecting opens a shell and nothing else: port forwarding is an
@@ -362,7 +362,7 @@ final class TestLabTests {
 
         let request = "GET / HTTP/1.0\r\n\r\n"
         _ = request.utf8CString.withUnsafeBufferPointer { write(throughMiddle, $0.baseAddress, $0.count - 1) }
-        let reply = await Task.detached {
+        let reply = await BlockingWork.wait {
             var buffer = [UInt8](repeating: 0, count: 4096)
             var timeout = timeval(tv_sec: 5, tv_usec: 0)
             setsockopt(throughMiddle, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
@@ -373,7 +373,7 @@ final class TestLabTests {
                 all += buffer.prefix(count)
             }
             return String(decoding: all, as: UTF8.self)
-        }.value
+        }
         #expect(reply.contains("Hello from middle"))
     }
 
@@ -496,7 +496,7 @@ final class TestLabTests {
     /// Sends `request` to 127.0.0.1:`port` and reads the reply until the
     /// server closes the connection.
     private static func exchange(port: UInt16, sending request: String) async throws -> String {
-        try await Task.detached {
+        try await BlockingWork.run {
             let fd = socket(AF_INET, SOCK_STREAM, 0)
             defer { close(fd) }
             var timeout = timeval(tv_sec: 5, tv_usec: 0)
@@ -520,7 +520,7 @@ final class TestLabTests {
                 reply += buffer.prefix(count)
             }
             return String(decoding: reply, as: UTF8.self)
-        }.value
+        }
     }
 
     // MARK: - Files (the lab seeds each home folder; see TestLab/entrypoint.sh)

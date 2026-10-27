@@ -162,9 +162,10 @@ struct SFTPClient: Equatable, Sendable {
 
     private static func executeReportingErrors(executable: String, arguments: [String],
                                                input: String?) async throws -> (output: String, errors: [String]) {
-        try await Task.detached(priority: .userInitiated) {
+        // A transfer can run for minutes; see `BlockingWork`.
+        try await BlockingWork.run {
             try runBlocking(executable: executable, arguments: arguments, input: input)
-        }.value
+        }
     }
 
     private static func runBlocking(executable: String, arguments: [String],

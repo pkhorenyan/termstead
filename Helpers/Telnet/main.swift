@@ -10,6 +10,9 @@ import Foundation
 // be reached, 255 when the connection was lost.
 
 setvbuf(stdout, nil, _IONBF, 0)
+// A write to a server that has just closed would end the process with
+// SIGPIPE — exit code 141 in the tab — instead of saying so.
+signal(SIGPIPE, SIG_IGN)
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
     FileHandle.standardError.write(Data("usage: termstead-telnet host [port]\n".utf8))
@@ -93,6 +96,10 @@ let isTerminal = tcgetattr(STDIN_FILENO, &original) == 0
     } else {
         mode.c_lflag |= tcflag_t(ICANON | ECHO)
         mode.c_lflag &= ~tcflag_t(ISIG)
+        // Ctrl-D on an empty line would read as the end of input here and
+        // end the connection; it is for the server, as Ctrl-C is.
+        // 0xff is _POSIX_VDISABLE, a macro Swift does not import.
+        withUnsafeMutableBytes(of: &mode.c_cc) { $0[Int(VEOF)] = 0xff }
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &mode)
 }

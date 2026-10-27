@@ -159,8 +159,9 @@ struct LocalFiles: FileSource {
         return "\(RemotePath.name(of: path)): \(reason)"
     }
 
-    /// A big folder or a big copy must not hold up the main thread.
+    /// A big folder or a big copy must not hold up the main thread, nor a
+    /// thread of Swift's shared pool (`BlockingWork`).
     private static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(priority: .userInitiated) { try work() }.value
+        try await BlockingWork.run(work)
     }
 }

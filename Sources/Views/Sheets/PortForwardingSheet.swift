@@ -243,7 +243,7 @@ struct PortForwardingSheet: View {
         guard let host = sessionStore.session(sessionID)?.host else { return }
         isImporting = true
         Task {
-            let found = await Task.detached { SSHConfigImport.forwards(forHost: host) }.value
+            let found = await BlockingWork.wait { SSHConfigImport.forwards(forHost: host) }
             isImporting = false
             let fresh = found.filter { candidate in
                 !forwards.contains { $0.kind == candidate.kind && $0.listenPort == candidate.listenPort }

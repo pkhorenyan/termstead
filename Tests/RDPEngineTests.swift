@@ -189,7 +189,7 @@ struct RDPEngineTests {
         // the server reads to the end once the engine closes it.
         engine.connect(settings, socket: FileHandle(fileDescriptor: pair[0], closeOnDealloc: true))
 
-        let received = await Task.detached { Self.pickLegacySecurity(on: server) }.value
+        let received = await BlockingWork.wait { Self.pickLegacySecurity(on: server) }
         #expect(!received.isEmpty)
         // An X.224 Connection Request each (TPDU code 0xE0), and no data.
         #expect(received.allSatisfy { $0.count > 5 && $0[0] == 0x03 && $0[5] == 0xE0 })

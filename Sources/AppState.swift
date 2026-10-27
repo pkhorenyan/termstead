@@ -182,9 +182,9 @@ final class AppState {
         guard !isImporting else { return }
         isImporting = true
         defer { isImporting = false }
-        let resolved = await Task.detached {
+        let resolved = await BlockingWork.wait {
             SSHConfigImport.resolve(SSHConfigImport.aliases(configPath: configPath))
-        }.value
+        }
         let result = store.importSessions(resolved.map(\.session))
         importReport = Self.report(found: resolved.count, added: result.added)
     }

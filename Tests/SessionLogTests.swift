@@ -67,6 +67,26 @@ struct SessionLogTests {
         #expect(body.last?.hasSuffix("— Connection closed —") == true)
     }
 
+    /// Two tabs of one session started in the same second each get a file.
+    @Test func twoLogsAtOnceDoNotShareAFile() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sb-logs-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let now = Date()
+        let first = try SessionLog(folder: folder, title: "web", address: "a", now: now)
+        let second = try SessionLog(folder: folder, title: "web", address: "a", now: now)
+        #expect(first.url != second.url)
+        #expect(second.url.lastPathComponent.hasSuffix(" (2).log"))
+        first.append(Array("ONE\r\n".utf8))
+        second.append(Array("TWO\r\n".utf8))
+        first.close(); second.close()
+        first.drain(); second.drain()
+        let one = try String(contentsOf: first.url, encoding: .utf8)
+        #expect(one.contains("ONE") && !one.contains("TWO"))
+        let mode = try FileManager.default.attributesOfItem(atPath: first.url.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+    }
+
     @Test func aSessionWithoutTheKeyDoesNotLog() throws {
         let json = #"{"id":"a","user":"u","host":"h","port":22,"icon":"server","auth":"key","keyPath":"","jumps":[]}"#
         let session = try JSONDecoder().decode(Session.self, from: Data(json.utf8))

@@ -20,9 +20,10 @@ enum RDPSocket {
     /// TCP to `host:port`, trying each address the name resolves to, each for
     /// up to `timeout`. Off the main thread: resolving and connecting block.
     static func connect(host: String, port: Int, timeout: TimeInterval = 10) async throws -> FileHandle {
-        try await Task.detached {
+        // Up to `timeout` per address, blocked; see `BlockingWork`.
+        try await BlockingWork.run {
             try openTCP(host: host, port: port, timeout: timeout)
-        }.value
+        }
     }
 
     /// An ssh tunnel's end, a Unix socket in the connection's private folder.
