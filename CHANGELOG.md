@@ -7,11 +7,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-27
+
 ### Added
 
 - A local terminal: the terminal button beside the tab strip's +, Session ▸
-  New Local Terminal (⌥⌘T) or the sidebar's menu opens your Mac's own shell in a tab, at home, beside the
-  servers. It splits into panes, takes broadcast input, and comes back with
+  New Local Terminal (⌥⌘T) or the sidebar's menu opens your Mac's own
+  shell in a tab, at home, beside the servers. It splits into panes, takes broadcast input, and comes back with
   "Reopen tabs at launch"; after `exit`, Return starts it again.
 - A remote desktop can share a folder on this Mac: chosen in the session
   form, it shows up on the server as a drive, to open, save and copy files
@@ -57,7 +59,6 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ssh gives up on a connection gone quiet after a minute
   (`ServerAliveCountMax=2`) rather than ninety seconds, so a tab notices a
   dead network sooner.
-
 - The RDP engine no longer runs in a sandbox, as RDP clients on the Mac
   mostly do not: a shared folder is opened by FreeRDP itself. It still runs
   in a process of its own, so a crash in it ends only the remote desktops.
@@ -67,13 +68,7 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - File transfers no longer hold up the rest of the app: sftp and other
   work that waits on a process, a socket or the disk runs on threads of
   its own instead of Swift's shared ones, which a few long transfers could
-  use up — a local terminal's Files tab was seen loading for over 15 s.
-- Two logs started in the same second for one session — Duplicate Tab,
-  tabs reopened at launch — no longer write into one file: each gets its
-  own, readable by you alone.
-- A Telnet tab no longer ends with exit code 141 when typing meets a
-  server that has just closed, and Ctrl-D on a line-mode server's empty
-  line goes to the server instead of closing the connection.
+  use up.
 - The terminal font list offers Nerd Fonts' plain variants (FiraCode Nerd
   Font and the like): their icons are double width, so macOS does not call
   them monospaced, and the list left them out though their letters are.
