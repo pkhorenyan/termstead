@@ -33,6 +33,7 @@ struct SidebarBlankMenuTests {
                 .environment(store)
                 .environment(AppState(defaults: try #require(UserDefaults(suiteName: "termstead-blank-\(UUID().uuidString)"))))
                 .environment(ConnectionStore())
+                .environment(SnippetStore(url: nil))
                 .environment(\.theme, .graphite))
         window.orderFront(nil)
         return window

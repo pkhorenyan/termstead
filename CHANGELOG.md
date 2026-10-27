@@ -33,6 +33,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every 60 s, waiting meanwhile for a network, and Return connects at
   once. `exit` is left alone. Settings ▸ Terminal ▸ Reconnect when the
   connection drops, on by default.
+- Telnet sessions, for switches, routers and other gear that speaks
+  nothing newer: a session type of its own beside SSH and RDP, in a tab
+  like any terminal — logs, snippets, broadcast input and Return to
+  reconnect included. The server asks for its login on screen; the form
+  says plainly that Telnet is not encrypted. macOS has had no `telnet`
+  since High Sierra, so Termstead brings its own client.
 - Snippets: saved commands, sent to the tab in front with a double-click —
   and to every pane while broadcast input is on — from a Snippets tab on
   the sidebar's rail, or Session ▸ Snippets, where the first nine have

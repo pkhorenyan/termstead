@@ -164,7 +164,7 @@ final class ConnectionStore {
     func receivesBroadcast(pane: Int) -> Bool {
         // Typing reaches a terminal; a remote desktop takes keys, not text.
         isBroadcasting && canBroadcast && !broadcastExcluded.contains(pane)
-            && active(in: pane).map { $0.kind == .ssh } == true
+            && active(in: pane).map { $0.kind.hasTerminal } == true
     }
 
     /// Where input typed into `source` goes besides `source` itself: the
@@ -238,6 +238,10 @@ final class ConnectionStore {
         add(connection)
         // Before it starts, so the log has the login too.
         if session.logs { startLog(connection) }
+        if session.kind == .telnet {
+            connection.startTelnet(host: session.host, port: session.port)
+            return
+        }
         if session.kind == .rdp {
             let password = KeychainStore.shared.secret(for: SSHLaunch.sessionPasswordAccount(session.id)) ?? ""
             do {
@@ -449,6 +453,7 @@ final class ConnectionStore {
     static func keyDescription(for session: Session) -> String {
         switch (session.kind, session.auth) {
         case (.rdp, _): "RDP"
+        case (.telnet, _): "not encrypted"
         case (.ssh, .password): "password"
         case (.ssh, .key):
             // An empty path leaves the choice to ssh: agent and default keys.

@@ -73,7 +73,7 @@ struct TermsteadApp: App {
     private var formIsOpen: Bool { appState.isModalOpen }
 
     /// Find searches a terminal's text; a remote desktop has none to search.
-    private var activeIsTerminal: Bool { connectionStore.active?.kind == .ssh }
+    private var activeIsTerminal: Bool { connectionStore.active?.kind.hasTerminal == true }
 
     /// The tab in front's remote desktop, while it is on screen.
     private var activeDesktop: RDPDesktop? {

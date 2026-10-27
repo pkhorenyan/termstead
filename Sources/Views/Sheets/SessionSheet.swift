@@ -101,7 +101,7 @@ struct SessionSheet: View {
             ) {
                 SegmentedPicker(options: SessionKind.allCases, selection: kindSelection,
                                 label: \.label, title: "Session type")
-                    .frame(width: 150)
+                    .frame(width: 228)
             }
 
             HStack(alignment: .top, spacing: 28) {
@@ -157,8 +157,11 @@ struct SessionSheet: View {
                 .frame(width: 84)
             }
 
-            FormField(label: "User") {
-                SBTextField(text: $user, placeholder: "deploy", font: SBFont.mono(13))
+            // Telnet has no user of its own: the server asks on screen.
+            if kind != .telnet {
+                FormField(label: "User") {
+                    SBTextField(text: $user, placeholder: "deploy", font: SBFont.mono(13))
+                }
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -361,6 +364,8 @@ struct SessionSheet: View {
     private var authenticationColumn: some View {
         if kind == .rdp {
             rdpColumn
+        } else if kind == .telnet {
+            telnetColumn
         } else {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -375,6 +380,16 @@ struct SessionSheet: View {
 
                 jumpHostsSection
             }
+        }
+    }
+
+    /// Nothing to set: Telnet logs in on screen, and goes straight to the
+    /// host — a jump chain is ssh's.
+    private var telnetColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            FormLabel("Login")
+            InsetNote(text: "The server asks for its user and password in the terminal, as Telnet does. Nothing is stored.")
+            InsetNote(text: "Telnet is not encrypted: what is typed, passwords included, crosses the network as it is. Use it for gear that speaks nothing else, on a network you trust.")
         }
     }
 
@@ -885,10 +900,14 @@ struct SessionSheet: View {
         )
         session.kind = kind
         session.logs = logs
-        if kind == .rdp {
+        switch kind {
+        case .rdp:
             session.rdp = rdpOptionsToSave
-        } else {
+        case .ssh:
             session.forwards = forwards
+        case .telnet:
+            // Straight to the host: no jump chain to keep.
+            session.jumps = []
         }
 
         var savedID: String?

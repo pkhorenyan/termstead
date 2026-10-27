@@ -66,6 +66,7 @@ extension SessionStore {
     ///     127.0.0.1:2201 ─▶ direct
     ///     127.0.0.1:2202 ─▶ bastion ─▶ app              (lab-app-1-jump)
     ///                     bastion ─▶ middle ─▶ db     (lab-db-2-jumps, …-typed)
+    ///     127.0.0.1:2323 ─▶ direct, Telnet              (lab-telnet)
     ///     127.0.0.1:3390 ─▶ rdp                        (lab-rdp; RDP)
     ///                     bastion ─▶ rdp:3389         (lab-rdp-via-bastion)
     static func testLab() -> (group: SessionGroup, sessions: [Session]) {
@@ -114,6 +115,8 @@ extension SessionStore {
                                    PortForward(kind: .dynamic, listenPort: 1080),
                                    PortForward(kind: .remote, listenPort: 9000,
                                                destinationHost: "localhost", destinationPort: 8081)]),
+            // direct's busybox telnetd: log in on screen as lab / lab.
+            telnetSession(id: "lab-telnet", host: "127.0.0.1", port: 2323),
             // The lab's xrdp desktop, directly and through the bastion.
             rdpSession(id: "lab-rdp", user: "lab", host: "127.0.0.1", port: 3390, jumps: []),
             // Another user, so both desktops can be open at once: xrdp keeps
@@ -124,7 +127,7 @@ extension SessionStore {
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [
                 .session("lab-direct"), .session("lab-direct-password"), .session("lab-direct-passphrase"),
-                .session("lab-rdp"),
+                .session("lab-rdp"), .session("lab-telnet"),
             ])),
             .group(SessionGroup(id: "testlab-jump", name: "Through jump hosts", colorID: "blue", children: [
                 .session("lab-bastion"), .session("lab-app-1-jump"), .session("lab-db-2-jumps"),
@@ -133,6 +136,12 @@ extension SessionStore {
             ])),
         ])
         return (group, sessions)
+    }
+
+    private static func telnetSession(id: String, host: String, port: Int) -> Session {
+        var session = Session(id: id, user: "", host: host, port: port, icon: .router)
+        session.kind = .telnet
+        return session
     }
 
     private static func rdpSession(id: String, user: String, host: String, port: Int,

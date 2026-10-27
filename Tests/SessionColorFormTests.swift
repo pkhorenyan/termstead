@@ -56,6 +56,7 @@ struct SessionColorFormTests {
         let form = SessionSheet(mode: .edit(sessionID: "box"))
             .environment(store)
             .environment(ConnectionStore())
+            .environment(SnippetStore(url: nil))
             .environment(\.theme, .graphite)
         let hosting = NSHostingView(rootView: form)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 820, height: 680),

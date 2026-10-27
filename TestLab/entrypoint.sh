@@ -38,6 +38,9 @@ cat > /srv/www/index.html <<PAGE
 </main>
 PAGE
 httpd -p 80 -h /srv/www
+# Telnet, for Termstead's Telnet tabs: busybox's telnetd and the system
+# login, user lab, password lab. Published only from direct (127.0.0.1:2323).
+telnetd -p 23 -l /bin/login
 
 # Something to browse in Termstead's Files tab. Seeded once per container, so
 # files uploaded while testing survive a restart (not a `./lab.sh down`).

@@ -34,6 +34,7 @@ struct SidebarScrollTests {
                 .environment(store)
                 .environment(AppState(defaults: try #require(UserDefaults(suiteName: "termstead-scroll-\(UUID().uuidString)"))))
                 .environment(ConnectionStore())
+                .environment(SnippetStore(url: nil))
                 .environment(\.theme, .graphite))
         window.orderFront(nil)
         defer { window.close() }
@@ -80,6 +81,7 @@ struct SidebarScrollTests {
                 .environment(store)
                 .environment(appState)
                 .environment(ConnectionStore())
+                .environment(SnippetStore(url: nil))
                 .environment(\.theme, .graphite))
         window.orderFront(nil)
         defer { window.close() }
@@ -131,6 +133,7 @@ struct SidebarScrollTests {
                 .environment(store)
                 .environment(SessionStorage.forThisLaunch())
                 .environment(ConnectionStore())
+                .environment(SnippetStore(url: nil))
                 .environment(AppState(defaults: try #require(UserDefaults(suiteName: "termstead-scroll-\(UUID().uuidString)"))))
                 .environment(\.theme, .graphite))
         window.orderFront(nil)

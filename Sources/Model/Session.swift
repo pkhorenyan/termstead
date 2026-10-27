@@ -112,15 +112,36 @@ struct PortForward: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
-/// What a session opens: a shell over ssh, or a remote desktop.
+/// What a session opens: a shell over ssh, a remote desktop, or Telnet —
+/// switches, routers and other gear that speaks nothing newer.
 enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
-    case ssh, rdp
+    case ssh, rdp, telnet
 
     var id: String { rawValue }
-    var label: String { self == .ssh ? "SSH" : "RDP" }
-    var defaultPort: Int { self == .ssh ? 22 : 3389 }
+    var label: String {
+        switch self {
+        case .ssh: "SSH"
+        case .rdp: "RDP"
+        case .telnet: "Telnet"
+        }
+    }
+    var defaultPort: Int {
+        switch self {
+        case .ssh: 22
+        case .rdp: 3389
+        case .telnet: 23
+        }
+    }
     /// What a new session of this kind starts out showing.
-    var defaultIcon: SessionIcon { self == .ssh ? .server : .monitor }
+    var defaultIcon: SessionIcon {
+        switch self {
+        case .ssh: .server
+        case .rdp: .monitor
+        case .telnet: .router
+        }
+    }
+    /// A terminal tab: typing, Find, broadcast input and snippets apply.
+    var hasTerminal: Bool { self != .rdp }
 }
 
 /// How an RDP session looks and what it shares. Only meaningful while the
@@ -251,6 +272,8 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
 
     /// Status bar form, which always shows the port and the key type.
     var statusAddress: String {
+        // Telnet has no user of its own: the server asks for one on screen.
+        if kind == .telnet { return "telnet \(host):\(port)" }
         let base = "\(user)@\(host):\(port)"
         guard let jumpSummary else { return base }
         return "\(base) · \(jumpSummary.replacingOccurrences(of: "via ", with: "via "))"

@@ -306,6 +306,26 @@ final class Connection: Identifiable {
         onLogin?()
     }
 
+    /// Where a Telnet tab connects, to connect again on Return.
+    @ObservationIgnored private var telnetTarget: (host: String, port: Int)?
+
+    /// `termstead-telnet`, beside the app's executable, in the terminal as
+    /// ssh would be: there is no login to watch for, and the server asks
+    /// for user and password on screen.
+    func startTelnet(host: String, port: Int) {
+        guard !didClose else { return }
+        telnetTarget = (host, port)
+        state = .running
+        terminalView.startProcess(executable: Self.telnetExecutable, args: [host, String(port)],
+                                  environment: Self.environment(extra: [:]), execName: "termstead-telnet",
+                                  currentDirectory: NSHomeDirectory())
+        watchForExit(of: terminalView.process.shellPid)
+    }
+
+    static var telnetExecutable: String {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/termstead-telnet").path
+    }
+
     /// The shell the user's account names, as `chsh` set it.
     nonisolated static var loginShell: String {
         if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {
@@ -318,6 +338,12 @@ final class Connection: Identifiable {
     func restart() {
         reconnect?.cancel()
         reconnect = nil
+        if let telnetTarget {
+            guard !state.isRunning else { return }
+            terminalView.feed(text: "\r\n")
+            startTelnet(host: telnetTarget.host, port: telnetTarget.port)
+            return
+        }
         if isLocalShell {
             guard !state.isRunning else { return }
             terminalView.feed(text: "\r\n")

@@ -48,6 +48,8 @@
   a VPN reconnects on its own once there is a network again.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
+- **Telnet** for switches, routers and older gear, in a tab like the rest —
+  macOS ships no telnet of its own any more.
 - **Remote desktops (RDP) in tabs.** An RDP session opens as a tab like any
   other, in any pane, and through its jump hosts if it has them. The desktop
   fits the tab and follows it as the window is resized, sharp on Retina

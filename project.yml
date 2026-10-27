@@ -48,6 +48,11 @@ targets:
         embed: true
         copy:
           destination: executables
+      # Installed next to it too; a Telnet tab runs it in the terminal.
+      - target: termstead-telnet
+        embed: true
+        copy:
+          destination: executables
       # The RDP engine, in Contents/XPCServices.
       - target: TermsteadRDP
         embed: true
@@ -96,6 +101,31 @@ targets:
       base:
         PRODUCT_NAME: termstead-askpass
         PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead.askpass
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+        DEAD_CODE_STRIPPING: YES
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: NO
+          ENABLE_HARDENED_RUNTIME: YES
+        Release:
+          DEPLOYMENT_POSTPROCESSING: YES
+    configFiles:
+      Release: Config/Signing.xcconfig
+
+  # A Telnet client for Telnet tabs: macOS ships none since High Sierra.
+  termstead-telnet:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Helpers/Telnet
+      - path: Shared/TelnetProtocol.swift
+    settings:
+      base:
+        PRODUCT_NAME: termstead-telnet
+        PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead.telnet
         SKIP_INSTALL: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES

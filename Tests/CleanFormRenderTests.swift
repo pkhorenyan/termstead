@@ -12,6 +12,7 @@ struct CleanFormRenderTests {
         let view = SessionSheet(mode: .create(parentGroupID: nil))
             .environment(sessions)
             .environment(ConnectionStore())
+            .environment(SnippetStore(url: nil))
             .environment(\.theme, .graphite)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
@@ -31,6 +32,7 @@ struct CleanFormRenderTests {
         let hosting = NSHostingView(rootView: SessionSheet(mode: .create(parentGroupID: nil))
             .environment(store)
             .environment(ConnectionStore())
+            .environment(SnippetStore(url: nil))
             .environment(\.theme, .graphite))
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 820, height: 680),
                               styleMask: [.titled], backing: .buffered, defer: false)

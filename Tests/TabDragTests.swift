@@ -109,6 +109,7 @@ struct TabStripScrollTests {
             .environment(themeStore)
             .environment(SessionStore.sample())
             .environment(connectionStore)
+            .environment(SnippetStore(url: nil))
             .environment(AppState())
             .environment(\.theme, themeStore.current))
         window.orderFront(nil)

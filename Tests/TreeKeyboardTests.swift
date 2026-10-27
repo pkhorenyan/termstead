@@ -186,6 +186,7 @@ struct TreeKeyboardWindowTests {
                 .environment(store)
                 .environment(AppState())
                 .environment(ConnectionStore())
+                .environment(SnippetStore(url: nil))
                 .environment(\.theme, .graphite))
         window.orderFront(nil)
         try await settle()

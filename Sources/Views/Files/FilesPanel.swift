@@ -13,6 +13,9 @@ struct FilesPanel: View {
             if connection.kind == .rdp {
                 placeholder("Remote desktop",
                             "Files are browsed over SFTP, which an RDP session does not have.")
+            } else if connection.kind == .telnet {
+                placeholder("Telnet",
+                            "Files are browsed over SFTP, which a Telnet session does not have.")
             } else if connection.state.isRunning {
                 FileBrowserView(browser: connection.fileBrowser, title: connection.title)
                     // A fresh view per tab, so a rename field or a scroll

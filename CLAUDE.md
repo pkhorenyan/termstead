@@ -156,6 +156,7 @@ TestLab/lab.sh forget    # drop the lab's host keys from ~/.ssh/known_hosts
 
 ```
 127.0.0.1:2201 ─▶ direct                     lab-direct, -password, -passphrase
+127.0.0.1:2323 ─▶ direct, Telnet             lab-telnet
 127.0.0.1:2202 ─▶ bastion ─▶ app             lab-app-1-jump, lab-app-password
                   bastion ─▶ middle ─▶ db    lab-db-2-jumps, lab-db-2-jumps-typed
 127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           lab-rdp; lab-rdp-via-bastion (lab2) as rdp:3389
@@ -253,8 +254,9 @@ scripts/release.sh 0.2.0
 | `Sources/SFTP/` | `FileSource` (what the Files tab browses) with `LocalFiles` (this Mac, for a local terminal), `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts`, `RDPClipboardFiles` (files copied either way) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
+| `Helpers/Telnet/` | `termstead-telnet`, the Telnet client a Telnet tab runs, installed beside it |
 | `Helpers/RDP/` | `TermsteadRDP.xpc`, the RDP engine: FreeRDP behind `rdp_bridge.c`, driven by `RDPEngine.swift`, in `Contents/XPCServices` |
-| `Shared/` | The askpass wire format, compiled into both the app and the helper |
+| `Shared/` | The askpass wire format and `TelnetProtocol`, compiled into the app and the helpers |
 | `SharedRDP/` | The XPC protocol between the app and the RDP engine |
 | `Vendor/rdp/`, `scripts/build-rdp-deps.sh`, `scripts/rdp-patches/` | FreeRDP and OpenSSL, built, not committed; how they are built, and FreeRDP's patches |
 | `Tests/` | `TermsteadTests` |
@@ -343,6 +345,19 @@ read from there, never stored on `Session`.
   `ServerAliveCountMax=2` ends a connection gone quiet after a minute.
   The lab test drops one by killing the server's session process
   (`kill -9 $PPID`): ssh then ends with 255, as with a network gone.
+- **A Telnet tab** (`SessionKind.telnet`, `Connection.startTelnet`) runs
+  `termstead-telnet` (`Helpers/Telnet`, beside the app's executable) in
+  the terminal as ssh would be: macOS has had no `telnet` since High
+  Sierra. The protocol is `Shared/TelnetProtocol.swift`, compiled into the
+  helper and the app (for the tests): ECHO and SGA from the server, TTYPE
+  (XTERM-256COLOR) and NAWS from us, everything else refused, each answered
+  once. Until the server says WILL ECHO the terminal is canonical and
+  echoes, Telnet's default; raw after. Return goes as CR LF, as PuTTY
+  sends it. No login of its own (the server asks on screen), no jump
+  hosts, no Files tab, no reconnecting by itself — there is no login to
+  have been in. Exit 0 when the server closes, 1 when it cannot be
+  reached, 255 when the link is lost. The lab's `direct` runs busybox
+  telnetd on 127.0.0.1:2323 (`lab-telnet`, user lab, password lab).
 - **A local terminal** (`Connection.isLocalShell`,
   `ConnectionStore.openLocalTerminal`, ⌥⌘T) runs the account's login shell
   (`getpwuid`, started as `-zsh` so it reads the profile — an app launched
@@ -848,6 +863,13 @@ These have each cost real time. They are not hypothetical.
   Release build regenerates it from the executable it did not relink — one
   that has already lost its debug information — and warns per architecture.
   A clean build (and so `release.sh`'s archive) has no warning; check there.
+- **A view that reads a store from the environment crashes a test that
+  builds it without one.** `SnippetStore` came in for the Snippets tab,
+  and every test that mounts `MainView` or the sidebar died with "No
+  Observable object of type SnippetStore found" — the whole test process,
+  so the run restarted and reported only the tests after it. Give such
+  tests the store (`SnippetStore(url: nil)`), and run the full suite after
+  adding one: the suites of the feature alone passed.
 - **A `LazyVGrid` outside a scroll view can stay empty in a form window.** The
   session form's icon grid kept its height and never made its cells, on
   screen only: an image of the same form taken with `cacheDisplay` (in a test,
