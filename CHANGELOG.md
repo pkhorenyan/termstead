@@ -16,11 +16,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A remote desktop can share a folder on this Mac: chosen in the session
   form, it shows up on the server as a drive, to open, save and copy files
   in while connected.
-
-- Prompt icons, such as powerlevel10k's, show in the terminal when a Nerd
-  Font's symbols are installed: glyphs the terminal's font lacks are drawn
-  from "Symbols Nerd Font Mono", and the text keeps its own font.
-
+- Prompt icons, such as powerlevel10k's or oh-my-zsh's, show in the
+  terminal — on this Mac and on servers alike — with nothing to install:
+  glyphs the terminal's font lacks are drawn from Symbols Nerd Font Mono
+  (Nerd Fonts 3.4.0), which comes with Termstead, and the text keeps its
+  own font.
 - The welcome screen opens a local terminal too: a button under the
   address field, and ⌥⌘T among its shortcuts.
 - The Files tab browses this Mac for a local terminal, and follows its

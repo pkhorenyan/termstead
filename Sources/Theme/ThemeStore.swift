@@ -328,20 +328,24 @@ extension ThemeStore {
         return fontLigatures ? symbols : Self.withoutLigatures(symbols)
     }
 
-    /// Nerd Font symbols, where they are installed, for the glyphs the font
-    /// lacks: prompts such as powerlevel10k's draw their icons from there,
-    /// and without it each showed as a box. The text keeps its own font.
+    /// Nerd Font symbols for the glyphs the font lacks: prompts such as
+    /// powerlevel10k's draw their icons from there, and without it each
+    /// showed as a box. The text keeps its own font.
     static func withSymbols(_ font: NSFont) -> NSFont {
-        guard let family = symbolFontFamily else { return font }
-        let fallback = NSFontDescriptor(fontAttributes: [.family: family])
+        guard let name = symbolFontName else { return font }
+        let fallback = NSFontDescriptor(fontAttributes: [.name: name])
         let descriptor = font.fontDescriptor.addingAttributes([.cascadeList: [fallback]])
         return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 
-    /// The Nerd Font symbols family installed, the single-width one first.
-    nonisolated static let symbolFontFamily: String? = {
-        let installed = Set(CTFontManagerCopyAvailableFontFamilyNames() as? [String] ?? [])
-        return ["Symbols Nerd Font Mono", "Symbols Nerd Font"].first { installed.contains($0) }
+    /// Bundled (Resources/Fonts, Nerd Fonts 3.4.0), so the icons show for
+    /// everyone: it once came only from a copy the user had installed, and
+    /// most have none. By PostScript name, as the other bundled faces are.
+    /// `nil` only if the bundle's copy failed to register.
+    nonisolated static let symbolFontName: String? = {
+        let name = "SymbolsNFM"
+        let found = CTFontCopyPostScriptName(CTFontCreateWithName(name as CFString, 12, nil)) as String
+        return found == name ? name : nil
     }()
 
     /// Common ligatures and contextual alternates off — JetBrains Mono keeps

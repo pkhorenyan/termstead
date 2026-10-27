@@ -80,7 +80,9 @@
 - **Eight themes** — Graphite, Midnight, Ember, High contrast, Nord,
   Synthwave, Daylight, Sepia —
   following macOS light and dark mode if you like, any monospaced font,
-  with or without its ligatures, copy on select, Option as Meta.
+  with or without its ligatures, copy on select, Option as Meta. Prompt
+  icons (powerlevel10k, oh-my-zsh, Starship) show with no Nerd Font to
+  install.
 - **It is the real OpenSSH.** Each tab runs the system `ssh`, so your agent,
   `~/.ssh/config`, `known_hosts` and `ProxyJump` all work exactly as in
   Terminal.
@@ -201,5 +203,7 @@ Icaza (MIT), vendored with small patches,
 built with a small patch, in `scripts/rdp-patches`), and the typefaces
 [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and
 [IBM Plex Sans](https://www.ibm.com/plex/), both under the SIL Open Font
-License 1.1. Their license texts travel inside the app, in
-`Contents/Resources/Licenses`.
+License 1.1, with the icons of
+[Nerd Fonts](https://www.nerdfonts.com)' Symbols Nerd Font (MIT, its icons
+from projects under MIT, CC BY 4.0, Apache-2.0 and OFL). Their license
+texts travel inside the app, in `Contents/Resources/Licenses`.

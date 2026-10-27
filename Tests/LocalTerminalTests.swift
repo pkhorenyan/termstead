@@ -117,7 +117,24 @@ struct LocalTerminalTests {
         // something else running in parallel that was not found.
         await wait(upTo: 15) { app.sidebarTab == .files }
         let browser = tabs.active?.fileBrowser
-        #expect(app.sidebarTab == .files, "path \(browser?.path ?? "-"), problem \(browser?.problem ?? "-"), loading \(browser?.isLoading ?? false)")
+        var diagnosis = ""
+        if app.sidebarTab != .files {
+            // Should it hang again: which part is slow — a hop to GCD, to
+            // Swift's pool, the listing itself, or asking for the folder.
+            var start = Date()
+            _ = await BlockingWork.wait { 1 }
+            diagnosis += "gcd hop \(Date().timeIntervalSince(start))s; "
+            start = Date()
+            await Task.detached { }.value
+            diagnosis += "pool hop \(Date().timeIntervalSince(start))s; "
+            start = Date()
+            let listed = try? await tabs.active?.files?.list(NSHomeDirectory())
+            diagnosis += "fresh list \(Date().timeIntervalSince(start))s, \(listed?.files.count ?? -1) entries; "
+            start = Date()
+            let directory = await tabs.active?.files?.terminalDirectory()
+            diagnosis += "terminalDirectory \(Date().timeIntervalSince(start))s = \(directory ?? "nil")"
+        }
+        #expect(app.sidebarTab == .files, "path \(browser?.path ?? "-"), problem \(browser?.problem ?? "-"), loading \(browser?.isLoading ?? false); \(diagnosis)")
         #expect(browser?.path == NSHomeDirectory())
     }
 

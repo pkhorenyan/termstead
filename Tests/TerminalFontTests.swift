@@ -13,9 +13,18 @@ struct TerminalFontTests {
     }
 
     /// A prompt's icon (powerlevel10k's, from the Nerd Fonts' private use
-    /// area) is drawn from the installed symbols font; the text is not.
-    @Test(.enabled(if: ThemeStore.symbolFontFamily != nil, "no Nerd Font symbols installed"))
-    func promptIconsComeFromTheSymbolsFont() throws {
+    /// area) is drawn from the bundled symbols font; the text is not.
+    @Test func promptIconsComeFromTheSymbolsFont() throws {
+        // In the app, for those with no Nerd Fonts of their own; this Mac may
+        // have a copy installed too, so the file is checked as well.
+        #expect(Bundle.main.url(forResource: "SymbolsNerdFontMono-Regular", withExtension: "ttf",
+                                subdirectory: "Fonts") != nil)
+        #expect(ThemeStore.symbolFontName == "SymbolsNFM", "the symbols font did not register")
+        let available = CTFontManagerCopyAvailableFontURLs() as? [URL] ?? []
+        let bundled = Bundle.main.bundleURL.standardizedFileURL.path
+        #expect(available.contains { $0.lastPathComponent == "SymbolsNerdFontMono-Regular.ttf"
+                    && $0.standardizedFileURL.path.hasPrefix(bundled) },
+                "the app's own copy is not registered")
         let base = try #require(ThemeStore.font(family: ThemeStore.bundledFontFamily, size: 13))
         let font = ThemeStore.withSymbols(base) as CTFont
         func family(of text: String) -> String {
@@ -24,7 +33,7 @@ struct TerminalFontTests {
         }
         // A folder from the Nerd Fonts' Font Awesome set: JetBrains Mono has
         // the powerline arrows itself, but none of these.
-        #expect(family(of: "\u{F07C}") == ThemeStore.symbolFontFamily, "drawn from \(family(of: "\u{F07C}"))")
+        #expect(family(of: "\u{F07C}") == "Symbols Nerd Font Mono", "drawn from \(family(of: "\u{F07C}"))")
         #expect(family(of: "a") == CTFontCopyFamilyName(base as CTFont) as String)
     }
 

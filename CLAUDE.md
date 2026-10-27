@@ -664,6 +664,14 @@ text with every copy of the app, MIT its notice and Apache its license. Refresh
 `MIT-Sparkle.txt` when Sparkle is updated, and the two `Apache-2.0-*.txt` from
 the pinned archives when `build-rdp-deps.sh` moves to another version.
 
+**Symbols Nerd Font Mono** (`SymbolsNerdFontMono-Regular.ttf`, PostScript
+`SymbolsNFM`, 2.5 MB) is bundled too, unchanged from Nerd Fonts v3.4.0's
+`NerdFontsSymbolsOnly.zip` (sha256 `8e617904…a564c47`): the cascade list
+behind the terminal font, for prompt icons, which most Macs have no font
+for. Nerd Fonts is MIT; its icons come from thirteen projects under MIT,
+CC BY 4.0, Apache 2.0, OFL and the like, all listed, with the OFL text, in
+`MIT-NerdFontsSymbols.txt`. Replace both together, from the same release.
+
 ## Known pitfalls
 
 These have each cost real time. They are not hypothetical.
@@ -985,9 +993,9 @@ These have each cost real time. They are not hypothetical.
   (PATCHES.md); `theColumnsFitBesideTheScrollBar` checks it with
   SwiftTerm's own `getOptimalFrameSize`.
 - **Prompt icons come from a cascade list.** powerlevel10k and the like draw
-  icons from Nerd Fonts' private use area; `ThemeStore.withSymbols` adds an
-  installed "Symbols Nerd Font Mono" to the terminal font's
-  `.cascadeList`, and the vendored `FontSet.withFeatures` carries it to the
+  icons from Nerd Fonts' private use area; `ThemeStore.withSymbols` adds the
+  bundled "Symbols Nerd Font Mono" (by PostScript name, `SymbolsNFM`) to the
+  terminal font's `.cascadeList`, and the vendored `FontSet.withFeatures` carries it to the
   bold and italic faces, which `NSFontManager.convert` derives without it.
   JetBrains Mono has the powerline arrows itself; test with a glyph it
   lacks (U+F07C).

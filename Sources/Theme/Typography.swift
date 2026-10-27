@@ -60,6 +60,7 @@ enum SBFont {
     static func verifyBundledFonts() {
         let expected = [UIWeight.regular, .medium, .semibold].map(\.postScriptName)
             + [MonoWeight.regular, .bold].map(\.postScriptName)
+            + ["SymbolsNFM"]
         let missing = expected.filter { NSFont(name: $0, size: 12) == nil }
         if !missing.isEmpty {
             print("[Termstead] bundled fonts failed to register: \(missing.joined(separator: ", "))")
