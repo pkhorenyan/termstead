@@ -26,6 +26,7 @@ final class ThemeStore {
         static let showFilesAfterLogin = "files.showAfterLogin"
         static let reopenTabs = "window.reopenTabs"
         static let showServerLoad = "window.showServerLoad"
+        static let reconnect = "terminal.reconnect"
     }
 
     /// Which edge of the window the sidebar (Sessions and SFTP) sits on.
@@ -145,6 +146,13 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(showFilesAfterLogin, forKey: Key.showFilesAfterLogin) }
     }
 
+    /// A tab whose connection dropped after login — sleep, Wi-Fi, VPN —
+    /// connects again by itself (`Connection.shouldReconnect`). On unless
+    /// turned off.
+    var reconnectAutomatically: Bool {
+        didSet { UserDefaults.standard.set(reconnectAutomatically, forKey: Key.reconnect) }
+    }
+
     /// The tabs open at quit connect again at the next launch (`TabMemory`).
     /// Off unless turned on: a launch that dials every server, with whatever
     /// prompts that brings, should be asked for.
@@ -196,6 +204,7 @@ final class ThemeStore {
         showFilesAfterLogin = Self.bool(defaults, Key.showFilesAfterLogin, default: true)
         reopenTabsAtLaunch = Self.bool(defaults, Key.reopenTabs, default: false)
         showServerLoad = Self.bool(defaults, Key.showServerLoad, default: true)
+        reconnectAutomatically = Self.bool(defaults, Key.reconnect, default: true)
         fontLigatures = Self.bool(defaults, Key.ligatures, default: false)
         systemIsDark = Self.readSystemIsDark()
 
@@ -407,6 +416,7 @@ extension ThemeStore {
         var reopenTabsAtLaunch: Bool
         var showServerLoad: Bool
         var fontLigatures: Bool
+        var reconnectAutomatically: Bool
     }
 
     var snapshot: Snapshot {
@@ -418,7 +428,8 @@ extension ThemeStore {
                  confirmClosingConnection: confirmClosingConnection, highlighting: highlighting,
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
                  showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch,
-                 showServerLoad: showServerLoad, fontLigatures: fontLigatures)
+                 showServerLoad: showServerLoad, fontLigatures: fontLigatures,
+                 reconnectAutomatically: reconnectAutomatically)
     }
 
     func restore(_ snapshot: Snapshot) {
@@ -441,5 +452,6 @@ extension ThemeStore {
         reopenTabsAtLaunch = snapshot.reopenTabsAtLaunch
         showServerLoad = snapshot.showServerLoad
         fontLigatures = snapshot.fontLigatures
+        reconnectAutomatically = snapshot.reconnectAutomatically
     }
 }

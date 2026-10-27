@@ -77,6 +77,11 @@ final class ConnectionStore {
         didSet { updateLoadWatches() }
     }
 
+    /// Settings ▸ "Reconnect when the connection drops", for every tab.
+    var reconnectsAutomatically = false {
+        didSet { for connection in connections { connection.reconnectsAutomatically = reconnectsAutomatically } }
+    }
+
     private func updateLoadWatches() {
         let front = active?.id
         for connection in connections {
@@ -407,6 +412,7 @@ final class ConnectionStore {
 
     func add(_ connection: Connection) {
         wire(connection)
+        connection.reconnectsAutomatically = reconnectsAutomatically
         connection.onInput = { [weak self, weak connection] data in
             guard let self, let connection else { return }
             self.broadcast(data, from: connection)

@@ -28,8 +28,17 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   opens where it is, and dropping files copies them. Opening a local
   terminal turns the sidebar to them, as logging in to a server does
   (Settings ▸ Open SFTP after login).
+- A tab whose connection drops after login — sleep, a change of Wi-Fi, a
+  VPN going down — connects again by itself: after 2, 5, 10, 30 and then
+  every 60 s, waiting meanwhile for a network, and Return connects at
+  once. `exit` is left alone. Settings ▸ Terminal ▸ Reconnect when the
+  connection drops, on by default.
 
 ### Changed
+
+- ssh gives up on a connection gone quiet after a minute
+  (`ServerAliveCountMax=2`) rather than ninety seconds, so a tab notices a
+  dead network sooner.
 
 - The RDP engine no longer runs in a sandbox, as RDP clients on the Mac
   mostly do not: a shared folder is opened by FreeRDP itself. It still runs

@@ -231,6 +231,11 @@ struct AppearanceView: View {
                         settingSwitch($themeStore.reopenTabsAtLaunch, label: "Reopen tabs at launch")
                     }
                     divider
+                    settingsRow("Reconnect when the connection drops",
+                                caption: "After sleep, a change of Wi-Fi or a VPN: the tab connects again by itself. Not after exit.") {
+                        settingSwitch($themeStore.reconnectAutomatically, label: "Reconnect when the connection drops")
+                    }
+                    divider
                     settingsRow("Show server load",
                                 caption: "CPU, memory, disk and network of the server in front, in the status bar. Linux servers.") {
                         settingSwitch($themeStore.showServerLoad, label: "Show server load")

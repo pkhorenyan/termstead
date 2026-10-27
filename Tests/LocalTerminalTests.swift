@@ -111,9 +111,12 @@ struct LocalTerminalTests {
         tabs.onLogin = { connection in Task { await app.showFiles(afterLoginOf: connection, in: tabs) } }
         #expect(app.sidebarTab == .sessions)
         tabs.openLocalTerminal()
-        await wait(upTo: 5) { app.sidebarTab == .files }
-        #expect(app.sidebarTab == .files)
-        #expect(tabs.active?.fileBrowser.path == NSHomeDirectory())
+        // Generous: beside the suites that run sshd and ssh in parallel,
+        // the listing's detached task once took longer than 5 s to run.
+        await wait(upTo: 15) { app.sidebarTab == .files }
+        let browser = tabs.active?.fileBrowser
+        #expect(app.sidebarTab == .files, "path \(browser?.path ?? "-"), problem \(browser?.problem ?? "-"), loading \(browser?.isLoading ?? false)")
+        #expect(browser?.path == NSHomeDirectory())
     }
 
     @Test func aLocalTabIsRememberedAndReopened() {

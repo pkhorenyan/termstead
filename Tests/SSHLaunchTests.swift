@@ -26,6 +26,7 @@ struct SSHLaunchTests {
         """))
         #expect(!plan.config.contains("ProxyJump"))
         #expect(plan.arguments(configPath: "/tmp/c") == ["-F", "/tmp/c", "-o", "ServerAliveInterval=30",
+                                                         "-o", "ServerAliveCountMax=2",
                                                          "-o", "ClearAllForwardings=yes", "10.0.1.13"])
     }
 
@@ -225,7 +226,8 @@ struct SSHLaunchTests {
         ])
         #expect(plan.forwards.map(\.id) == web.forwards.map(\.id))
         #expect(plan.arguments(configPath: "/tmp/c") == [
-            "-F", "/tmp/c", "-o", "ServerAliveInterval=30", "-o", "ClearAllForwardings=yes", "10.0.1.13",
+            "-F", "/tmp/c", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=2",
+            "-o", "ClearAllForwardings=yes", "10.0.1.13",
         ])
         #expect(!plan.config.contains("Forward"))
     }

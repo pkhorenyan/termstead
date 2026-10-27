@@ -309,6 +309,16 @@ read from there, never stored on `Session`.
 - **Host keys** are ssh's business: the first connection to a server asks yes/no
   in the terminal, against the real `known_hosts`.
 - **Closed tabs** keep their output. Press Return to reconnect.
+- **A dropped tab reconnects by itself** (`Connection.shouldReconnect`,
+  Settings' `reconnectAutomatically`, on by default): only when ssh ended
+  with 255 after it was in, or an attempt to get back in failed again
+  (12 attempts at most, at 2, 5, 10, 30 then 60 s). A login that never
+  worked is not retried — a wrong password would be tried for ever —
+  nor a local shell, a tunnel connection or an RDP tab. `NetworkWatch`
+  (`NWPathMonitor`) holds an attempt while there is no network, and
+  `ServerAliveCountMax=2` ends a connection gone quiet after a minute.
+  The lab test drops one by killing the server's session process
+  (`kill -9 $PPID`): ssh then ends with 255, as with a network gone.
 - **A local terminal** (`Connection.isLocalShell`,
   `ConnectionStore.openLocalTerminal`, ⌥⌘T) runs the account's login shell
   (`getpwuid`, started as `-zsh` so it reads the profile — an app launched

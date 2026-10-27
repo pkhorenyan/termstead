@@ -89,6 +89,29 @@ final class Connection: Identifiable {
     @ObservationIgnored private var desktopEndReason: String?
     @ObservationIgnored private var didClose = false
 
+    /// Settings ▸ "Reconnect when the connection drops", set by the store.
+    @ObservationIgnored var reconnectsAutomatically = false
+    /// The reconnect waiting to happen, and how many came before it since
+    /// the tab was last logged in.
+    @ObservationIgnored private var reconnect: Task<Void, Never>?
+    @ObservationIgnored private(set) var reconnectAttempts = 0
+
+    /// Seconds before each attempt in a row; the last one repeats.
+    nonisolated static let reconnectDelays = [2, 5, 10, 30, 60]
+    /// About ten minutes of a server that does not answer. Time without a
+    /// network does not count: nothing is tried meanwhile.
+    nonisolated static let maxReconnectAttempts = 12
+
+    /// ssh ended on its own after it was in — 255 is ssh's code for a lost
+    /// or refused connection; a shell's `exit` gives the shell's code — or
+    /// an attempt to get back in failed again. Never a login that never
+    /// worked from the start: a wrong password would be tried for ever.
+    nonisolated static func shouldReconnect(exitCode: Int32?, didLogIn: Bool, attempts: Int,
+                                            isLocalShell: Bool, isTunnelOnly: Bool, isDesktop: Bool) -> Bool {
+        guard !isLocalShell, !isTunnelOnly, !isDesktop, exitCode == 255 else { return false }
+        return didLogIn || (attempts > 0 && attempts < maxReconnectAttempts)
+    }
+
     /// Told when ssh ends, before the tab is closed or reconnected.
     @ObservationIgnored var onEnded: (() -> Void)?
 
@@ -286,6 +309,8 @@ final class Connection: Identifiable {
     }
 
     func restart() {
+        reconnect?.cancel()
+        reconnect = nil
         if isLocalShell {
             guard !state.isRunning else { return }
             terminalView.feed(text: "\r\n")
@@ -308,6 +333,7 @@ final class Connection: Identifiable {
     /// Ends the process and cleans up; the tab is going away.
     func close() {
         didClose = true
+        reconnect?.cancel()
         stopLoadWatch()
         browser?.stop()
         // SwiftTerm stops watching the process the moment `terminate` signals
@@ -376,6 +402,7 @@ final class Connection: Identifiable {
         loginWatch = nil
         isLoggedIn = true
         didLogIn = true
+        reconnectAttempts = 0
         // An RDP tab's ssh is only its tunnel: no Files tab, no server load.
         if kind == .rdp {
             openDesktopThroughTunnel()
@@ -468,10 +495,36 @@ final class Connection: Identifiable {
         // A desktop's tunnel gone takes the desktop with it.
         desktop?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
+        if reconnectsAutomatically, desktopEndReason == nil,
+           Self.shouldReconnect(exitCode: exitCode, didLogIn: didLogIn, attempts: reconnectAttempts,
+                                isLocalShell: isLocalShell, isTunnelOnly: isTunnelOnly, isDesktop: desktop != nil) {
+            scheduleReconnect()
+            return
+        }
         let reason = desktopEndReason ?? (isLocalShell ? "The shell exited\(detail)." : "Connection closed\(detail).")
         let again = isLocalShell ? "start it again" : "reconnect"
         desktopEndReason = nil
         terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to \(again).\u{1b}[0m\r\n")
+    }
+
+    /// Waits, then for a network, then connects as Return would. Return
+    /// meanwhile connects at once (`restart` cancels the wait).
+    private func scheduleReconnect() {
+        let delay = Self.reconnectDelays[min(reconnectAttempts, Self.reconnectDelays.count - 1)]
+        reconnectAttempts += 1
+        terminalView.feed(text: "\r\n\u{1b}[2mConnection lost. Reconnecting in \(delay) s — press Return to reconnect now.\u{1b}[0m\r\n")
+        reconnect = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            if !NetworkWatch.shared.isOnline {
+                self?.terminalView.feed(text: "\u{1b}[2mWaiting for the network…\u{1b}[0m\r\n")
+                await NetworkWatch.shared.untilOnline()
+            }
+            guard !Task.isCancelled, let self, !self.state.isRunning else { return }
+            // `restart` cancels `reconnect`, this task; it has nothing left to do.
+            self.reconnect = nil
+            self.restart()
+        }
     }
 
     fileprivate func sizeChanged(columns: Int, rows: Int) {

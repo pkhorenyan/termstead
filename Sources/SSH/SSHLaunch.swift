@@ -64,9 +64,14 @@ struct SSHLaunchPlan: Equatable, Sendable {
     /// tab of the session failed on each one. Import puts them into the
     /// session instead (`SSHConfigImport.forwards`).
     ///
+    /// `ServerAliveCountMax=2`: a connection gone quiet — a Mac woken from
+    /// sleep on another network — ends after a minute rather than ssh's
+    /// default ninety seconds, and the tab can reconnect.
+    ///
     /// `tunnelOnly` is ssh's `-N`: the tunnels and no shell.
     func arguments(configPath: String, controlPath: String? = nil, tunnelOnly: Bool = false) -> [String] {
-        var arguments = ["-F", configPath, "-o", "ServerAliveInterval=30", "-o", "ClearAllForwardings=yes"]
+        var arguments = ["-F", configPath, "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=2",
+                         "-o", "ClearAllForwardings=yes"]
         if let controlPath {
             arguments += ["-o", "ControlMaster=auto", "-o", "ControlPath=\(controlPath)",
                           "-o", "ControlPersist=no"]

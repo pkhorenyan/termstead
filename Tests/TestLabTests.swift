@@ -153,8 +153,8 @@ final class TestLabTests {
         (try? await exchange(port: port, sending: "GET / HTTP/1.0\r\n\r\n")) ?? ""
     }
 
-    private func waitFor(_ condition: () async -> Bool) async throws {
-        for _ in 0..<200 where !(await condition()) { try await Task.sleep(for: .milliseconds(50)) }
+    private func waitFor(seconds: Double = 10, _ condition: () async -> Bool) async throws {
+        for _ in 0..<Int(seconds * 20) where !(await condition()) { try await Task.sleep(for: .milliseconds(50)) }
     }
 
     private func tab(in store: ConnectionStore, _ session: Session) throws -> Connection {
@@ -417,6 +417,37 @@ final class TestLabTests {
             try await waitFor { screen(terminal).contains("Hello from middle") }
         }
         #expect(screen(terminal).contains("Hello from middle"), "\(screen(terminal))")
+    }
+
+    /// The server drops the connection — its sshd session is killed — and
+    /// the tab logs in again by itself; `exit` is left alone.
+    @Test func aDroppedConnectionReconnects() async throws {
+        let store = ConnectionStore()
+        store.reconnectsAutomatically = true
+        let connection = Connection(sessionID: "lab-direct", title: "", address: "",
+                                    keyDescription: "", keychain: keychain)
+        store.add(connection)
+        defer { store.close(connection.id) }
+        connection.start(try plan("lab-direct"))
+        try await waitFor { connection.isLoggedIn }
+        try await Task.sleep(for: .milliseconds(500))
+
+        // The shell's parent is the server's session process: ssh then
+        // ends with 255, as with a network gone.
+        connection.terminalView.send(txt: "kill -9 $PPID\r")
+        try await waitFor { !connection.state.isRunning }
+        #expect(connection.state == .exited(code: 255))
+        #expect(screen(connection).contains("Reconnecting in 2 s"))
+        try await waitFor(seconds: 20) { connection.isLoggedIn }
+        #expect(connection.isLoggedIn, "\(screen(connection))")
+        #expect(connection.reconnectAttempts == 0)
+
+        try await Task.sleep(for: .milliseconds(500))
+        connection.terminalView.send(txt: "exit\r")
+        try await waitFor { !connection.state.isRunning }
+        try await Task.sleep(for: .seconds(3))
+        #expect(!connection.state.isRunning, "exit was reconnected")
+        #expect(screen(connection).contains("Press Return to reconnect"))
     }
 
     /// A tunnel named in the user's own config is not opened behind

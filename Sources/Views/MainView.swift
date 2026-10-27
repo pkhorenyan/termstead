@@ -145,6 +145,9 @@ struct MainView: View {
         .onChange(of: themeStore.showServerLoad, initial: true) {
             connectionStore.watchesServerLoad = themeStore.showServerLoad
         }
+        .onChange(of: themeStore.reconnectAutomatically, initial: true) {
+            connectionStore.reconnectsAutomatically = themeStore.reconnectAutomatically
+        }
         .onAppear {
             connectionStore.onLogin = { [appState, themeStore, connectionStore] connection in
                 guard themeStore.showFilesAfterLogin else { return }
