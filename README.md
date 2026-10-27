@@ -14,9 +14,10 @@
 </p>
 
 <p align="center">
-  A native macOS SSH and RDP client for people who keep a lot of servers in their
-  head — sessions in a tree, jump hosts, SFTP next to the terminal, remote
-  desktops in tabs, and passwords in the macOS Keychain. Built for anyone coming
+  A native macOS SSH, RDP and Telnet client for people who keep a lot of servers
+  in their head — sessions in a tree, jump hosts, SFTP next to the terminal,
+  remote desktops in tabs, your Mac's own shell beside them, and passwords in
+  the macOS Keychain. Built for anyone coming
   from MobaXterm who wants the same way of working, as a real Mac app.
 </p>
 
@@ -38,18 +39,22 @@
   another pane's strip to move it there. Broadcast input types into every
   visible pane at once — a yellow line marks each pane that takes it, and
   any pane can be left out.
-- **Your Mac's own terminal, in a tab** (⌥⌘T): your shell, at home, beside
-  the servers — in any pane, and part of broadcast input like the rest.
-- **Snippets.** Commands you type often, sent with a double-click or ⌃1–⌃9
-  to the tab in front — or to every pane with broadcast input.
+- **Your Mac's own terminal, in a tab** (⌥⌘T, or the terminal button beside
+  the tab strip's +): your shell, at home, beside the servers — in any pane,
+  part of broadcast input like the rest, with this Mac's files in the SFTP
+  tab, following its `cd`.
+- **Snippets.** Commands you type often, kept in a Snippets tab beside
+  Sessions and SFTP and sent with a double-click or ⌃1–⌃9 to the tab in
+  front — or to every pane with broadcast input. A snippet can stop short
+  of Return, to finish the command by hand.
 - **Session logs.** A tab's output to a plain-text file with the time on
-  each line, for a session always or for any tab when you choose.
+  each line — no colors or control codes — for a session always, or for any
+  tab when you choose.
 - **Tabs come back by themselves.** A connection dropped by sleep, Wi-Fi or
-  a VPN reconnects on its own once there is a network again.
+  a VPN reconnects on its own once there is a network again; `exit` stays
+  closed.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
   with its own user, key or password.
-- **Telnet** for switches, routers and older gear, in a tab like the rest —
-  macOS ships no telnet of its own any more.
 - **Remote desktops (RDP) in tabs.** An RDP session opens as a tab like any
   other, in any pane, and through its jump hosts if it has them. The desktop
   fits the tab and follows it as the window is resized, sharp on Retina
@@ -57,6 +62,9 @@
   into Explorer and back — a Mac folder can be shared as a drive, and
   Ctrl+Alt+Del and the Windows key are in the Session menu. The server's certificate is checked as a browser would, and
   one you have not seen before is asked about in the tab.
+- **Telnet** for switches, routers and older gear, in a tab like the rest,
+  with logs, snippets and broadcast input — macOS ships no telnet of its own
+  any more, so Termstead brings one.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -126,10 +134,16 @@ against the project's signing key before it is installed.
   folder, readable only by you, and deleted when the tab closes.
 - Remote desktops are drawn by **FreeRDP in a process of its own**: a crash
   in it ends the remote desktops, not Termstead or its ssh sessions. A
+  shared Mac folder is the only one a remote desktop sees. A
   server that offers no TLS, and so cannot prove who it is, is not logged in
   to. Your clipboard reaches a remote desktop only while you are typing in it.
-- Sessions are stored in `~/Library/Application Support/Termstead/sessions.json`.
-  Nothing is sent anywhere: no accounts, no analytics.
+- **Telnet is not encrypted** — passwords included — and the session form
+  says so. Use it for gear that speaks nothing else, on a network you trust.
+- Session logs are written only when you ask, to a folder you choose
+  (`~/Documents/Termstead Logs` at first), readable only by you.
+- Sessions and snippets are stored in `~/Library/Application Support/Termstead/`
+  (`sessions.json`, `snippets.json`). Nothing is sent anywhere: no accounts,
+  no analytics.
 
 ## Keyboard shortcuts
 
@@ -200,7 +214,7 @@ Icaza (MIT), vendored with small patches,
 [Sparkle](https://sparkle-project.org) for updates (MIT),
 [FreeRDP](https://www.freerdp.com) for remote desktops and
 [OpenSSL](https://www.openssl.org) under it (both Apache-2.0; FreeRDP is
-built with a small patch, in `scripts/rdp-patches`), and the typefaces
+built with small patches, in `scripts/rdp-patches`), and the typefaces
 [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and
 [IBM Plex Sans](https://www.ibm.com/plex/), both under the SIL Open Font
 License 1.1, with the icons of
