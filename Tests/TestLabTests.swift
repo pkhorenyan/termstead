@@ -450,6 +450,32 @@ final class TestLabTests {
         #expect(screen(connection).contains("Press Return to reconnect"))
     }
 
+    /// A tab's log has what the server printed, as plain lines, and the
+    /// connection closing.
+    @Test func aTabWritesItsLog() async throws {
+        let folder = directory.appendingPathComponent("logs", isDirectory: true)
+        let store = ConnectionStore()
+        store.logFolder = folder
+        let connection = Connection(sessionID: "lab-direct", title: "lab-direct", address: "lab@127.0.0.1",
+                                    keyDescription: "", keychain: keychain)
+        store.add(connection)
+        defer { store.close(connection.id) }
+        store.startLog(connection)
+        let log = try #require(connection.log)
+        connection.start(try plan("lab-direct"))
+        try await waitFor { connection.isLoggedIn }
+        try await Task.sleep(for: .milliseconds(500))
+        connection.terminalView.send(txt: "printf '\\033[31mSB_%s\\033[0m\\n' $((6*7)); exit\r")
+        try await waitFor { !connection.state.isRunning }
+        connection.stopLog()
+        log.drain()
+        #expect(!connection.isLogging)
+        let text = try String(contentsOf: log.url, encoding: .utf8)
+        #expect(text.contains("  SB_42\n"), "\(text)")
+        #expect(!text.contains("\u{1b}"))
+        #expect(text.contains("— Connection closed (exit code 0) —"), "\(text)")
+    }
+
     /// A tunnel named in the user's own config is not opened behind
     /// Termstead's back: it could neither show it nor stop it.
     @Test func theConfigsOwnTunnelsAreCleared() async throws {

@@ -309,6 +309,30 @@ struct AppearanceView: View {
                     }
                 }
             }
+
+            section("Logs") {
+                settingsGroup {
+                    settingsRow("Log folder",
+                                caption: "Plain text with the time on each line. A session's form turns its log on; any tab's menu starts one.") {
+                        HStack(spacing: 8) {
+                            Text(themeStore.logFolderPath)
+                                .font(SBFont.mono(12))
+                                .foregroundStyle(theme.textSecondary.color)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: 200, alignment: .trailing)
+                            Button("Choose…") {
+                                if let path = FolderPicker.choose(startingAt: themeStore.logFolderPath, prompt: "Choose",
+                                                                  message: "Choose where tabs write their logs") {
+                                    themeStore.logFolderPath = path
+                                }
+                            }
+                            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 28, horizontalPadding: 12,
+                                                              fontSize: 12.5, filled: true))
+                        }
+                    }
+                }
+            }
         }
     }
 

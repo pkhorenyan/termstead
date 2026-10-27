@@ -37,6 +37,7 @@ struct SessionSheet: View {
     @State private var passphrase = ""
     @State private var saveToKeychain = true
     @State private var pinToTop = false
+    @State private var logs = false
     /// The session's own color: `nil` takes the group's (see `Session.colorID`).
     @State private var colorID: String?
     @State private var jumps: [JumpHost] = []
@@ -315,6 +316,14 @@ struct SessionSheet: View {
             HStack(spacing: 12) {
                 FormLabel("Color")
                 Spacer(minLength: 0)
+                Toggle(isOn: $logs) {
+                    Text("Log to file")
+                        .font(SBFont.ui(13))
+                        .foregroundStyle(theme.text.color)
+                }
+                .toggleStyle(.checkbox)
+                .tint(theme.accent.color)
+                .help("Each tab of this session writes its output to the log folder (Settings ▸ Terminal ▸ Logs).")
                 Toggle(isOn: $pinToTop) {
                     Text("Pin to top")
                         .font(SBFont.ui(13))
@@ -805,6 +814,7 @@ struct SessionSheet: View {
             colorID = session.colorID
             parentID = sessionStore.currentGroupID(ofSession: id)
             pinToTop = sessionStore.isPinned(id)
+            logs = session.logs
             authMode = session.auth
             keyPath = session.keyPath
             jumps = session.jumps
@@ -874,6 +884,7 @@ struct SessionSheet: View {
             colorID: colorID
         )
         session.kind = kind
+        session.logs = logs
         if kind == .rdp {
             session.rdp = rdpOptionsToSave
         } else {

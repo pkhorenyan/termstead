@@ -27,6 +27,7 @@ final class ThemeStore {
         static let reopenTabs = "window.reopenTabs"
         static let showServerLoad = "window.showServerLoad"
         static let reconnect = "terminal.reconnect"
+        static let logFolder = "terminal.logFolder"
     }
 
     /// Which edge of the window the sidebar (Sessions and SFTP) sits on.
@@ -146,6 +147,18 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(showFilesAfterLogin, forKey: Key.showFilesAfterLogin) }
     }
 
+    /// Where tabs write their logs, `~` abbreviated.
+    var logFolderPath: String {
+        didSet { UserDefaults.standard.set(logFolderPath, forKey: Key.logFolder) }
+    }
+    var logFolder: URL {
+        URL(fileURLWithPath: (logFolderPath as NSString).expandingTildeInPath, isDirectory: true)
+    }
+    nonisolated static let defaultLogFolderPath = "~/Documents/Termstead Logs"
+    nonisolated static var defaultLogFolder: URL {
+        URL(fileURLWithPath: (defaultLogFolderPath as NSString).expandingTildeInPath, isDirectory: true)
+    }
+
     /// A tab whose connection dropped after login — sleep, Wi-Fi, VPN —
     /// connects again by itself (`Connection.shouldReconnect`). On unless
     /// turned off.
@@ -205,6 +218,7 @@ final class ThemeStore {
         reopenTabsAtLaunch = Self.bool(defaults, Key.reopenTabs, default: false)
         showServerLoad = Self.bool(defaults, Key.showServerLoad, default: true)
         reconnectAutomatically = Self.bool(defaults, Key.reconnect, default: true)
+        logFolderPath = defaults.string(forKey: Key.logFolder) ?? Self.defaultLogFolderPath
         fontLigatures = Self.bool(defaults, Key.ligatures, default: false)
         systemIsDark = Self.readSystemIsDark()
 
@@ -417,6 +431,7 @@ extension ThemeStore {
         var showServerLoad: Bool
         var fontLigatures: Bool
         var reconnectAutomatically: Bool
+        var logFolderPath: String
     }
 
     var snapshot: Snapshot {
@@ -429,7 +444,7 @@ extension ThemeStore {
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
                  showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch,
                  showServerLoad: showServerLoad, fontLigatures: fontLigatures,
-                 reconnectAutomatically: reconnectAutomatically)
+                 reconnectAutomatically: reconnectAutomatically, logFolderPath: logFolderPath)
     }
 
     func restore(_ snapshot: Snapshot) {
@@ -453,5 +468,6 @@ extension ThemeStore {
         showServerLoad = snapshot.showServerLoad
         fontLigatures = snapshot.fontLigatures
         reconnectAutomatically = snapshot.reconnectAutomatically
+        logFolderPath = snapshot.logFolderPath
     }
 }

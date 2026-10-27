@@ -177,6 +177,12 @@ struct TabBarView: View {
         Button("Duplicate Tab") { duplicate(tab) }
             // A session deleted since the tab opened has nothing to copy.
             .disabled(tab.sessionID != nil && saved == nil)
+        Button(tab.isLogging ? "Stop Logging" : "Start Logging") {
+            if tab.isLogging { tab.stopLog() } else { connectionStore.startLog(tab) }
+        }
+        if let url = tab.log?.url ?? tab.lastLogURL {
+            Button("Show Log in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        }
         if let saved {
             Button("Session Settings…") { appState.route = .sessionSettings(id: saved.id) }
             if saved.kind == .ssh {

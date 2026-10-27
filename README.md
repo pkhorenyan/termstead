@@ -40,6 +40,8 @@
   any pane can be left out.
 - **Your Mac's own terminal, in a tab** (⌥⌘T): your shell, at home, beside
   the servers — in any pane, and part of broadcast input like the rest.
+- **Session logs.** A tab's output to a plain-text file with the time on
+  each line, for a session always or for any tab when you choose.
 - **Tabs come back by themselves.** A connection dropped by sleep, Wi-Fi or
   a VPN reconnects on its own once there is a network again.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,

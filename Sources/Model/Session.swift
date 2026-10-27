@@ -206,6 +206,8 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     var sessionKind: SessionKind? = nil
     /// Read through `rdp`; `nil` until an RDP session is saved.
     var rdpOptions: RDPOptions? = nil
+    /// Read through `logs`; `nil` (off) in every file from before logs.
+    var logToFile: Bool? = nil
 
     var forwards: [PortForward] {
         get { portForwards ?? [] }
@@ -221,6 +223,12 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     var rdp: RDPOptions {
         get { rdpOptions ?? RDPOptions() }
         set { rdpOptions = newValue }
+    }
+
+    /// Each tab of the session writes its output to a file (`SessionLog`).
+    var logs: Bool {
+        get { logToFile ?? false }
+        set { logToFile = newValue ? true : nil }
     }
 
     var address: String {

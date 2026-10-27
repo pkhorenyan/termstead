@@ -77,6 +77,11 @@ final class ConnectionStore {
         didSet { updateLoadWatches() }
     }
 
+    /// Settings ▸ Logs: where tabs write their logs.
+    var logFolder = ThemeStore.defaultLogFolder
+
+    func startLog(_ connection: Connection) { connection.startLog(in: logFolder) }
+
     /// Settings ▸ "Reconnect when the connection drops", for every tab.
     var reconnectsAutomatically = false {
         didSet { for connection in connections { connection.reconnectsAutomatically = reconnectsAutomatically } }
@@ -216,6 +221,8 @@ final class ConnectionStore {
                                     keyDescription: Self.keyDescription(for: session),
                                     kind: session.kind)
         add(connection)
+        // Before it starts, so the log has the login too.
+        if session.logs { startLog(connection) }
         if session.kind == .rdp {
             let password = KeychainStore.shared.secret(for: SSHLaunch.sessionPasswordAccount(session.id)) ?? ""
             do {

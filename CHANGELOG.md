@@ -33,6 +33,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every 60 s, waiting meanwhile for a network, and Return connects at
   once. `exit` is left alone. Settings ▸ Terminal ▸ Reconnect when the
   connection drops, on by default.
+- Session logs: a tab's output written to a file as plain text, with the
+  time on each line — no colors or control codes, and nothing a
+  full-screen program such as vim draws. "Log to file" in a session's form
+  logs each of its tabs; Start Logging in any tab's menu or the Session
+  menu logs that tab, a local terminal included. The status bar shows
+  while a tab logs; the folder is set in Settings ▸ Terminal ▸ Logs
+  (`~/Documents/Termstead Logs` at first).
 
 ### Changed
 

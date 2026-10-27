@@ -219,6 +219,18 @@ struct TermsteadApp: App {
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(connectionStore.active == nil || formIsOpen)
             Divider()
+            Button(connectionStore.active?.isLogging == true ? "Stop Logging" : "Start Logging") {
+                guard let tab = connectionStore.active else { return }
+                if tab.isLogging { tab.stopLog() } else { connectionStore.startLog(tab) }
+            }
+                .disabled(connectionStore.active == nil || formIsOpen)
+            Button("Show Log in Finder") {
+                if let url = connectionStore.active.flatMap({ $0.log?.url ?? $0.lastLogURL }) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+                .disabled(connectionStore.active.flatMap({ $0.log?.url ?? $0.lastLogURL }) == nil || formIsOpen)
+            Divider()
             // Keys a Mac keeps for itself, for the remote desktop in front.
             Button("Send Ctrl+Alt+Del") { activeDesktop?.sendControlAltDelete() }
                 .disabled(activeDesktop == nil || formIsOpen)

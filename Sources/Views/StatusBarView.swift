@@ -51,6 +51,15 @@ struct StatusBarView: View {
                         .layoutPriority(2)
                 }
 
+                if let log = tab.log {
+                    Label("Log", systemImage: "record.circle")
+                        .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+                        .foregroundStyle(theme.ansiRed.color)
+                        .help("Writing this tab's output to \(log.url.lastPathComponent)")
+                        .fixedSize()
+                        .layoutPriority(2)
+                }
+
                 TunnelStatusItem()
                 RDPTransferStatusItem()
 

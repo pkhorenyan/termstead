@@ -247,7 +247,7 @@ scripts/release.sh 0.2.0
 | `Sources/AboutPanel.swift` | The standard About panel, with links to the website and the source |
 | `scripts/release.sh` | Builds a signed, notarized release with its appcast and cask |
 | `Sources/Model/` | `SessionStore` (the tree and all editing), `Session`, `SessionGroup`, `TreeNode`, row models, drag payloads, sample data, `SessionPersistence`/`SessionStorage` |
-| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
+| `Sources/SSH/` | `SSHLaunch` (session → ssh_config), `Connection` (one tab: process + terminal view), `SessionLog` (a tab's output to a file), `NetworkWatch` (whether there is a network, for reconnecting), `ConnectionStore` (the tabs) and `ConnectionStore+Forwarding` (port forwarding: the tunnel connections and each tunnel's state), `TabMemory` (the tabs to reopen at launch), `ServerLoad` (the status bar's CPU, memory, disk and network: the remote script, its parser and `ServerLoadWatch`), `KeychainStore`, `AskpassServer` + `AskpassMatcher`, keyword highlighting, `~/.ssh/config` import |
 | `Sources/SFTP/` | `FileSource` (what the Files tab browses) with `LocalFiles` (this Mac, for a local terminal), `SFTPClient` (`sftp -b` over the tab's connection master), the `ls -la` parser, `FileBrowser` (the Files tab's state per tab, transfers, open-and-edit) |
 | `Sources/RDP/` | The app's side of a remote desktop: `RDPDesktop` (one tab's session, its questions, size and clipboard, and `RDPDesktopView`), `RDPEngineConnection` (XPC to the engine), `RDPSocket`, `RDPKeyboard`, `RDPPointer`, `RDPCertificate` and `RDPKnownHosts`, `RDPClipboardFiles` (files copied either way) |
 | `Helpers/Askpass/` | `termstead-askpass`, the `SSH_ASKPASS` helper, installed in `Contents/MacOS` |
@@ -309,6 +309,18 @@ read from there, never stored on `Session`.
 - **Host keys** are ssh's business: the first connection to a server asks yes/no
   in the terminal, against the real `known_hosts`.
 - **Closed tabs** keep their output. Press Return to reconnect.
+- **Logs** (`SessionLog`, `Connection.startLog`): a session's "Log to
+  file" (`Session.logs`) starts one as its tab opens, before ssh, so the
+  login is in it; Start Logging in the tab's or the Session menu does it
+  for any tab. `SSHTerminalView.onOutput` hands every piece of output to
+  `LogLineFilter`, which keeps plain lines: escape sequences dropped, a
+  lone `\r` starts the line again (a progress bar keeps its last state),
+  `\b` takes a character back, and what runs on the alternate screen
+  (`?1049h` … `l`) is left out but for the command line that opened it.
+  Lines are written on a queue of their own. The folder is
+  `ThemeStore.logFolderPath`, a new file per log; prompts that move the
+  cursor about (powerlevel10k's right prompt) come out jumbled — the log
+  is the stream, not the screen.
 - **A dropped tab reconnects by itself** (`Connection.shouldReconnect`,
   Settings' `reconnectAutomatically`, on by default): only when ssh ended
   with 255 after it was in, or an attempt to get back in failed again

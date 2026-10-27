@@ -89,6 +89,12 @@ final class Connection: Identifiable {
     @ObservationIgnored private var desktopEndReason: String?
     @ObservationIgnored private var didClose = false
 
+    /// The file this tab's output is written to, while it is.
+    private(set) var log: SessionLog?
+    var isLogging: Bool { log != nil }
+    /// The last log, to show in Finder after it was stopped.
+    @ObservationIgnored private(set) var lastLogURL: URL?
+
     /// Settings ▸ "Reconnect when the connection drops", set by the store.
     @ObservationIgnored var reconnectsAutomatically = false
     /// The reconnect waiting to happen, and how many came before it since
@@ -141,6 +147,7 @@ final class Connection: Identifiable {
             self?.browser?.terminalMayHaveMoved()
         }
         terminalView.onUserInput = { [weak self] data in self?.onInput?(data) }
+        terminalView.onOutput = { [weak self] data in self?.log?.append(Array(data)) }
         desktop?.log = { [weak self] line in
             self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n")
         }
@@ -334,6 +341,7 @@ final class Connection: Identifiable {
     func close() {
         didClose = true
         reconnect?.cancel()
+        stopLog()
         stopLoadWatch()
         browser?.stop()
         // SwiftTerm stops watching the process the moment `terminate` signals
@@ -495,6 +503,7 @@ final class Connection: Identifiable {
         // A desktop's tunnel gone takes the desktop with it.
         desktop?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
+        log?.note((isLocalShell ? "The shell exited" : "Connection closed") + detail)
         if reconnectsAutomatically, desktopEndReason == nil,
            Self.shouldReconnect(exitCode: exitCode, didLogIn: didLogIn, attempts: reconnectAttempts,
                                 isLocalShell: isLocalShell, isTunnelOnly: isTunnelOnly, isDesktop: desktop != nil) {
@@ -505,6 +514,24 @@ final class Connection: Identifiable {
         let again = isLocalShell ? "start it again" : "reconnect"
         desktopEndReason = nil
         terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to \(again).\u{1b}[0m\r\n")
+    }
+
+    /// Starts writing the output to a new file in `folder`. A failure is
+    /// said in the terminal, and the tab goes on without a log.
+    func startLog(in folder: URL) {
+        guard log == nil else { return }
+        do {
+            let made = try SessionLog(folder: folder, title: title, address: address)
+            log = made
+            lastLogURL = made.url
+        } catch {
+            terminalView.feed(text: "\r\n\u{1b}[31mCould not start the log in \(folder.path): \(error.localizedDescription)\u{1b}[0m\r\n")
+        }
+    }
+
+    func stopLog() {
+        log?.close()
+        log = nil
     }
 
     /// Waits, then for a network, then connects as Return would. Return
@@ -672,8 +699,12 @@ final class SSHTerminalView: LocalProcessTerminalView {
     /// New output is highlighted in passes at most every 30 ms: `cat` of a big
     /// file arrives in hundreds of chunks, and one pass over the screen per
     /// chunk would be wasted work on text already scrolled past.
+    /// Output as it arrives, for the tab's log.
+    var onOutput: ((ArraySlice<UInt8>) -> Void)?
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
         super.dataReceived(slice: slice)
+        onOutput?(slice)
         scheduleHighlight()
     }
 
