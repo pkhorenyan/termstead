@@ -2779,7 +2779,7 @@ open class Terminal {
         case reportScreenSizeCharacters
         case reportIconLabel
         case reportWindowTitle
-        case resizeTo (lines: Int)
+        case resizeToLines (Int)
     }
 
     // Dispatches to

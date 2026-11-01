@@ -14,6 +14,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A program asking the terminal to resize itself (`CSI 8 ; rows ; cols t`)
+  crashed the app with all its tabs. Such a request is now ignored.
 - Broadcast input with an empty pane in focus: turning it on, or closing the
   focused pane's last tab, left the keyboard nowhere, so typing did nothing.
   The focus now moves to a pane with a terminal.

@@ -1586,7 +1586,9 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             return nil
         case .sendToBack:
             return nil
-        case .resizeTo(_):
+        case .resizeTo:
+            return nil
+        case .resizeToLines:
             return nil
         case .restoreMaximizedWindow:
             return nil

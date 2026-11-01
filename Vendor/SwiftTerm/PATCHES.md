@@ -61,3 +61,14 @@ change of size (`processSizeChange`) counts it less the scroll bar
 and ⌘− — the terminal had two or three columns too many, and their text ran
 under the scroll bar until the window was resized. `resetFont` counts the
 way `processSizeChange` does.
+
+
+## windowCommand: two cases named resizeTo
+
+`WindowManipulationCommand` had `resizeTo(cols:rows:)` and `resizeTo(lines:)`.
+In `TerminalView.windowCommand`, `case .resizeTo(_):` matched only the second,
+yet the compiler still took the switch for exhaustive (and refused
+`.resizeTo(cols: _, rows: _)`). `CSI 8 ; rows ; cols t`, which any program on a
+server may print, reached the trap for an unexpected enum case and ended the
+app with all its tabs. The second case, which nothing sends, is now
+`resizeToLines`, and the switch names both.
