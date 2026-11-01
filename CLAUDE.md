@@ -999,6 +999,15 @@ These have each cost real time. They are not hypothetical.
   bold and italic faces, which `NSFontManager.convert` derives without it.
   JetBrains Mono has the powerline arrows itself; test with a glyph it
   lacks (U+F07C).
+- **`getBufferAsData` is not the screen in order.** Its lines can come out
+  rotated: nvim's first line came last, and a fish session looked as if
+  nothing it printed reached the terminal. To see what a user sees, render
+  the view (`cacheDisplay`) or read `getCharData` by row.
+- **fish on the far end.** Commands go through `sh -c`, and `shellQuote`
+  keeps backslashes out of the single quotes, which fish reads differently
+  from `sh`. fish 4 also sends `CSI = 5 u` at every prompt; see the
+  `dispatchCsi` entry in PATCHES.md. It is not in the lab: a throwaway
+  container with `apk add fish` is enough to try it.
 - **SwiftTerm's `font` setter clears the selection**, even for the same
   font. `TerminalStyle` sets it only when it changed; otherwise every theme
   change dropped a find match or the user's selection.

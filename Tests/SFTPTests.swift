@@ -67,6 +67,8 @@ struct SFTPListingTests {
         // Literal inside quotes already; escaping them added a backslash.
         #expect(SFTPClient.quote("*[x]?") == "\"*[x]?\"")
         #expect(SFTPClient.shellQuote("it's") == "'it'\\''s'")
+        // Outside the quotes: fish reads these inside them differently from sh.
+        #expect(SFTPClient.shellQuote("end\\") == "'end'\\\\''")
     }
 
     @Test func workingDirectoryAndErrors() throws {

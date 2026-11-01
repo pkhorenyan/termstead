@@ -373,6 +373,18 @@ public class EscapeSequenceParser {
             csiHandlerFallback(pars, collect, code)
             return
         }
+        // TERMSTEAD PATCH (see PATCHES.md): these handlers do not look at
+        // `collect`, and a prefix makes it another command: fish 4's `CSI = 5 u`
+        // ran as "restore the cursor" and sent it to the top of the screen.
+        switch code {
+        case 0x41...0x49, 0x53, 0x5a, 0x60, 0x61, 0x62, 0x64, 0x65, 0x66, 0x73, 0x75:
+            if !collect.isEmpty {
+                csiHandlerFallback(pars, collect, code)
+                return
+            }
+        default:
+            break
+        }
         switch code {
         case 0x40: terminal.cmdInsertChars(pars, collect)       // @
         case 0x41: terminal.cmdCursorUp(pars, collect)          // A

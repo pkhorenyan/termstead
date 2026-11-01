@@ -24,6 +24,29 @@ struct WindowCommandTests {
         #expect((terminal.cols, terminal.rows) == size)
     }
 
+    /// `CSI = 5 u` is the kitty keyboard protocol's, sent by fish 4 at every
+    /// prompt, not "restore the cursor". Nor does a prefix on the others
+    /// leave them what they are without it.
+    @Test func aPrefixedSequenceIsNotTheBareOne() {
+        let connection = Connection(sessionID: nil, title: "t", address: "a", keyDescription: "k")
+        let view = connection.terminalView
+        let terminal = view.getTerminal()
+        view.feed(text: "\u{1b}[2J\u{1b}[4;4Habcdef\u{1b}[6;6H")
+        let cursor = terminal.getCursorLocation()
+        for prefix in ["?", ">", "=", "<"] {
+            for final in "ABCDEFGHISZ`abdefu" {
+                view.feed(text: "\u{1b}[\(prefix)4;1\(final)")
+                #expect(terminal.getCursorLocation() == cursor, "\(prefix) \(final)")
+            }
+        }
+        #expect(terminal.getCharData(col: 3, row: 3)?.getCharacter() == "a", "the screen scrolled")
+
+        view.feed(text: "\u{1b}[s\u{1b}[H\u{1b}[?s\u{1b}[u")
+        #expect(terminal.getCursorLocation() == cursor, "? s saved the cursor")
+        view.feed(text: "\u{1b}[H\u{1b}[6;6H\u{1b}[H\u{1b}[5;5H\u{1b}[A")
+        #expect(terminal.getCursorLocation().y == 3, "the bare form still works")
+    }
+
     /// A settings query (DECRQSS) whose bytes are not ASCII: the line that
     /// logs an unknown request force-unwrapped them.
     @Test func aSettingsQueryOfGarbageIsRefused() {

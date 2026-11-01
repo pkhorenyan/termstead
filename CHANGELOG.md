@@ -20,6 +20,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   crashed the app with all its tabs. Such a request is now ignored.
 - Closing a local terminal left its shell running. Closing any tab now
   hangs up its terminal, so what runs there ends and its descriptor is freed.
+- fish 4: typing and output landed at the top of the screen instead of at
+  the prompt, as the terminal took its keyboard protocol request for "restore
+  the cursor". Other prefixed sequences no longer move the cursor or scroll.
+- Files tab on a server with fish as its login shell: deleting a folder whose
+  name ends in a backslash or holds two in a row failed or did nothing.
 - A terminal settings query (DECRQSS) holding bytes that are not ASCII
   crashed the app in the same way.
 - Broadcast input with an empty pane in focus: turning it on, or closing the

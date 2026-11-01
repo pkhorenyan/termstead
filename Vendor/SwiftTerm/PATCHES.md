@@ -88,3 +88,14 @@ in progress, and on a quiet terminal that read never ends. The pseudo-terminal
 stayed open, so the program got no hangup, and `SIGTERM` alone does not end an
 interactive zsh: every local terminal closed left its shell running, and every
 tab its descriptor.
+
+
+## dispatchCsi: a prefix makes another command
+
+`dispatchCsi` picks a handler by the final byte, and the cursor movement,
+scroll and restore handlers never look at `collect`. `CSI = 5 u`, the kitty
+keyboard protocol's request that fish 4 sends at every prompt, ran as `CSI u`,
+restore the cursor: typing and output landed at the top of the screen, over
+what was there. `CSI ? u`, `CSI > 1 u`, `CSI < u`, `CSI ? 1 ; 1 S` and the
+like did the same. Those finals with a prefix or an intermediate now go to the
+fallback, which logs them.

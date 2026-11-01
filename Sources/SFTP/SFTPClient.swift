@@ -238,9 +238,12 @@ struct SFTPClient: Equatable, Sendable {
         return "\"\(escaped)\""
     }
 
-    /// For the remote shell: single quotes, with each `'` closed, escaped and reopened.
+    /// For the remote shell: single quotes, with each `'` and `\` closed,
+    /// escaped and reopened. Inside single quotes fish, unlike `sh`, reads
+    /// `\\` as one backslash and `\'` as a quote, so a name with a backslash
+    /// was a different name there, or no command at all.
     static func shellQuote(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        "'" + text.map { $0 == "'" ? "'\\''" : $0 == "\\" ? "'\\\\'" : String($0) }.joined() + "'"
     }
 
     static func workingDirectory(in output: String) throws -> String {
