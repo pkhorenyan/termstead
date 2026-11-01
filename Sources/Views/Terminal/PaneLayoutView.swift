@@ -162,13 +162,13 @@ struct PaneView: View {
 
     private var isFocused: Bool { connectionStore.focusedPane == pane }
     private var isSplit: Bool { connectionStore.layout.paneCount > 1 }
-    /// Split, and not the pane in focus: drawn back, the way iTerm2 dims its
-    /// inactive split panes. A quieter tab line and a hollow cursor alone
+    /// Split, and typing does not reach it: drawn back, the way iTerm2 dims
+    /// its inactive split panes. A quieter tab line and a hollow cursor alone
     /// did not tell the panes apart. An accent frame round the focused pane
     /// did, but glared, and its top edge was clipped by the window's.
-    private var isDimmed: Bool { isSplit && !isFocused }
+    private var isDimmed: Bool { isSplit && !connectionStore.typingReaches(pane: pane) }
 
-    /// How far an unfocused pane's content is pulled towards its background.
+    /// How far a dimmed pane's content is pulled towards its background.
     static let dimming = 0.4
     /// The focused pane's line under its tabs: there, but quiet.
     static let focusLineOpacity = 0.6

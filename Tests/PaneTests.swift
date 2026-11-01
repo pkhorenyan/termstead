@@ -186,6 +186,26 @@ struct PaneTests {
         #expect(store.broadcastTargets(from: source).map(\.title) == ["p3b"], "a closed tab is skipped")
     }
 
+    @Test func typingReachesOnlyThePanesItGoesTo() {
+        let store = ConnectionStore()
+        store.setLayout(.grid)
+        for pane in 0..<4 {
+            store.focus(pane: pane)
+            store.add(tab("p\(pane)"))
+        }
+        store.focus(pane: 0)
+        #expect((0..<4).map(store.typingReaches) == [true, false, false, false], "only the focused pane without broadcast")
+
+        store.toggleBroadcast()
+        #expect((0..<4).map(store.typingReaches) == [true, true, true, true])
+
+        store.toggleBroadcast(pane: 2)
+        #expect((0..<4).map(store.typingReaches) == [true, true, false, true], "a pane left out")
+
+        store.focus(pane: 2)
+        #expect((0..<4).map(store.typingReaches) == [false, false, true, false], "typing in a pane left out stays there")
+    }
+
     @Test func oneLayoutOrAnotherEndsOrResetsBroadcast() {
         let store = ConnectionStore()
         store.setLayout(.sideBySide)

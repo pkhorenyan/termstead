@@ -167,6 +167,13 @@ final class ConnectionStore {
             && active(in: pane).map { $0.kind.hasTerminal } == true
     }
 
+    /// Whether typing now reaches this pane: the focused one, and with
+    /// broadcast the others taking it — unless the focused pane is left out,
+    /// and then what is typed stays there.
+    func typingReaches(pane: Int) -> Bool {
+        pane == focusedPane || (receivesBroadcast(pane: focusedPane) && receivesBroadcast(pane: pane))
+    }
+
     /// Where input typed into `source` goes besides `source` itself: the
     /// other included panes' tabs in front, still connected. Nothing when the
     /// source's own pane is left out, or the source is not in front there.

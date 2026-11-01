@@ -7,6 +7,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- With broadcast input on, every pane that typing reaches is drawn at full
+  brightness, not just the focused one. A pane left out stays dimmed.
+
 ## [0.8.0] - 2026-10-27
 
 ### Added
