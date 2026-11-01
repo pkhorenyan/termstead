@@ -118,7 +118,10 @@ private struct FileBrowserView: View {
     // MARK: - Toolbar and path
 
     private var toolbar: some View {
-        HStack(spacing: 2) {
+        // No gaps: at the sidebar's narrowest the panel has 176pt. With 2pt
+        // gaps the row took 186, and the overflow pushed the tab rail past
+        // the window's edge.
+        HStack(spacing: 0) {
             tool("arrow.up", help: "Enclosing folder") { browser.goUp() }
                 .disabled(browser.path == nil || browser.path == "/")
             tool("house", help: "Home folder") { browser.goHome() }

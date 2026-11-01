@@ -23,6 +23,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - fish 4: typing and output landed at the top of the screen instead of at
   the prompt, as the terminal took its keyboard protocol request for "restore
   the cursor". Other prefixed sequences no longer move the cursor or scroll.
+- With a narrow sidebar the tab rail slid past the window's edge while the
+  Files tab showed a connected tab.
 - Files tab on a server with fish as its login shell: deleting a folder whose
   name ends in a backslash or holds two in a row failed or did nothing.
 - A terminal settings query (DECRQSS) holding bytes that are not ASCII
