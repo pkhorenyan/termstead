@@ -72,3 +72,10 @@ yet the compiler still took the switch for exhaustive (and refused
 server may print, reached the trap for an unexpected enum case and ended the
 app with all its tabs. The second case, which nothing sends, is now
 `resizeToLines`, and the switch names both.
+
+
+## DECRQSS: a request that is not ASCII
+
+`DECRQSS.unhook` force-unwrapped the request to log it as unknown, and the
+request is nil when its bytes are not ASCII. `ESC P $ q 0xFF ESC \\` from a
+server ended the app. Found by feeding the terminal random sequences.

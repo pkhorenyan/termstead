@@ -23,4 +23,12 @@ struct WindowCommandTests {
         // The tab's size is the pane's, whatever a program would like.
         #expect((terminal.cols, terminal.rows) == size)
     }
+
+    /// A settings query (DECRQSS) whose bytes are not ASCII: the line that
+    /// logs an unknown request force-unwrapped them.
+    @Test func aSettingsQueryOfGarbageIsRefused() {
+        let connection = Connection(sessionID: nil, title: "t", address: "a", keyDescription: "k")
+        let bytes: [UInt8] = [0x1b, 0x50, 0x24, 0x71, 0xff, 0x1b, 0x5c]
+        connection.terminalView.feed(byteArray: bytes[...])
+    }
 }
