@@ -7,6 +7,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-01
+
 ### Added
 
 - Telnet through jump hosts: a Telnet session takes a jump chain like any
@@ -22,8 +24,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- A program asking the terminal to resize itself (`CSI 8 ; rows ; cols t`)
-  crashed the app with all its tabs. Such a request is now ignored.
+- Two kinds of terminal output crashed the app with all its tabs: a program
+  asking the terminal to resize itself, and a settings
+  query holding bytes that are not text. The first is now ignored and the
+  second refused.
 - Closing a local terminal left its shell running. Closing any tab now
   hangs up its terminal, so what runs there ends and its descriptor is freed.
 - fish 4: typing and output landed at the top of the screen instead of at
@@ -33,8 +37,6 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Files tab showed a connected tab.
 - Files tab on a server with fish as its login shell: deleting a folder whose
   name ends in a backslash or holds two in a row failed or did nothing.
-- A terminal settings query (DECRQSS) holding bytes that are not ASCII
-  crashed the app in the same way.
 - Broadcast input with an empty pane in focus: turning it on, or closing the
   focused pane's last tab, left the keyboard nowhere, so typing did nothing.
   The focus now moves to a pane with a terminal.
