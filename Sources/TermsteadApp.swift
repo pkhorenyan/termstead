@@ -223,11 +223,12 @@ struct TermsteadApp: App {
                 .disabled(connectionStore.active == nil || formIsOpen)
             Divider()
             Menu("Snippets") {
-                // ⌃1 to ⌃9 for the first nine: ⌘1… are left free, as tabs'
-                // numbers in other terminals.
+                // ⌃⌥1 to ⌃⌥9 for the first nine: ⌘1… are left free, as tabs'
+                // numbers in other terminals, and ⌃2 or ⌃6 alone are keys
+                // for the program in the terminal (⌃6 is nvim's last file).
                 ForEach(Array(snippetStore.snippets.prefix(9).enumerated()), id: \.element.id) { index, snippet in
                     Button(snippet.name) { connectionStore.send(snippet) }
-                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .control)
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.control, .option])
                         .disabled(connectionStore.snippetTarget == nil || formIsOpen)
                 }
                 ForEach(snippetStore.snippets.dropFirst(9)) { snippet in

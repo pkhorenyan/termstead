@@ -438,7 +438,9 @@ public class LocalProcess {
         // The cleanup handler ensures FDs are closed AFTER DispatchIO is done with them,
         // preventing "BUG IN CLIENT OF LIBDISPATCH: Unexpected EV_VANISHED" crash
         // This applies to both Subprocess and forkpty paths
-        io?.close()
+        // TERMSTEAD PATCH (see PATCHES.md): a plain close waits for the read
+        // in progress, which on a quiet terminal never ends.
+        io?.close(flags: .stop)
         io = nil
         childfd = -1
 

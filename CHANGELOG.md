@@ -11,11 +11,15 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - With broadcast input on, every pane that typing reaches is drawn at full
   brightness, not just the focused one. A pane left out stays dimmed.
+- Snippets 1–9 are sent with ⌃⌥1–⌃⌥9. ⌃1–⌃9 took keys from programs in the
+  terminal, such as ⌃6 in nvim.
 
 ### Fixed
 
 - A program asking the terminal to resize itself (`CSI 8 ; rows ; cols t`)
   crashed the app with all its tabs. Such a request is now ignored.
+- Closing a local terminal left its shell running. Closing any tab now
+  hangs up its terminal, so what runs there ends and its descriptor is freed.
 - A terminal settings query (DECRQSS) holding bytes that are not ASCII
   crashed the app in the same way.
 - Broadcast input with an empty pane in focus: turning it on, or closing the

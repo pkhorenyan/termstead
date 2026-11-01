@@ -44,7 +44,7 @@
   part of broadcast input like the rest, with this Mac's files in the SFTP
   tab, following its `cd`.
 - **Snippets.** Commands you type often, kept in a Snippets tab beside
-  Sessions and SFTP and sent with a double-click or ⌃1–⌃9 to the tab in
+  Sessions and SFTP and sent with a double-click or ⌃⌥1–⌃⌥9 to the tab in
   front — or to every pane with broadcast input. A snippet can stop short
   of Return, to finish the command by hand.
 - **Session logs.** A tab's output to a plain-text file with the time on
@@ -155,7 +155,7 @@ against the project's signing key before it is installed.
 | Quick connect by address | ⌘K |
 | New tab / Close tab | ⌘T / ⌘W |
 | New local terminal | ⌥⌘T |
-| Send snippet 1–9 | ⌃1 – ⌃9 |
+| Send snippet 1–9 | ⌃⌥1 – ⌃⌥9 |
 | Previous / next tab | ⇧⌘[ / ⇧⌘] |
 | Split vertically / horizontally | ⌘D / ⇧⌘D |
 | Previous / next pane | ⌘[ / ⌘] |

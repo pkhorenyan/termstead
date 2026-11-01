@@ -79,3 +79,12 @@ app with all its tabs. The second case, which nothing sends, is now
 `DECRQSS.unhook` force-unwrapped the request to log it as unknown, and the
 request is nil when its bytes are not ASCII. `ESC P $ q 0xFF ESC \\` from a
 server ended the app. Found by feeding the terminal random sequences.
+
+
+## terminate: stop the read in progress
+
+`terminate` closed its `DispatchIO` without `.stop`, which waits for the read
+in progress, and on a quiet terminal that read never ends. The pseudo-terminal
+stayed open, so the program got no hangup, and `SIGTERM` alone does not end an
+interactive zsh: every local terminal closed left its shell running, and every
+tab its descriptor.

@@ -16,6 +16,25 @@ struct LocalTerminalTests {
         while !done(), Date() < deadline { try? await Task.sleep(for: .milliseconds(100)) }
     }
 
+    /// An interactive zsh ignores SIGTERM: only the terminal hanging up ends
+    /// it, and with it what it was running.
+    @Test func closingATabEndsItsShellAndWhatRunsInIt() async throws {
+        let tab = Connection(sessionID: nil, title: "Local", address: "This Mac", keyDescription: "zsh",
+                             isLocalShell: true)
+        tab.startLocalShell()
+        #expect(await run("echo $((6 * 7)); sleep 300", in: tab, until: "42"))
+        let shell = tab.terminalView.process.shellPid
+        let foreground = tcgetpgrp(tab.terminalView.process.childfd)
+        #expect(foreground > 0 && foreground != shell, "sleep should be in front")
+
+        tab.close()
+        await wait(upTo: 5) { kill(shell, 0) != 0 && kill(-foreground, 0) != 0 }
+        #expect(kill(shell, 0) != 0, "the shell outlived its tab")
+        #expect(kill(-foreground, 0) != 0, "what it ran outlived the tab")
+        if kill(shell, 0) == 0 { kill(shell, SIGKILL) }
+        if foreground > 0, kill(-foreground, 0) == 0 { kill(-foreground, SIGKILL) }
+    }
+
     /// The marker is computed by the shell, so the echo of what was typed
     /// cannot pass for it. Typing is repeated: a login shell may still be
     /// reading its profile when the first line arrives.

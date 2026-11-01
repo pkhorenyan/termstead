@@ -321,8 +321,8 @@ read from there, never stored on `Session`.
   during one is not broadcast (`aSnippetIsBroadcastLikeTyping`). Lines go
   as typed, `\r` each, not as a bracketed paste, which a shell would hold
   until Return. The keyboard goes back to the terminal after a send.
-  ⌃1–⌃9 take the first nine; with Mission Control's "Switch to Desktop N"
-  turned on, macOS keeps those keys for itself.
+  ⌃⌥1–⌃⌥9 take the first nine: ⌃ and a digit alone never reached the
+  terminal, and ⌃6 is a key in nvim.
 - **Logs** (`SessionLog`, `Connection.startLog`): a session's "Log to
   file" (`Session.logs`) starts one as its tab opens, before ssh, so the
   login is in it; Start Logging in the tab's or the Session menu does it
