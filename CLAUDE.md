@@ -157,6 +157,7 @@ TestLab/lab.sh forget    # drop the lab's host keys from ~/.ssh/known_hosts
 ```
 127.0.0.1:2201 ─▶ direct                     lab-direct, -password, -passphrase
 127.0.0.1:2323 ─▶ direct, Telnet             lab-telnet
+127.0.0.1:2202 ─▶ bastion ─▶ app, Telnet     lab-telnet-via-bastion
 127.0.0.1:2202 ─▶ bastion ─▶ app             lab-app-1-jump, lab-app-password
                   bastion ─▶ middle ─▶ db    lab-db-2-jumps, lab-db-2-jumps-typed
 127.0.0.1:3390 ─▶ rdp (xrdp, Xfce)           lab-rdp; lab-rdp-via-bastion (lab2) as rdp:3389
@@ -353,11 +354,21 @@ read from there, never stored on `Session`.
   (XTERM-256COLOR) and NAWS from us, everything else refused, each answered
   once. Until the server says WILL ECHO the terminal is canonical and
   echoes, Telnet's default; raw after. Return goes as CR LF, as PuTTY
-  sends it. No login of its own (the server asks on screen), no jump
-  hosts, no Files tab, no reconnecting by itself — there is no login to
-  have been in. Exit 0 when the server closes, 1 when it cannot be
-  reached, 255 when the link is lost. The lab's `direct` runs busybox
-  telnetd on 127.0.0.1:2323 (`lab-telnet`, user lab, password lab).
+  sends it. No login of its own (the server asks on screen), no Files
+  tab, no reconnecting by itself. Exit 0 when the server closes, 1 when
+  it cannot be reached, 255 when the link is lost. Every lab host runs
+  busybox telnetd: `direct`'s on 127.0.0.1:2323 (`lab-telnet`), `app`'s
+  through the bastion (`lab-telnet-via-bastion`); user lab, password lab.
+- **Telnet through jump hosts.** Unlike a desktop, Telnet needs the terminal
+  ssh logs in on, so `termstead-telnet --via socket host port ssh …` is the
+  tab's process and ssh its child (`SSHLaunch.plan(tunnelFor:)`, `-N`). It
+  leaves the terminal alone while ssh asks for host keys and passwords, and
+  waits with no time limit, as a person may be typing. `Connection` sees the
+  login by the control socket as usual and forwards the server to a Unix
+  socket in the work folder; the helper connects to that and goes on as
+  ever. A server the last hop cannot reach shows as ssh's "open failed" and
+  an immediate close. ssh ends with the helper, and with the terminal when
+  the tab closes.
 - **A local terminal** (`Connection.isLocalShell`,
   `ConnectionStore.openLocalTerminal`, ⌥⌘T) runs the account's login shell
   (`getpwuid`, started as `-zsh` so it reads the profile — an app launched
@@ -408,7 +419,7 @@ read from there, never stored on `Session`.
   extension calls — and Pavel chose to drop the sandbox. The app opens
   the connection — TCP straight to the server, or,
   with jump hosts, a Unix socket in the tab's private folder that ssh
-  forwards from the last hop (`SSHLaunch.plan(forDesktop:)`, then
+  forwards from the last hop (`SSHLaunch.plan(tunnelFor:)`, then
   `ssh -O forward` once logged in) — and hands the socket over; FreeRDP's
   `TCPConnect` returns it. A crash in FreeRDP ends the remote desktops, not
   the app. All desktops share the one engine process (see pitfalls).

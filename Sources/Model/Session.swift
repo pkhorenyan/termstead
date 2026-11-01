@@ -273,7 +273,9 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     /// Status bar form, which always shows the port and the key type.
     var statusAddress: String {
         // Telnet has no user of its own: the server asks for one on screen.
-        if kind == .telnet { return "telnet \(host):\(port)" }
+        if kind == .telnet {
+            return jumpSummary.map { "telnet \(host):\(port) · \($0)" } ?? "telnet \(host):\(port)"
+        }
         let base = "\(user)@\(host):\(port)"
         guard let jumpSummary else { return base }
         return "\(base) · \(jumpSummary.replacingOccurrences(of: "via ", with: "via "))"

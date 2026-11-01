@@ -117,6 +117,109 @@ struct TelnetTabTests {
         #expect(tab.state.isRunning)
     }
 
+    /// app's telnetd, which only the bastion can reach, as the app opens it
+    /// but with the test's own known_hosts and no agent.
+    private func openThroughBastion(host: String = "app", port: Int = 23,
+                                    in directory: URL) throws -> (ConnectionStore, Connection) {
+        let lab = SessionStore.sample()
+        let session = try #require(lab.sessions["lab-telnet-via-bastion"])
+        var plan = try SSHLaunch.plan(tunnelFor: session, sessions: lab.sessions)
+        plan.config = """
+        Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile \(directory.appendingPathComponent("known_hosts").path)
+          IdentityAgent none
+
+        """ + plan.config
+        let tabs = ConnectionStore()
+        let tab = Connection(sessionID: session.id, title: session.id, address: session.statusAddress,
+                             keyDescription: "not encrypted", kind: .telnet)
+        tabs.add(tab)
+        tab.startTelnet(host: host, port: port, tunnel: plan)
+        return (tabs, tab)
+    }
+
+    private func temporaryFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    /// Its ssh's pid, from the tab's process: closing must end it too.
+    private func sshChild(of tab: Connection) -> pid_t {
+        let output = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-P", String(tab.terminalView.process.shellPid), "ssh"]
+        process.standardOutput = output
+        try? process.run()
+        process.waitUntilExit()
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        return pid_t(text.split(separator: "\n").first ?? "") ?? 0
+    }
+
+    @Test func aTelnetTabGoesThroughItsJumpHosts() async throws {
+        let directory = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, tab) = try openThroughBastion(in: directory)
+        defer { tabs.closeAll() }
+        await wait(upTo: 15) { screen(tab).contains("login:") }
+        #expect(screen(tab).contains("Tunnel open to app:23"), "\(screen(tab))")
+        tab.terminalView.send(txt: "lab\r")
+        await wait(upTo: 10) { screen(tab).contains("Password:") }
+        tab.terminalView.send(txt: "lab\r")
+        try await Task.sleep(for: .seconds(1))
+        let marker = "SB_VIA_\(6 * 7)"
+        tab.terminalView.send(txt: "echo SB_VIA_$((6*7)) on $(hostname)\r")
+        await wait(upTo: 10) { screen(tab).contains("\(marker) on app") }
+        #expect(screen(tab).contains("\(marker) on app"), "\(screen(tab))")
+
+        let ssh = sshChild(of: tab)
+        #expect(ssh > 0)
+        tab.terminalView.send(txt: "exit\r")
+        await wait(upTo: 10) { !tab.state.isRunning }
+        #expect(tab.state == .exited(code: 0), "\(screen(tab))")
+        await wait(upTo: 5) { kill(ssh, 0) != 0 }
+        #expect(kill(ssh, 0) != 0, "ssh outlived the Telnet session")
+        try await Task.sleep(for: .seconds(4))
+        #expect(!tab.state.isRunning, "a Telnet tab does not reconnect by itself")
+
+        // Return goes through the jump hosts again.
+        tab.terminalView.send(txt: "\r")
+        await wait(upTo: 15) { screen(tab).components(separatedBy: "login:").count > 2 }
+        #expect(tab.state.isRunning, "\(screen(tab))")
+    }
+
+    @Test func aClosedTabEndsItsTunnel() async throws {
+        let directory = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, tab) = try openThroughBastion(in: directory)
+        await wait(upTo: 15) { screen(tab).contains("login:") }
+        let ssh = sshChild(of: tab)
+        #expect(ssh > 0)
+        tabs.closeAll()
+        await wait(upTo: 5) { kill(ssh, 0) != 0 }
+        #expect(kill(ssh, 0) != 0, "ssh outlived its tab")
+    }
+
+    @Test func aTelnetServerTheLastHopCannotReachIsSaid() async throws {
+        let directory = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, tab) = try openThroughBastion(port: 2, in: directory)
+        defer { tabs.closeAll() }
+        await wait(upTo: 15) { !tab.state.isRunning }
+        #expect(screen(tab).contains("open failed") || screen(tab).contains("Connection closed by app"),
+                "\(screen(tab))")
+    }
+
+    @Test func aTelnetSessionKeepsItsJumpHosts() throws {
+        let lab = SessionStore.sample()
+        let session = try #require(lab.sessions["lab-telnet-via-bastion"])
+        #expect(session.statusAddress.hasPrefix("telnet app:23 · via"))
+        let data = try JSONEncoder().encode(session)
+        #expect(try JSONDecoder().decode(Session.self, from: data).jumps == session.jumps)
+    }
+
     @Test func anUnreachableHostIsSaid() async throws {
         let tabs = ConnectionStore()
         defer { tabs.closeAll() }

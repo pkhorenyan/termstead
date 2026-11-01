@@ -6,7 +6,7 @@ struct ReconnectTests {
     private func reconnects(_ code: Int32?, loggedIn: Bool = true, attempts: Int = 0,
                             local: Bool = false, tunnel: Bool = false, desktop: Bool = false) -> Bool {
         Connection.shouldReconnect(exitCode: code, didLogIn: loggedIn, attempts: attempts,
-                                   isLocalShell: local, isTunnelOnly: tunnel, isDesktop: desktop)
+                                   isLocalShell: local, isTunnelOnly: tunnel, isDesktopOrTelnet: desktop)
     }
 
     @Test func aLostConnectionAfterLoginReconnects() {

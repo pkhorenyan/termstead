@@ -113,8 +113,8 @@ final class Connection: Identifiable {
     /// an attempt to get back in failed again. Never a login that never
     /// worked from the start: a wrong password would be tried for ever.
     nonisolated static func shouldReconnect(exitCode: Int32?, didLogIn: Bool, attempts: Int,
-                                            isLocalShell: Bool, isTunnelOnly: Bool, isDesktop: Bool) -> Bool {
-        guard !isLocalShell, !isTunnelOnly, !isDesktop, exitCode == 255 else { return false }
+                                            isLocalShell: Bool, isTunnelOnly: Bool, isDesktopOrTelnet: Bool) -> Bool {
+        guard !isLocalShell, !isTunnelOnly, !isDesktopOrTelnet, exitCode == 255 else { return false }
         return didLogIn || (attempts > 0 && attempts < maxReconnectAttempts)
     }
 
@@ -189,13 +189,33 @@ final class Connection: Identifiable {
             guard let self else { throw RDPSocket.Failure.connect("the tab closed") }
             // Once per tunnel; a login tried again reuses it.
             if !FileManager.default.fileExists(atPath: socket) {
-                let arguments = try SSHLaunch.rdpForwardArguments(socket: socket, host: launch.host,
+                let arguments = try SSHLaunch.socketForwardArguments(socket: socket, host: launch.host,
                                                                   port: launch.port)
                 if let problem = await forward(arguments) {
                     throw RDPSocket.Failure.connect(ConnectionStore.lastLine(problem))
                 }
             }
             return try RDPSocket.connect(unixPath: socket)
+        }
+    }
+
+    /// The tunnel is logged in: `termstead-telnet` is waiting for this socket.
+    private func openTelnetThroughTunnel() {
+        guard let telnetTarget, let workDirectory else { return }
+        let socket = workDirectory.appendingPathComponent(Self.telnetSocket).path
+        Task { [weak self] in
+            guard let self else { return }
+            var problem: String?
+            do {
+                let arguments = try SSHLaunch.socketForwardArguments(socket: socket, host: telnetTarget.host,
+                                                                     port: telnetTarget.port)
+                problem = await forward(arguments)
+            } catch {
+                problem = String(describing: error)
+            }
+            guard let problem, state.isRunning else { return }
+            terminalView.feed(text: "\u{1b}[31mCould not open the tunnel: \(ConnectionStore.lastLine(problem))\u{1b}[0m\r\n")
+            terminalView.terminate()
         }
     }
 
@@ -249,11 +269,23 @@ final class Connection: Identifiable {
 
             state = .running
             let control = directory.appendingPathComponent("cm").path
-            terminalView.startProcess(executable: SSHLaunch.executable,
-                                      args: plan.arguments(configPath: configURL.path, controlPath: control,
-                                                           tunnelOnly: isTunnelOnly || kind == .rdp),
-                                      environment: Self.environment(extra: extra),
-                                      execName: "ssh")
+            let arguments = plan.arguments(configPath: configURL.path, controlPath: control,
+                                           tunnelOnly: isTunnelOnly || kind != .ssh)
+            if let telnetTarget {
+                // Telnet has the terminal in the end, so it is the tab's
+                // process, and ssh its child until then and after.
+                terminalView.startProcess(executable: Self.telnetExecutable,
+                                          args: ["--via", directory.appendingPathComponent(Self.telnetSocket).path,
+                                                 telnetTarget.host, String(telnetTarget.port),
+                                                 SSHLaunch.executable] + arguments,
+                                          environment: Self.environment(extra: extra),
+                                          execName: "termstead-telnet",
+                                          currentDirectory: NSHomeDirectory())
+            } else {
+                terminalView.startProcess(executable: SSHLaunch.executable, args: arguments,
+                                          environment: Self.environment(extra: extra),
+                                          execName: "ssh")
+            }
             watchForExit(of: terminalView.process.shellPid)
             watchForLogin(controlPath: control, in: directory)
         } catch {
@@ -307,14 +339,23 @@ final class Connection: Identifiable {
     }
 
     /// Where a Telnet tab connects, to connect again on Return.
-    @ObservationIgnored private var telnetTarget: (host: String, port: Int)?
+    @ObservationIgnored private var telnetTarget: (host: String, port: Int, tunnel: SSHLaunchPlan?)?
+    /// Where a Telnet tab's tunnel comes out, in its work folder.
+    nonisolated private static let telnetSocket = "telnet"
 
     /// `termstead-telnet`, beside the app's executable, in the terminal as
     /// ssh would be: there is no login to watch for, and the server asks
-    /// for user and password on screen.
-    func startTelnet(host: String, port: Int) {
+    /// for user and password on screen. With a `tunnel` ssh logs in to the
+    /// jump hosts first, on the same terminal.
+    func startTelnet(host: String, port: Int, tunnel: SSHLaunchPlan? = nil) {
         guard !didClose else { return }
-        telnetTarget = (host, port)
+        telnetTarget = (host, port, tunnel)
+        if let tunnel {
+            let route = (tunnel.hops + [tunnel.target]).map(\.host).joined(separator: " → ")
+            terminalView.feed(text: "\u{1b}[2mOpening a tunnel through \(route)…\u{1b}[0m\r\n")
+            start(tunnel)
+            return
+        }
         state = .running
         terminalView.startProcess(executable: Self.telnetExecutable, args: [host, String(port)],
                                   environment: Self.environment(extra: [:]), execName: "termstead-telnet",
@@ -341,7 +382,7 @@ final class Connection: Identifiable {
         if let telnetTarget {
             guard !state.isRunning else { return }
             terminalView.feed(text: "\r\n")
-            startTelnet(host: telnetTarget.host, port: telnetTarget.port)
+            startTelnet(host: telnetTarget.host, port: telnetTarget.port, tunnel: telnetTarget.tunnel)
             return
         }
         if isLocalShell {
@@ -442,6 +483,11 @@ final class Connection: Identifiable {
             openDesktopThroughTunnel()
             return
         }
+        // A Telnet tab's too, and it is the server that asks for a login.
+        if kind == .telnet {
+            openTelnetThroughTunnel()
+            return
+        }
         onLogin?()
         updateLoadWatch()
     }
@@ -532,7 +578,8 @@ final class Connection: Identifiable {
         log?.note((isLocalShell ? "The shell exited" : "Connection closed") + detail)
         if reconnectsAutomatically, desktopEndReason == nil,
            Self.shouldReconnect(exitCode: exitCode, didLogIn: didLogIn, attempts: reconnectAttempts,
-                                isLocalShell: isLocalShell, isTunnelOnly: isTunnelOnly, isDesktop: desktop != nil) {
+                                isLocalShell: isLocalShell, isTunnelOnly: isTunnelOnly,
+                                isDesktopOrTelnet: kind != .ssh) {
             scheduleReconnect()
             return
         }

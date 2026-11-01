@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Telnet through jump hosts: a Telnet session takes a jump chain like any
+  other, for gear that only a bastion can reach. ssh logs in to the jump hosts
+  in the tab first, as usual, and protects the session as far as the last one.
+
 ### Changed
 
 - With broadcast input on, every pane that typing reaches is drawn at full

@@ -157,7 +157,7 @@ final class RDPTunnelTests {
     private func open(_ session: Session) throws -> Connection {
         let id = session.id
         let sessions = Dictionary(uniqueKeysWithValues: lab.sessions.map { ($0.id, $0) })
-        var plan = try SSHLaunch.plan(forDesktop: session, sessions: sessions)
+        var plan = try SSHLaunch.plan(tunnelFor: session, sessions: sessions)
         plan.config = """
         Host *
           StrictHostKeyChecking accept-new
@@ -247,9 +247,9 @@ final class RDPTunnelTests {
     /// The forward goes to a socket path, the desktop's host as the last hop
     /// sees it; an IPv6 address in brackets.
     @Test func theForwardIsToASocket() throws {
-        #expect(try SSHLaunch.rdpForwardArguments(socket: "/tmp/x/rdp", host: "rdp", port: 3389)
+        #expect(try SSHLaunch.socketForwardArguments(socket: "/tmp/x/rdp", host: "rdp", port: 3389)
                 == ["-L", "/tmp/x/rdp:rdp:3389"])
-        #expect(try SSHLaunch.rdpForwardArguments(socket: "/tmp/x/rdp", host: "fe80::1", port: 3389)
+        #expect(try SSHLaunch.socketForwardArguments(socket: "/tmp/x/rdp", host: "fe80::1", port: 3389)
                 == ["-L", "/tmp/x/rdp:[fe80::1]:3389"])
     }
 }

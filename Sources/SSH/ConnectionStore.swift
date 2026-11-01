@@ -255,13 +255,18 @@ final class ConnectionStore {
         // Before it starts, so the log has the login too.
         if session.logs { startLog(connection) }
         if session.kind == .telnet {
-            connection.startTelnet(host: session.host, port: session.port)
+            do {
+                let tunnel = session.jumps.isEmpty ? nil : try Self.tunnelPlan(for: session, in: store)
+                connection.startTelnet(host: session.host, port: session.port, tunnel: tunnel)
+            } catch {
+                connection.fail(String(describing: error))
+            }
             return
         }
         if session.kind == .rdp {
             let password = KeychainStore.shared.secret(for: SSHLaunch.sessionPasswordAccount(session.id)) ?? ""
             do {
-                let tunnel = session.jumps.isEmpty ? nil : try Self.desktopTunnelPlan(for: session, in: store)
+                let tunnel = session.jumps.isEmpty ? nil : try Self.tunnelPlan(for: session, in: store)
                 connection.start(RDPLaunch(session: session, password: password), tunnel: tunnel)
             } catch {
                 connection.fail(String(describing: error))
@@ -279,9 +284,9 @@ final class ConnectionStore {
         withDevelopmentPrefix(try SSHLaunch.plan(for: session, sessions: store.sessions))
     }
 
-    /// The ssh an RDP session reaches its desktop through.
-    static func desktopTunnelPlan(for session: Session, in store: SessionStore) throws -> SSHLaunchPlan {
-        withDevelopmentPrefix(try SSHLaunch.plan(forDesktop: session, sessions: store.sessions))
+    /// The ssh an RDP or Telnet session reaches its server through.
+    static func tunnelPlan(for session: Session, in store: SessionStore) throws -> SSHLaunchPlan {
+        withDevelopmentPrefix(try SSHLaunch.plan(tunnelFor: session, sessions: store.sessions))
     }
 
     private static func withDevelopmentPrefix(_ plan: SSHLaunchPlan) -> SSHLaunchPlan {

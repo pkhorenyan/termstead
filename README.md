@@ -63,8 +63,8 @@
   Ctrl+Alt+Del and the Windows key are in the Session menu. The server's certificate is checked as a browser would, and
   one you have not seen before is asked about in the tab.
 - **Telnet** for switches, routers and older gear, in a tab like the rest,
-  with logs, snippets and broadcast input — macOS ships no telnet of its own
-  any more, so Termstead brings one.
+  through your jump hosts if need be, with logs, snippets and broadcast input
+  — macOS ships no telnet of its own any more, so Termstead brings one.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -138,7 +138,8 @@ against the project's signing key before it is installed.
   server that offers no TLS, and so cannot prove who it is, is not logged in
   to. Your clipboard reaches a remote desktop only while you are typing in it.
 - **Telnet is not encrypted** — passwords included — and the session form
-  says so. Use it for gear that speaks nothing else, on a network you trust.
+  says so. Through jump hosts, ssh protects it only as far as the last one.
+  Use it for gear that speaks nothing else, on a network you trust.
 - Session logs are written only when you ask, to a folder you choose
   (`~/Documents/Termstead Logs` at first), readable only by you.
 - Sessions and snippets are stored in `~/Library/Application Support/Termstead/`

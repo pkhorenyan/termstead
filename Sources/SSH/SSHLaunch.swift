@@ -208,12 +208,12 @@ enum SSHLaunch {
         return hops
     }
 
-    /// The ssh that carries an RDP session through its jump hosts: the last
-    /// hop is its target, and the desktop is reached from there
-    /// (`rdpForwardArguments`). A remote desktop's own login means nothing to
+    /// The ssh that carries an RDP or Telnet session through its jump hosts:
+    /// the last hop is its target, and the server is reached from there
+    /// (`socketForwardArguments`). The session's own login means nothing to
     /// ssh, so a hop left at "Default" logs in however ssh would.
     static func plan(
-        forDesktop session: Session,
+        tunnelFor session: Session,
         sessions: [String: Session],
         keyExists: (String) -> Bool = { FileManager.default.fileExists(atPath: ($0 as NSString).expandingTildeInPath) }
     ) throws -> SSHLaunchPlan {
@@ -223,10 +223,10 @@ enum SSHLaunch {
         return assemble(hops: hops, target: target)
     }
 
-    /// `-L` for the desktop, from the last hop: a Unix socket in the
-    /// connection's private folder rather than a port others on this Mac
-    /// could reach.
-    static func rdpForwardArguments(socket: String, host: String, port: Int) throws -> [String] {
+    /// `-L` for a desktop or a Telnet server, from the last hop: a Unix
+    /// socket in the connection's private folder rather than a port others
+    /// on this Mac could reach.
+    static func socketForwardArguments(socket: String, host: String, port: Int) throws -> [String] {
         try validate(host, field: "host")
         let target = host.contains(":") ? "[\(host)]" : host
         return ["-L", "\(socket):\(target):\(port)"]

@@ -383,13 +383,15 @@ struct SessionSheet: View {
         }
     }
 
-    /// Nothing to set: Telnet logs in on screen, and goes straight to the
-    /// host — a jump chain is ssh's.
+    /// Telnet logs in on screen, so only the way there is left to set.
     private var telnetColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            FormLabel("Login")
-            InsetNote(text: "The server asks for its user and password in the terminal, as Telnet does. Nothing is stored.")
-            InsetNote(text: "Telnet is not encrypted: what is typed, passwords included, crosses the network as it is. Use it for gear that speaks nothing else, on a network you trust.")
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                FormLabel("Login")
+                InsetNote(text: "The server asks for its user and password in the terminal, as Telnet does. Nothing is stored.")
+                InsetNote(text: "Telnet is not encrypted: what is typed, passwords included, crosses the network as it is. Use it for gear that speaks nothing else, on a network you trust. With jump hosts, ssh protects it as far as the last one, and the rest of the way is plain.")
+            }
+            jumpHostsSection
         }
     }
 
@@ -640,11 +642,12 @@ struct SessionSheet: View {
         .padding(.vertical, 6)
     }
 
-    /// A remote desktop's own login means nothing to ssh, so for RDP the
-    /// hop's first choice is ssh's default — or the saved session's, for a
-    /// hop named after one — rather than "the same as this session".
+    /// A remote desktop's or a Telnet server's own login means nothing to
+    /// ssh, so there the hop's first choice is ssh's default — or the saved
+    /// session's, for a hop named after one — rather than "the same as this
+    /// session".
     private func hopAuthLabel(_ auth: JumpHost.Auth) -> String {
-        kind == .rdp && auth == .session ? "Default" : auth.shortLabel
+        kind != .ssh && auth == .session ? "Default" : auth.shortLabel
     }
 
     private static let hopNumberSize: CGFloat = 22
@@ -906,8 +909,7 @@ struct SessionSheet: View {
         case .ssh:
             session.forwards = forwards
         case .telnet:
-            // Straight to the host: no jump chain to keep.
-            session.jumps = []
+            break
         }
 
         var savedID: String?
