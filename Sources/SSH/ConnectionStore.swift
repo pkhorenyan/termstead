@@ -149,6 +149,7 @@ final class ConnectionStore {
     func toggleBroadcast() {
         isBroadcasting = canBroadcast && !isBroadcasting
         paneLog.debug("broadcast input \(self.isBroadcasting ? "on" : "off", privacy: .public)")
+        keepBroadcastFocus()
     }
 
     func toggleBroadcast(pane: Int) {
@@ -157,6 +158,14 @@ final class ConnectionStore {
         } else {
             broadcastExcluded.insert(pane)
         }
+    }
+
+    /// An empty pane in focus has no terminal to take the keyboard: the other
+    /// panes showed that they take input, and what was typed went nowhere.
+    private func keepBroadcastFocus() {
+        guard isBroadcasting, active(in: focusedPane)?.kind.hasTerminal != true,
+              let pane = (0..<layout.paneCount).first(where: receivesBroadcast) else { return }
+        focus(pane: pane)
     }
 
     /// The pane takes broadcast input: on, split, not left out, and with a
@@ -371,6 +380,7 @@ final class ConnectionStore {
         guard wasInFront else { return }
         let rest = tabs(in: tab.pane)
         activeByPane[tab.pane] = rest.indices.contains(position) ? rest[position].id : rest.last?.id
+        keepBroadcastFocus()
     }
 
     /// Brings forward the tab `offset` places along from the one in front, in

@@ -12,6 +12,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - With broadcast input on, every pane that typing reaches is drawn at full
   brightness, not just the focused one. A pane left out stays dimmed.
 
+### Fixed
+
+- Broadcast input with an empty pane in focus: turning it on, or closing the
+  focused pane's last tab, left the keyboard nowhere, so typing did nothing.
+  The focus now moves to a pane with a terminal.
+
 ## [0.8.0] - 2026-10-27
 
 ### Added

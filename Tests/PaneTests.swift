@@ -206,6 +206,25 @@ struct PaneTests {
         #expect((0..<4).map(store.typingReaches) == [false, false, true, false], "typing in a pane left out stays there")
     }
 
+    @Test func broadcastKeepsTheKeyboardOnATerminal() {
+        let store = ConnectionStore()
+        store.setLayout(.grid)
+        for pane in [2, 3] {
+            store.focus(pane: pane)
+            store.add(tab("p\(pane)"))
+        }
+        store.focus(pane: 1)
+        store.toggleBroadcast()
+        #expect(store.focusedPane == 2, "turned on with an empty pane in focus")
+
+        store.close(store.tabs(in: 2)[0].id)
+        #expect(store.focusedPane == 3, "the focused pane's last tab closed")
+
+        store.toggleBroadcast()
+        store.focus(pane: 1)
+        #expect(store.focusedPane == 1, "with broadcast off an empty pane may keep the focus")
+    }
+
     @Test func oneLayoutOrAnotherEndsOrResetsBroadcast() {
         let store = ConnectionStore()
         store.setLayout(.sideBySide)
