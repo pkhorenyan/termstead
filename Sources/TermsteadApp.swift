@@ -272,10 +272,12 @@ struct TermsteadApp: App {
                 .keyboardShortcut("}", modifiers: .command)
                 .disabled(focusedTabCount < 2 || formIsOpen)
             // ⌘1–⌘9 pick the focused pane's tabs by position, as in Terminal;
-            // ⌘0 stays Actual Size.
+            // ⌘0 stays Actual Size. The tabs are read out here: read inside
+            // the submenu they were never tracked, and its items (shortcuts
+            // and all) stayed as they were at launch — none.
+            let focusedTabs = connectionStore.tabs(in: connectionStore.focusedPane)
             Menu("Show Tab") {
-                let tabs = connectionStore.tabs(in: connectionStore.focusedPane)
-                ForEach(Array(tabs.prefix(9).enumerated()), id: \.element.id) { index, tab in
+                ForEach(Array(focusedTabs.prefix(9).enumerated()), id: \.element.id) { index, tab in
                     Button(tab.title) { connectionStore.showTab(at: index) }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(formIsOpen)
