@@ -7,6 +7,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Return confirms the question before closing a live tab, or several.
+
 ## [0.8.1] - 2026-11-01
 
 ### Added
