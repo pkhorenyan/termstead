@@ -7,6 +7,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- ⌘1–⌘9 bring forward the focused pane's first nine tabs, listed in
+  Session ▸ Show Tab.
+
 ## [0.8.1] - 2026-11-01
 
 ### Added

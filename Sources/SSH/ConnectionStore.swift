@@ -398,6 +398,12 @@ final class ConnectionStore {
         activeID = tabs[((index + offset) % count + count) % count].id
     }
 
+    /// Brings forward the focused pane's tab at `index`, if there is one.
+    func showTab(at index: Int) {
+        let tabs = tabs(in: focusedPane)
+        if tabs.indices.contains(index) { activeID = tabs[index].id }
+    }
+
     /// Moves a tab along its pane's strip, to the slot it is dragged to.
     /// `index` counts that pane's tabs only.
     func move(_ id: UUID, to index: Int) {

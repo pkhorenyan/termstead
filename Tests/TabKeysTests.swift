@@ -18,6 +18,19 @@ struct TabKeysTests {
         #expect(store.active?.title == "b")
     }
 
+    @Test func showTabAtIndexIgnoresMissingTabs() {
+        let store = ConnectionStore()
+        for name in ["a", "b"] {
+            store.add(Connection(sessionID: nil, title: name, address: name, keyDescription: ""))
+        }
+        store.showTab(at: 0)
+        #expect(store.active?.title == "a")
+        store.showTab(at: 5)
+        #expect(store.active?.title == "a")
+        store.showTab(at: 1)
+        #expect(store.active?.title == "b")
+    }
+
     @Test func aSingleTabStaysPut() {
         let store = ConnectionStore()
         store.add(Connection(sessionID: nil, title: "only", address: "only", keyDescription: ""))
