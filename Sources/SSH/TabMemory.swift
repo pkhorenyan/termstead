@@ -95,7 +95,7 @@ struct TabMemory: Codable, Equatable, Sendable {
                 connections.openLocalTerminal()
             } else if let id = tab.sessionID {
                 // A new tab each time: two tabs on one session stay two.
-                connections.connect(sessionID: id, in: sessions, newTab: true)
+                connections.connect(sessionID: id, in: sessions, newTab: true, recordUse: false)
             } else if let address = tab.address {
                 connections.connect(address: address)
             }

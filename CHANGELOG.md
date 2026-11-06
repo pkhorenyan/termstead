@@ -7,6 +7,15 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Quick connect (⌘T, ⌘K) lists the saved sessions: the five used last on
+  top, then the sidebar's tree. Typing filters them, ↑ ↓ pick one, ← → fold
+  a group, Return opens it (or brings its open tab forward), ⌥Return opens
+  another tab and ⌘Return connects to the typed address. Typing an address
+  still connects without saving it.
+  Settings ▸ Terminal ▸ Window can leave the Recent list out.
+
 ## [0.8.1] - 2026-11-01
 
 ### Added

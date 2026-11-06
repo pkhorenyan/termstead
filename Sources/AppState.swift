@@ -82,8 +82,6 @@ final class AppState {
     /// Something modal is up; menu commands that would reach past it are off.
     var isModalOpen: Bool { route != nil || isAppearanceOpen }
     var quickConnect: String = ""
-    /// Set when ⌘K should move focus into the quick-connect field.
-    var quickConnectFocusToken: Int = 0
 
     /// Development hook: `open Termstead.app --args -sb-route newSession` lands
     /// straight on a screen that otherwise needs clicking to reach. Reads the
@@ -110,8 +108,6 @@ final class AppState {
         }
         return name
     }
-
-    func focusQuickConnect() { quickConnectFocusToken &+= 1 }
 
     /// What the sidebar shows: the session tree, or the active tab's files.
     enum SidebarTab: String, CaseIterable, Identifiable {

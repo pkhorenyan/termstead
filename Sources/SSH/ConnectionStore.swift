@@ -237,7 +237,10 @@ final class ConnectionStore {
     /// Double-click, Return, "Connect": brings the session's running tab to the
     /// front if there is one, and only otherwise opens another. `newTab` always
     /// opens another — a second shell on the same server is a normal thing to want.
-    func connect(sessionID: String, in store: SessionStore, newTab: Bool = false) {
+    /// `recordUse` is off for tabs reopened at launch: they would push the
+    /// Recent list into the order they were restored in.
+    func connect(sessionID: String, in store: SessionStore, newTab: Bool = false, recordUse: Bool = true) {
+        if recordUse, store.sessions[sessionID] != nil { store.sessions[sessionID]?.lastConnected = .now }
         // Not the tunnel connection, even shown as a tab: it has no shell.
         if !newTab, let existing = connections.first(where: {
             $0.sessionID == sessionID && $0.state.isRunning && !$0.isTunnelOnly

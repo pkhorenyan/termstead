@@ -226,6 +226,11 @@ struct AppearanceView: View {
                         settingSwitch($themeStore.showFilesAfterLogin, label: "Open SFTP after login")
                     }
                     divider
+                    settingsRow("Recent in Quick connect",
+                                caption: "⌘T and ⌘K list the sessions used last above the others.") {
+                        settingSwitch($themeStore.showRecentInQuickConnect, label: "Recent in Quick connect")
+                    }
+                    divider
                     settingsRow("Reopen tabs at launch",
                                 caption: "The tabs open when Termstead quits connect again the next time it starts.") {
                         settingSwitch($themeStore.reopenTabsAtLaunch, label: "Reopen tabs at launch")

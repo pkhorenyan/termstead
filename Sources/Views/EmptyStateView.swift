@@ -6,7 +6,6 @@ struct EmptyStateView: View {
     @Environment(\.theme) private var theme
     @Environment(AppState.self) private var appState
     @Environment(ConnectionStore.self) private var connectionStore
-    @FocusState private var addressFocused: Bool
 
     /// Only what does something on this screen: with no sessions and no tabs,
     /// New Tab and Close Tab have nothing to act on. An even count, so the
@@ -49,7 +48,6 @@ struct EmptyStateView: View {
                     .textFieldStyle(.plain)
                     .font(SBFont.mono(14))
                     .foregroundStyle(theme.text.color)
-                    .focused($addressFocused)
                     .onSubmit { connectQuickly() }
                     .padding(.horizontal, 14)
                     .frame(height: 42)
@@ -103,7 +101,6 @@ struct EmptyStateView: View {
         .frame(width: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.terminal.color)
-        .onChange(of: appState.quickConnectFocusToken) { addressFocused = true }
     }
 
     /// Host keys are checked by ssh itself: a host it has not seen asks

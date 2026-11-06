@@ -229,6 +229,9 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     var rdpOptions: RDPOptions? = nil
     /// Read through `logs`; `nil` (off) in every file from before logs.
     var logToFile: Bool? = nil
+    /// When a tab last opened or came forward for it, for Quick connect's
+    /// Recent list. Kept on the session so a rename carries it along.
+    var lastConnected: Date? = nil
 
     var forwards: [PortForward] {
         get { portForwards ?? [] }

@@ -197,14 +197,9 @@ struct TermsteadApp: App {
             .keyboardShortcut("i", modifiers: .command)
             .disabled(sessionStore.selectedID == nil || formIsOpen)
             Divider()
-            Button("Quick Connect…") {
-                // The first-launch screen has the field inline; otherwise the form.
-                if connectionStore.connections.isEmpty {
-                    appState.focusQuickConnect()
-                } else {
-                    appState.route = .quickConnect
-                }
-            }
+            // The form even over the first-launch screen: its saved sessions
+            // are what that screen's own field lacks.
+            Button("Quick Connect…") { appState.route = .quickConnect }
                 .keyboardShortcut("k", modifiers: .command)
                 .disabled(formIsOpen)
             Button("New Tab…") { appState.route = .quickConnect }

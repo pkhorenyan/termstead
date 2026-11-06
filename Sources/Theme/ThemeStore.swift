@@ -24,6 +24,7 @@ final class ThemeStore {
         static let scrollback = "terminal.scrollback"
         static let sidebarSide = "window.sidebarSide"
         static let showFilesAfterLogin = "files.showAfterLogin"
+        static let quickConnectRecent = "quickConnect.showRecent"
         static let reopenTabs = "window.reopenTabs"
         static let showServerLoad = "window.showServerLoad"
         static let reconnect = "terminal.reconnect"
@@ -147,6 +148,12 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(showFilesAfterLogin, forKey: Key.showFilesAfterLogin) }
     }
 
+    /// Quick connect lists the sessions used last above the tree. On unless
+    /// turned off; the times are still kept either way.
+    var showRecentInQuickConnect: Bool {
+        didSet { UserDefaults.standard.set(showRecentInQuickConnect, forKey: Key.quickConnectRecent) }
+    }
+
     /// Where tabs write their logs, `~` abbreviated.
     var logFolderPath: String {
         didSet { UserDefaults.standard.set(logFolderPath, forKey: Key.logFolder) }
@@ -215,6 +222,7 @@ final class ThemeStore {
         scrollbackLines = Self.scrollbackChoices.contains(storedScrollback) ? storedScrollback : 10_000
         sidebarSide = defaults.string(forKey: Key.sidebarSide).flatMap(SidebarSide.init) ?? .left
         showFilesAfterLogin = Self.bool(defaults, Key.showFilesAfterLogin, default: true)
+        showRecentInQuickConnect = Self.bool(defaults, Key.quickConnectRecent, default: true)
         reopenTabsAtLaunch = Self.bool(defaults, Key.reopenTabs, default: false)
         showServerLoad = Self.bool(defaults, Key.showServerLoad, default: true)
         reconnectAutomatically = Self.bool(defaults, Key.reconnect, default: true)
@@ -431,6 +439,7 @@ extension ThemeStore {
         var scrollbackLines: Int
         var sidebarSide: SidebarSide
         var showFilesAfterLogin: Bool
+        var showRecentInQuickConnect: Bool
         var reopenTabsAtLaunch: Bool
         var showServerLoad: Bool
         var fontLigatures: Bool
@@ -446,7 +455,8 @@ extension ThemeStore {
                  bell: bell, optionAsMeta: optionAsMeta,
                  confirmClosingConnection: confirmClosingConnection, highlighting: highlighting,
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
-                 showFilesAfterLogin: showFilesAfterLogin, reopenTabsAtLaunch: reopenTabsAtLaunch,
+                 showFilesAfterLogin: showFilesAfterLogin,
+                 showRecentInQuickConnect: showRecentInQuickConnect, reopenTabsAtLaunch: reopenTabsAtLaunch,
                  showServerLoad: showServerLoad, fontLigatures: fontLigatures,
                  reconnectAutomatically: reconnectAutomatically, logFolderPath: logFolderPath)
     }
@@ -468,6 +478,7 @@ extension ThemeStore {
         scrollbackLines = snapshot.scrollbackLines
         sidebarSide = snapshot.sidebarSide
         showFilesAfterLogin = snapshot.showFilesAfterLogin
+        showRecentInQuickConnect = snapshot.showRecentInQuickConnect
         reopenTabsAtLaunch = snapshot.reopenTabsAtLaunch
         showServerLoad = snapshot.showServerLoad
         fontLigatures = snapshot.fontLigatures
