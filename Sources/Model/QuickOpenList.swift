@@ -4,8 +4,9 @@ import Foundation
 enum QuickOpenRow: Identifiable, Hashable {
     case header(String)
     case group(id: String, name: String, depth: Int, colorID: String?, isCollapsed: Bool)
-    /// `inRecent` keeps a session's Recent row apart from its row in the tree.
-    case session(SessionRowData, depth: Int, inRecent: Bool)
+    /// `shortcut` names the list above the tree a row is in ("pinned",
+    /// "recent"), keeping it apart from the same session's row in the tree.
+    case session(SessionRowData, depth: Int, shortcut: String?)
     /// Connect to what was typed, without saving it.
     case address(String)
 
@@ -13,7 +14,7 @@ enum QuickOpenRow: Identifiable, Hashable {
         switch self {
         case .header(let title): "header:\(title)"
         case .group(let id, _, _, _, _): "group:\(id)"
-        case .session(let row, _, let inRecent): (inRecent ? "recent:" : "session:") + row.id
+        case .session(let row, _, let shortcut): (shortcut ?? "session") + ":" + row.id
         case .address: "address"
         }
     }
@@ -27,8 +28,9 @@ enum QuickOpenRow: Identifiable, Hashable {
 extension SessionStore {
     static let quickOpenRecentCount = 5
 
-    /// Quick connect's list. With nothing typed: the last sessions used (if
-    /// `showRecent`), then the whole tree with `collapsed` folded away. With a query: the sidebar
+    /// Quick connect's list. With nothing typed: the pinned sessions, the last
+    /// sessions used (if `showRecent`), then the whole tree with `collapsed`
+    /// folded away. With a query: the sidebar
     /// search's matches as one flat list, most recently used first, and the
     /// query itself to connect to if it reads as an address.
     func quickOpenRows(matching query: String, collapsed: Set<String>, showRecent: Bool = true) -> [QuickOpenRow] {
@@ -59,25 +61,30 @@ extension SessionStore {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         if let matches = matchingSessionIDs(trimmed) {
             var out = matches.sorted(by: byUse).compactMap { id in
-                row(id).map { QuickOpenRow.session($0, depth: 0, inRecent: false) }
+                row(id).map { QuickOpenRow.session($0, depth: 0, shortcut: nil) }
             }
             if (try? SSHLaunch.parseAddress(trimmed)) != nil { out.append(.address(trimmed)) }
             return out
         }
 
         var out: [QuickOpenRow] = []
+        let pinned = pinnedIDs.filter { sessions[$0] != nil }
+        if !pinned.isEmpty {
+            out.append(.header("Pinned"))
+            out += pinned.compactMap { id in row(id).map { .session($0, depth: 0, shortcut: "pinned") } }
+        }
         let recent = !showRecent ? [] : sessions.values.filter { $0.lastConnected != nil }.map(\.id).sorted(by: byUse)
             .prefix(Self.quickOpenRecentCount)
         if !recent.isEmpty {
             out.append(.header("Recent"))
-            out += recent.compactMap { id in row(id).map { .session($0, depth: 0, inRecent: true) } }
-            out.append(.header("All sessions"))
+            out += recent.compactMap { id in row(id).map { .session($0, depth: 0, shortcut: "recent") } }
         }
+        if !out.isEmpty { out.append(.header("All sessions")) }
         func walk(_ nodes: [TreeNode], depth: Int, inherited: String?) {
             for node in nodes {
                 switch node {
                 case .session(let id):
-                    if let data = row(id) { out.append(.session(data, depth: depth, inRecent: false)) }
+                    if let data = row(id) { out.append(.session(data, depth: depth, shortcut: nil)) }
                 case .group(let group):
                     let color = group.colorID ?? inherited
                     let folded = collapsed.contains(group.id)

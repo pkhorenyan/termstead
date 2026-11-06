@@ -139,7 +139,7 @@ struct QuickConnectSheet: View {
             .padding(.leading, CGFloat(depth) * 14)
             .accessibilityLabel("\(name), group, \(isCollapsed ? "collapsed" : "expanded")")
 
-        case .session(let data, let depth, let inRecent):
+        case .session(let data, let depth, let shortcut):
             let tint = data.color(on: theme)
             line(isHighlighted: isHighlighted, height: 38, action: { open(row, newTab: false) }) {
                 Image(systemName: data.session.icon.symbolName)
@@ -166,7 +166,7 @@ struct QuickConnectSheet: View {
                 Spacer(minLength: 8)
                 // The tree already shows where a session sits; flat rows say it.
                 VStack(alignment: .trailing, spacing: 1) {
-                    if depth == 0 || inRecent {
+                    if depth == 0 || shortcut != nil {
                         Text(data.path)
                             .font(SBFont.ui(11.5))
                             .foregroundStyle(theme.textSecondary.color)
@@ -180,7 +180,7 @@ struct QuickConnectSheet: View {
                     }
                 }
             }
-            .padding(.leading, inRecent ? 0 : CGFloat(depth) * 14)
+            .padding(.leading, shortcut != nil ? 0 : CGFloat(depth) * 14)
 
         case .address(let target):
             line(isHighlighted: isHighlighted, height: 32, action: { open(row, newTab: false) }) {
