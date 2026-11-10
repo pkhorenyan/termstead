@@ -17,7 +17,10 @@ cat > $conf/xsettings.xml <<'EOF'
   </property>
 </channel>
 EOF
-cp /etc/xdg/xfce4/panel/default.xml $conf/xfce4-panel.xml
+# Keep the top panel only. The auto-hidden bottom dock leaves a bright
+# reveal strip along the desktop's lower edge in the README screenshot.
+sed '/<property name="panel-2"/,/^    <\/property>/d; 1,12 { /<value type="int" value="2"\/>/d; }' \
+    /etc/xdg/xfce4/panel/default.xml > $conf/xfce4-panel.xml
 cd /home/dev
 mkdir -p Projects/api-gateway/src Projects/billing-service/src Projects/web-dashboard/src \
     Projects/infra/terraform Documents Downloads

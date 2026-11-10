@@ -7,6 +7,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh the README screenshots for 0.8.2. The RDP demo hides Xfce's
+  bottom dock and places its windows fully inside the remote desktop.
+
 ## [0.8.2] - 2026-11-10
 
 ### Added

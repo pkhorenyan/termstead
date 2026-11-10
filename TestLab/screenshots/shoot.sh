@@ -41,6 +41,7 @@ stage)
     put termstead-lab-db-1 web02.sh
     for c in direct app db; do put termstead-lab-$c-1 fleet.sh; done
     docker exec -i termstead-lab-rdp-1 sh -s < desktop.sh
+    put termstead-lab-rdp-1 desktop-layout.py
     ;;
 open|panes)
     mode=$1
@@ -81,7 +82,9 @@ desktop)
     sleep 5
     docker exec -d termstead-lab-rdp-1 su dev -c "cd ~/Projects && DISPLAY=$display thunar ~/Projects"
     sleep 2
-    docker exec -d termstead-lab-rdp-1 su dev -c "cd ~/Projects && DISPLAY=$display xfce4-terminal --geometry=56x8+860+780 -x bash -c 'ls --color=auto; echo; python3 --version; exec bash'"
+    docker exec -d termstead-lab-rdp-1 su dev -c "cd ~/Projects && DISPLAY=$display xfce4-terminal --geometry=56x10+780+820 -x bash -c 'ls --color=auto; echo; python3 --version; exec bash'"
+    sleep 2
+    docker exec -u dev -e DISPLAY="$display" termstead-lab-rdp-1 python3 /tmp/demo/desktop-layout.py
     ;;
 clean)
     docker exec termstead-lab-direct-1 sh -c 'rm -rf /srv/www; deluser deploy 2>/dev/null; rm -rf /tmp/demo' || true
