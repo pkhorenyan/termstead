@@ -9,7 +9,8 @@ struct SessionTransferFormTests {
     @Test func formsRenderInBothAppearances() async throws {
         for (name, mode, theme) in [
             ("export-light", SessionTransferSheet.Mode.export(groupID: nil), Theme.daylight),
-            ("import-dark", .importFile, .graphite)
+            ("import-dark", .importFile(groupID: nil), .graphite),
+            ("import-group", .importFile(groupID: "web"), .daylight)
         ] {
             let window = FormWindow(contentRect: NSRect(x: 100, y: 100, width: 580, height: 620),
                                     styleMask: [.titled], backing: .buffered, defer: false)

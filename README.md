@@ -58,7 +58,8 @@
 - **Import and export sessions.** Use File → Import Sessions / Export Sessions,
   or right-click a folder to export it with its required jump hosts. Review
   imports before adding them, keeping existing sessions or adding renamed
-  copies. Include saved passwords in an encrypted export for a move to another
+  copies. Import into an existing group with or without the file's folders.
+  Include saved passwords in an encrypted export for a move to another
   Mac, or leave them out when sharing connection settings. SSH key files are
   not included; check their paths on the destination Mac.
 - **Remote desktops (RDP) in tabs.** An RDP session opens as a tab like any

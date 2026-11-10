@@ -132,7 +132,22 @@ enum SessionTransfer {
     }
 
     static func plan(_ contents: SessionArchive.Contents, into current: SessionSnapshot,
-                     conflict: Conflict) throws -> Plan {
+                     conflict: Conflict, destinationGroupID: String? = nil, keepFolders: Bool = true) throws -> Plan {
+        var destinationPath: [String] = []
+        if let destinationGroupID {
+            func find(_ group: SessionGroup, parents: [String]) -> [String]? {
+                let path = parents + [group.id]
+                if group.id == destinationGroupID { return path }
+                for node in group.children {
+                    if case .group(let child) = node, let found = find(child, parents: path) { return found }
+                }
+                return nil
+            }
+            guard let path = current.tree.lazy.compactMap({ find($0, parents: []) }).first else {
+                throw SessionArchive.Problem.invalid("The destination group no longer exists. Choose another group.")
+            }
+            destinationPath = path
+        }
         let incoming = contents.snapshot.sessions
         let existingByName = Dictionary(uniqueKeysWithValues: current.sessions.map { ($0.id, $0) })
         let existingByID = Dictionary(uniqueKeysWithValues: current.sessions.compactMap { s in s.persistentID.map { ($0, s) } })
@@ -228,10 +243,29 @@ enum SessionTransfer {
             return copy.children.isEmpty && !group.children.isEmpty ? nil : copy
         }
         let groups = contents.snapshot.tree.compactMap(remap)
+        var tree = current.tree
+        if let destinationGroupID {
+            let nodes = keepFolders ? groups.map(TreeNode.group) : added.map { TreeNode.session($0.id) }
+            func insert(into group: inout SessionGroup) -> Bool {
+                if group.id == destinationGroupID { group.children.append(contentsOf: nodes); return true }
+                for index in group.children.indices {
+                    if case .group(var child) = group.children[index], insert(into: &child) {
+                        group.children[index] = .group(child)
+                        return true
+                    }
+                }
+                return false
+            }
+            for index in tree.indices {
+                if insert(into: &tree[index]) { break }
+            }
+        } else { tree.append(contentsOf: groups) }
         func newName(_ name: String) -> String? { sourceByName[name].flatMap { copies[$0.persistentID!]?.id } }
-        let snapshot = SessionSnapshot(tree: current.tree + groups, sessions: current.sessions + added,
+        let importedCollapsed = destinationGroupID == nil || keepFolders
+            ? contents.snapshot.collapsedGroupIDs.compactMap { groupIDs[$0] } : []
+        let snapshot = SessionSnapshot(tree: tree, sessions: current.sessions + added,
             pinnedIDs: current.pinnedIDs + contents.snapshot.pinnedIDs.compactMap(newName),
-            collapsedGroupIDs: current.collapsedGroupIDs + contents.snapshot.collapsedGroupIDs.compactMap { groupIDs[$0] })
+            collapsedGroupIDs: current.collapsedGroupIDs.filter { !destinationPath.contains($0) } + importedCollapsed)
         var writes: [String: String] = [:]
         for var credential in contents.credentials {
             guard let copy = copies[credential.sessionID] else { continue }
@@ -270,9 +304,11 @@ enum SessionTransfer {
 
     @MainActor
     static func importSessions(_ contents: SessionArchive.Contents, into store: SessionStore,
-                               conflict: Conflict, keychain: any SessionSecretStore = KeychainStore.shared) async throws -> (Plan, Int) {
+                               conflict: Conflict, destinationGroupID: String? = nil, keepFolders: Bool = true,
+                               keychain: any SessionSecretStore = KeychainStore.shared) async throws -> (Plan, Int) {
         let before = store.snapshot
-        let plan = try plan(contents, into: before, conflict: conflict)
+        let plan = try plan(contents, into: before, conflict: conflict,
+                            destinationGroupID: destinationGroupID, keepFolders: keepFolders)
         let installed = try await BlockingWork.run { try installSecrets(plan, using: keychain) }
         guard store.snapshot == before else {
             try await BlockingWork.run {

@@ -324,7 +324,7 @@ struct SidebarView: View {
         Button("Quick Connect…") { appState.route = .quickConnect }
         Button("New Local Terminal") { connectionStore.openLocalTerminal() }
         Divider()
-        Button("Import Sessions…") { appState.route = .sessionTransfer(.importFile) }
+        Button("Import Sessions…") { appState.route = .sessionTransfer(.importFile(groupID: sessionStore.selectedGroupID)) }
         Button("Export Sessions…") { appState.route = .sessionTransfer(.export(groupID: nil)) }
             .disabled(sessionStore.sessions.isEmpty)
         Button("Import from ~/.ssh/config") {
@@ -398,7 +398,8 @@ struct SidebarView: View {
                 onAddSession: { appState.route = .newSession(parentGroupID: data.id) },
                 onAddSubgroup: { appState.route = .newGroup(parentGroupID: data.id) },
                 onOpenSettings: { appState.route = .groupSettings(id: data.id) },
-                onExport: { appState.route = .sessionTransfer(.export(groupID: data.id)) }
+                onExport: { appState.route = .sessionTransfer(.export(groupID: data.id)) },
+                onImport: { appState.route = .sessionTransfer(.importFile(groupID: data.id)) }
             )
             .padding(.top, data.isFirst ? 0 : 12)
 
@@ -410,7 +411,8 @@ struct SidebarView: View {
                 onAddSubgroup: { appState.route = .newGroup(parentGroupID: data.id) },
                 onOpenSettings: { appState.route = .groupSettings(id: data.id) },
                 actions: actions,
-                onExport: { appState.route = .sessionTransfer(.export(groupID: data.id)) }
+                onExport: { appState.route = .sessionTransfer(.export(groupID: data.id)) },
+                onImport: { appState.route = .sessionTransfer(.importFile(groupID: data.id)) }
             )
 
         case .session(let data):

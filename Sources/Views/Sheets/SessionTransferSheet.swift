@@ -4,9 +4,12 @@ import UniformTypeIdentifiers
 struct SessionTransferSheet: View {
     static let fileType = UTType(exportedAs: SessionArchive.format, conformingTo: .json)
     enum Mode {
-        case export(groupID: String?), importFile
+        case export(groupID: String?), importFile(groupID: String?)
         var id: String {
-            switch self { case .export(let id): "export:\(id ?? "all")"; case .importFile: "import" }
+            switch self {
+            case .export(let id): "export:\(id ?? "all")"
+            case .importFile(let id): "import:\(id ?? "top")"
+            }
         }
         var title: String { isExport ? "Export sessions" : "Import sessions" }
         var isExport: Bool { if case .export = self { return true }; return false }
@@ -17,6 +20,7 @@ struct SessionTransferSheet: View {
     @Environment(SessionStore.self) private var store
 
     @State private var groupID: String?
+    @State private var keepFolders = true
     @State private var includePasswords = false
     @State private var password = ""
     @State private var confirmation = ""
@@ -32,7 +36,8 @@ struct SessionTransferSheet: View {
     private var snapshot: SessionSnapshot { SessionTransfer.exportSnapshot(store.snapshot, groupID: groupID) }
     private var plan: SessionTransfer.Plan? {
         guard let contents else { return nil }
-        return try? SessionTransfer.plan(contents, into: store.snapshot, conflict: conflict)
+        return try? SessionTransfer.plan(contents, into: store.snapshot, conflict: conflict,
+                                         destinationGroupID: groupID, keepFolders: keepFolders)
     }
     private var ready: Bool {
         if busy || result != nil { return false }
@@ -76,7 +81,11 @@ struct SessionTransferSheet: View {
         .frame(width: 580, height: 620)
         .background(theme.chrome.color)
         .background(TransferWorkGuard(isWorking: busy))
-        .onAppear { if case .export(let id) = mode { groupID = id } }
+        .onAppear {
+            switch mode {
+            case .export(let id), .importFile(let id): groupID = id
+            }
+        }
     }
 
     private var exportOptions: some View {
@@ -110,6 +119,23 @@ struct SessionTransferSheet: View {
 
     private var importOptions: some View {
         VStack(alignment: .leading, spacing: 14) {
+            FormField(label: "Import into") {
+                Picker("Import into", selection: $groupID) {
+                    Text("Top level").tag(String?.none)
+                    ForEach(store.groupOptions(), id: \.id) { group in
+                        Text(store.groupPath(group.id).joined(separator: " / ")).tag(Optional(group.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if groupID != nil {
+                Toggle("Keep folders from file", isOn: $keepFolders)
+                    .toggleStyle(.checkbox).tint(theme.accent.color)
+                InsetNote(text: keepFolders
+                    ? "Folders from the file will be added inside the selected group."
+                    : "All imported sessions will be added directly to the selected group.")
+            }
             HStack {
                 Text(fileName.isEmpty ? "Choose a Termstead session file" : fileName)
                     .lineLimit(1).truncationMode(.middle)
@@ -154,7 +180,11 @@ struct SessionTransferSheet: View {
 
     private var planningProblem: String {
         guard let contents else { return "" }
-        do { _ = try SessionTransfer.plan(contents, into: store.snapshot, conflict: conflict); return "" }
+        do {
+            _ = try SessionTransfer.plan(contents, into: store.snapshot, conflict: conflict,
+                                         destinationGroupID: groupID, keepFolders: keepFolders)
+            return ""
+        }
         catch { return error.localizedDescription }
     }
 
@@ -232,7 +262,8 @@ struct SessionTransferSheet: View {
         Task { @MainActor in
             defer { busy = false }
             do {
-                let (plan, saved) = try await SessionTransfer.importSessions(contents, into: store, conflict: conflict)
+                let (plan, saved) = try await SessionTransfer.importSessions(contents, into: store, conflict: conflict,
+                    destinationGroupID: groupID, keepFolders: keepFolders)
                 self.contents = nil; fileData = nil
                 result = "Imported \(plan.added.count) sessions and saved \(saved) credentials in Keychain. \(plan.skipped) existing or dependent sessions were skipped."
             } catch { problem = error.localizedDescription }

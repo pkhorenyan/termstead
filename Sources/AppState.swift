@@ -104,7 +104,7 @@ final class AppState {
         case "quickConnect": route = .quickConnect
         case "snippet": route = .snippet(id: nil)
         case "exportSessions": route = .sessionTransfer(.export(groupID: nil))
-        case "importSessions": route = .sessionTransfer(.importFile)
+        case "importSessions": route = .sessionTransfer(.importFile(groupID: UserDefaults.standard.string(forKey: "sb-group")))
         case "groupSettings":
             // `-sb-group <id>` picks which one.
             route = .groupSettings(id: UserDefaults.standard.string(forKey: "sb-group") ?? "web")

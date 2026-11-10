@@ -207,4 +207,80 @@ struct SessionTransferTests {
         #expect(credentials.map(\.role) == ["password"])
         #expect(credentials.first?.value == "desktop-password")
     }
+
+    private func destination() -> SessionSnapshot {
+        let store = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        let root = store.createGroup(name: "Existing", parentID: nil, colorID: nil)
+        let nested = store.createGroup(name: "Destination", parentID: root, colorID: "blue")
+        store.createGroup(name: "Other", parentID: root, colorID: nil)
+        store.createSession(Session(id: "local", user: "u", host: "local.example", port: 22, icon: .server), parentID: nested)
+        store.collapsedGroupIDs = Set(store.groupOptions().map(\.id))
+        return store.snapshot
+    }
+
+    @Test func importCanPreserveFoldersInsideANestedExistingGroup() throws {
+        let current = destination()
+        let store = SessionStore(snapshot: current)
+        let id = try #require(store.groupOptions().first { $0.name == "Destination" }?.id)
+        let plan = try SessionTransfer.plan(contents(chain()), into: current, conflict: .keepBoth,
+                                            destinationGroupID: id)
+        let restored = SessionStore(snapshot: plan.snapshot)
+        #expect(restored.tree.count == 1)
+        #expect(restored.tree[0].id == current.tree[0].id)
+        #expect(restored.currentGroupID(ofSession: "local") == id)
+        let importedGroups = restored.groupOptions().filter { ["Bastions", "Servers"].contains($0.name) }
+        #expect(importedGroups.count == 2)
+        #expect(importedGroups.allSatisfy { $0.depth == 2 && restored.parentID(ofGroup: $0.id) == id })
+        #expect(!restored.collapsedGroupIDs.contains(id))
+        #expect(!restored.collapsedGroupIDs.contains(current.tree[0].id))
+        let other = try #require(restored.groupOptions().first { $0.name == "Other" })
+        #expect(restored.collapsedGroupIDs.contains(other.id))
+        #expect(restored.pinnedIDs == ["app"])
+    }
+
+    @Test func importCanPlaceSessionsDirectlyInAnExistingGroupAndKeepJumps() throws {
+        let current = destination()
+        let store = SessionStore(snapshot: current)
+        let id = try #require(store.groupOptions().first { $0.name == "Destination" }?.id)
+        let plan = try SessionTransfer.plan(contents(chain()), into: current, conflict: .keepBoth,
+                                            destinationGroupID: id, keepFolders: false)
+        let restored = SessionStore(snapshot: plan.snapshot)
+        #expect(restored.groupOptions().count == store.groupOptions().count)
+        for name in ["local", "app", "bastion"] { #expect(restored.currentGroupID(ofSession: name) == id) }
+        let app = try #require(restored.session("app"))
+        let launch = try SSHLaunch.plan(for: app, sessions: restored.sessions)
+        #expect(launch.hops.first?.host == "jump.example")
+        #expect(launch.hops.first?.port == 2222)
+    }
+
+    @Test func conflictsCanBeRenamedWithinTheSelectedGroupWithoutExtraRootFolders() throws {
+        let current = chain()
+        let id = try #require(current.tree.first { $0.name == "Servers" }?.id)
+        let plan = try SessionTransfer.plan(contents(current), into: current, conflict: .keepBoth,
+                                            destinationGroupID: id, keepFolders: false)
+        let restored = SessionStore(snapshot: plan.snapshot)
+        #expect(restored.tree.count == current.tree.count)
+        #expect(restored.currentGroupID(ofSession: "app") == id)
+        #expect(restored.currentGroupID(ofSession: "app (2)") == id)
+        #expect(restored.currentGroupID(ofSession: "bastion (2)") == id)
+        #expect(restored.currentGroupID(ofSession: "bastion") != id)
+        #expect(restored.session("app (2)")?.jumps[0].sessionIdentity == restored.session("bastion (2)")?.persistentID)
+    }
+
+    @Test func aMissingDestinationFailsBeforeAnyCredentialAccess() async throws {
+        let store = SessionStore(snapshot: destination())
+        let before = store.snapshot
+        var archive = try contents(chain())
+        archive.credentials = [.init(sessionID: archive.snapshot.sessions[0].persistentID!, role: "password", value: "pw")]
+        struct NoAccess: SessionSecretStore {
+            func readSecret(_ account: String) throws -> String? { Issue.record("Must validate the destination first"); return nil }
+            func insertSecret(_ secret: String, account: String) throws { Issue.record("Must not write a password") }
+            func removeSecret(_ account: String) throws { Issue.record("Must not delete a password") }
+        }
+        do {
+            _ = try await SessionTransfer.importSessions(archive, into: store, conflict: .keepBoth,
+                destinationGroupID: "deleted-group", keepFolders: false, keychain: NoAccess())
+            Issue.record("Expected a missing destination error")
+        } catch { #expect(store.snapshot == before) }
+    }
 }

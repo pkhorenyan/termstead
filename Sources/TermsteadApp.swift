@@ -106,7 +106,7 @@ struct TermsteadApp: App {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(formIsOpen)
             Divider()
-            Button("Import Sessions…") { appState.route = .sessionTransfer(.importFile) }
+            Button("Import Sessions…") { appState.route = .sessionTransfer(.importFile(groupID: sessionStore.selectedGroupID)) }
                 .disabled(formIsOpen || appState.isImporting)
             Button("Export Sessions…") { appState.route = .sessionTransfer(.export(groupID: nil)) }
                 .disabled(formIsOpen || sessionStore.sessions.isEmpty)
@@ -342,14 +342,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var remembersTabs = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Debug and Release copies share the production bundle identifier.
-        // Supply the development process's Dock image from its own bundle,
-        // rather than whichever copy Launch Services last cached.
-        if DevelopmentLaunch.isActive,
-           let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-           let icon = NSImage(contentsOf: url) {
-            NSApp.applicationIconImage = icon
-        }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
                 MainActor.assumeIsolated { Self.traceEscape(event) }

@@ -713,6 +713,10 @@ CC BY 4.0, Apache 2.0, OFL and the like, all listed, with the OFL text, in
   panels are sheets on that form. PBKDF2, file I/O and Keychain access run on
   `BlockingWork`; the form cannot close during a transfer. The tree is checked
   again after the Keychain operation in case another task changed it.
+- Import can target an existing group, either nesting the archive's folders
+  beneath it or adding the sessions directly. The target and its ancestors
+  expand; a missing destination fails before any Keychain write. Group context
+  menus preselect that destination, while the File menu follows the selection.
 - Test all transfer operations with isolated trees, temporary export files
   and a private test Keychain service. Development routes `exportSessions`
   and `importSessions` open their forms over sample data.
@@ -941,11 +945,10 @@ These have each cost real time. They are not hypothetical.
   The README's `docs/images/icon.png` is not: nothing rounds it on GitHub, so
   it is the artwork clipped to a rounded square, 256 px with a 57 px radius
   and transparent corners, as macOS shows the icon.
-- **Development Dock icons come from the running bundle.** Debug and sample
-  Release launches set `NSApp.applicationIconImage` from their bundled
-  `AppIcon.icns`. Multiple local copies share the production bundle identifier;
-  refreshing Launch Services alone did not refresh the running test copy's
-  tile. Ordinary production launches retain the system's normal icon handling.
+- **Let macOS render the Dock icon, including development launches.** Setting
+  `NSApp.applicationIconImage` to the full-bleed `AppIcon.icns` bypasses the
+  system's normal icon treatment: the Dock shows a square tile with hard
+  corners. Do not use that property to work around a stale development icon.
 - **"no debug symbols in executable" after an `Info.plist` change is Xcode's,
   not ours.** The dSYM carries a copy of `Info.plist`, so an incremental
   Release build regenerates it from the executable it did not relink — one

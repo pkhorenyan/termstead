@@ -66,6 +66,7 @@ struct TopGroupHeaderView: View {
     var onAddSubgroup: () -> Void
     var onOpenSettings: () -> Void
     var onExport: () -> Void = {}
+    var onImport: () -> Void = {}
 
     private var isSelected: Bool { actions.isSelected }
 
@@ -126,6 +127,7 @@ struct TopGroupHeaderView: View {
             Button("New Connection…", action: onAddSession)
             Button("New Subgroup…", action: onAddSubgroup)
             Button("Export Sessions…", action: onExport)
+            Button("Import Sessions…", action: onImport)
             Divider()
             actions.renameItem()
             actions.moveMenu(includingTopLevel: true)
@@ -145,6 +147,7 @@ struct GroupRowView: View {
     var onOpenSettings: () -> Void
     var actions: TreeRowActions
     var onExport: () -> Void = {}
+    var onImport: () -> Void = {}
 
     private var isSelected: Bool { actions.isSelected }
 
@@ -215,6 +218,7 @@ struct GroupRowView: View {
             Button("New Connection…", action: onAddSession)
             Button("New Subgroup…", action: onAddSubgroup)
             Button("Export Sessions…", action: onExport)
+            Button("Import Sessions…", action: onImport)
             Divider()
             actions.renameItem()
             actions.moveMenu(includingTopLevel: true)

@@ -585,10 +585,14 @@ final class TestLabTests {
         let document = try SessionArchive.document(snapshot, credentials: credentials)
         let data = try SessionArchive.encode(document, password: "lab-backup-password")
         let archive = try SessionArchive.decode(data, password: "lab-backup-password")
-        let (imported, saved) = try await SessionTransfer.importSessions(archive, into: model, conflict: .keepBoth, keychain: keychain)
+        let destination = try #require(model.currentGroupID(ofSession: target.id))
+        let (imported, saved) = try await SessionTransfer.importSessions(archive, into: model, conflict: .keepBoth,
+            destinationGroupID: destination, keepFolders: false, keychain: keychain)
         accounts.append(contentsOf: imported.secrets.map(\.account))
         #expect(saved == 2)
         let copy = try #require(model.session("\(target.id) (2)"))
+        #expect(model.currentGroupID(ofSession: copy.id) == destination)
+        #expect(model.tree.count == 1)
         var launch = try SSHLaunch.plan(for: copy, sessions: model.sessions)
         #expect(launch.hops.first?.passwordAccount == SSHLaunch.sessionPasswordAccount("\(bastion.id) (2)"))
         launch.config = """
