@@ -7,6 +7,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-10
+
 ### Added
 
 - Import and export Termstead sessions from the File menu or sidebar. Export
@@ -31,8 +33,6 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through a previously imported jump host, including one renamed locally.
   First imports preserve session identities; same-name SSH hops from older
   imports are reused only when their connection and authentication settings match.
-- App icons use the system's normal rendering and rounded corners in
-  development builds as well as installed copies.
 - Renaming a saved jump host keeps the sessions that refer to it working,
   including reconnecting existing tabs and restarting tunnels with a saved
   password. Reusing a deleted session's name does not redirect its references.
