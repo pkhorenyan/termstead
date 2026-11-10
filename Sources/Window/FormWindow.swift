@@ -120,11 +120,16 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
         onClose?()
     }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        (sender as? FormWindow)?.isWorking != true
+    }
+
     /// Cancel, Save, Escape. The window is closed here and now rather than when
     /// SwiftUI next applies the cleared route: while the form is modal, the
     /// modal loop has to be stopped from inside it, and the route change alone
     /// would leave the app blocked until something else woke it.
     private func requestClose() {
+        guard window?.isWorking != true else { return }
         modalLog.debug("form asked to close: \(self.window?.title ?? "none", privacy: .public)")
         // The route first, so nothing that runs during the close still sees
         // this form as wanted.
@@ -223,6 +228,7 @@ final class FormWindowHost: NSObject, NSWindowDelegate {
 /// with any more: it is Close Tab.
 final class FormWindow: NSWindow {
     var onCancel: (() -> Void)?
+    var isWorking = false
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard Self.isCommandW(event) else { return super.performKeyEquivalent(with: event) }
@@ -283,6 +289,8 @@ private struct FormRoot: View {
             QuickConnectSheet()
         case .snippet(let id):
             SnippetSheet(snippetID: id)
+        case .sessionTransfer(let mode):
+            SessionTransferSheet(mode: mode)
         }
     }
 }
@@ -299,6 +307,7 @@ extension AppState.Route {
         case .groupSettings: "Group settings"
         case .quickConnect: "Quick connect"
         case .snippet(let id): id == nil ? "New snippet" : "Edit snippet"
+        case .sessionTransfer(let mode): mode.title
         }
     }
 }

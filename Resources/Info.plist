@@ -38,6 +38,19 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>com.pavelkhorenyan.termstead.sessions</string>
+			<key>UTTypeDescription</key>
+			<string>Termstead Sessions</string>
+			<key>UTTypeConformsTo</key>
+			<array><string>public.json</string></array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array><string>termstead</string></array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>com.pavelkhorenyan.termstead.sidebar-item</string>
 			<key>UTTypeDescription</key>
 			<string>Termstead sidebar item</string>

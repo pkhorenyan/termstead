@@ -7,6 +7,17 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Import and export Termstead sessions from the File menu or sidebar. Export
+  all sessions or a folder, including its jump-host dependencies, colors,
+  tunnels and pinned sessions. Preview imports and either rename conflicting
+  sessions or skip them, keeping existing sessions and passwords.
+- Optional encrypted session exports include saved passwords and key
+  passphrases. The complete file is protected by a file password; imported
+  credentials go into the destination Mac's Keychain. Private-key files are
+  not copied.
+
 ### Changed
 
 - Return confirms the question before closing a live tab, or several.
@@ -15,6 +26,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Development launches set their Dock icon from their own app bundle, so
+  multiple Debug, Release and installed copies do not reuse another copy's
+  cached icon.
 - Renaming a saved jump host keeps the sessions that refer to it working,
   including reconnecting existing tabs and restarting tunnels with a saved
   password. Reusing a deleted session's name does not redirect its references.

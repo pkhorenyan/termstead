@@ -685,6 +685,40 @@ CC BY 4.0, Apache 2.0, OFL and the like, all listed, with the OFL text, in
 
 ## Session references and persistence
 
+### Session transfer files
+
+- `SessionArchive` is a versioned interchange format separate from the internal
+  `SessionSnapshot` version. `.termstead` files carry the format identifier
+  `com.pavelkhorenyan.termstead.sessions`, version 1, folders, pins and records
+  with a string `type` and an open JSON `settings` object. Adding VNC should
+  add a `vnc` record and its own session options; do not bump the envelope
+  version just to add a protocol. Older apps skip unknown record types before
+  decoding their settings, prune their tree rows, and report the skipped count.
+- Encrypted files wrap the entire document using AES-256-GCM (CryptoKit),
+  a fresh 32-byte salt, PBKDF2-HMAC-SHA256 with 600,000 rounds (CommonCrypto),
+  a random nonce and the format identifier as authenticated data. The envelope
+  records the cipher and KDF; unsupported settings fail before deriving a key.
+  Plain files cannot carry credentials. Neither export copies private-key files.
+- Credential records name a session UUID, an optional hop UUID and a role,
+  never an arbitrary Keychain account. `SessionTransfer` derives the account
+  from the imported session. Generic session-password roles work for future
+  desktop protocols too. Keep the existing Keychain service identifier.
+- Folder export includes saved jump-host dependencies from other folders.
+  Import remaps session, hop and group identities. Keeping both sessions
+  remaps the whole chain; skipping a same-name but unrelated jump host also
+  skips its dependents. Missing references never bind to a coincidental local
+  name or UUID. Existing Keychain values are never replaced; failed writes
+  roll back newly inserted values before the session tree can change.
+- `SessionTransferSheet` uses the shared movable form window. Native file
+  panels are sheets on that form. PBKDF2, file I/O and Keychain access run on
+  `BlockingWork`; the form cannot close during a transfer. The tree is checked
+  again after the Keychain operation in case another task changed it.
+- Test all transfer operations with isolated trees, temporary export files
+  and a private test Keychain service. Development routes `exportSessions`
+  and `importSessions` open their forms over sample data.
+
+### Local persistence and references
+
 - **Names and permanent identities.** `Session.id` remains the display name
   and the historical tree/Keychain key. `persistentID` is a separate UUID;
   `JumpHost.sessionIdentity` links to it, while `host` keeps a readable label.
@@ -907,6 +941,11 @@ These have each cost real time. They are not hypothetical.
   The README's `docs/images/icon.png` is not: nothing rounds it on GitHub, so
   it is the artwork clipped to a rounded square, 256 px with a 57 px radius
   and transparent corners, as macOS shows the icon.
+- **Development Dock icons come from the running bundle.** Debug and sample
+  Release launches set `NSApp.applicationIconImage` from their bundled
+  `AppIcon.icns`. Multiple local copies share the production bundle identifier;
+  refreshing Launch Services alone did not refresh the running test copy's
+  tile. Ordinary production launches retain the system's normal icon handling.
 - **"no debug symbols in executable" after an `Info.plist` change is Xcode's,
   not ours.** The dSYM carries a copy of `Info.plist`, so an incremental
   Release build regenerates it from the executable it did not relink — one

@@ -32,6 +32,7 @@ final class AppState {
         case quickConnect
         /// `nil` for a new snippet.
         case snippet(id: UUID?)
+        case sessionTransfer(SessionTransferSheet.Mode)
 
         var id: String {
             switch self {
@@ -42,6 +43,7 @@ final class AppState {
             case .groupSettings(let id): "groupSettings:\(id)"
             case .quickConnect: "quickConnect"
             case .snippet(let id): "snippet:\(id?.uuidString ?? "-")"
+            case .sessionTransfer(let mode): "sessionTransfer:\(mode.id)"
             }
         }
     }
@@ -101,6 +103,8 @@ final class AppState {
             route = .portForwarding(sessionID: UserDefaults.standard.string(forKey: "sb-session") ?? "prod-web-01")
         case "quickConnect": route = .quickConnect
         case "snippet": route = .snippet(id: nil)
+        case "exportSessions": route = .sessionTransfer(.export(groupID: nil))
+        case "importSessions": route = .sessionTransfer(.importFile)
         case "groupSettings":
             // `-sb-group <id>` picks which one.
             route = .groupSettings(id: UserDefaults.standard.string(forKey: "sb-group") ?? "web")

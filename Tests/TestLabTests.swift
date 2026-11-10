@@ -570,6 +570,42 @@ final class TestLabTests {
         #expect(listing.files.contains { $0.name == "whoami.txt" })
     }
 
+    @Test func encryptedSessionImportConnectsWithRemappedJumpPasswordsAndSFTP() async throws {
+        let model = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        var bastion = try #require(sessions["lab-bastion"])
+        bastion.auth = .password
+        model.createSession(bastion, parentID: nil)
+        var target = try #require(sessions["lab-app-1-jump"])
+        target.auth = .password
+        target.forwards = []
+        model.createSession(target, parentID: nil)
+        for id in [bastion.id, target.id] { store("lab", for: SSHLaunch.sessionPasswordAccount(id)) }
+        let snapshot = model.snapshot
+        let credentials = try SessionTransfer.credentials(for: snapshot, using: keychain)
+        let document = try SessionArchive.document(snapshot, credentials: credentials)
+        let data = try SessionArchive.encode(document, password: "lab-backup-password")
+        let archive = try SessionArchive.decode(data, password: "lab-backup-password")
+        let (imported, saved) = try await SessionTransfer.importSessions(archive, into: model, conflict: .keepBoth, keychain: keychain)
+        accounts.append(contentsOf: imported.secrets.map(\.account))
+        #expect(saved == 2)
+        let copy = try #require(model.session("\(target.id) (2)"))
+        var launch = try SSHLaunch.plan(for: copy, sessions: model.sessions)
+        #expect(launch.hops.first?.passwordAccount == SSHLaunch.sessionPasswordAccount("\(bastion.id) (2)"))
+        launch.config = """
+        Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile \(directory.appendingPathComponent("known_hosts").path)
+          IdentityAgent none
+
+        """ + launch.config
+        let connection = Connection(sessionID: copy.id, title: copy.id, address: "", keyDescription: "", keychain: keychain)
+        defer { connection.close() }
+        connection.start(launch)
+        try await wait(timeout: 20) { connection.isLoggedIn }
+        let listing = try await #require(connection.sftp).list("/home/lab")
+        #expect(listing.files.contains { $0.name == "whoami.txt" })
+    }
+
     /// The Files tab two jumps deep, over the terminal's connection.
     @Test func filesThroughTwoJumps() async throws {
         try await expectShell(on: "lab-db-2-jumps", reaching: "db") { connection in
