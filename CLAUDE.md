@@ -683,6 +683,32 @@ for. Nerd Fonts is MIT; its icons come from thirteen projects under MIT,
 CC BY 4.0, Apache 2.0, OFL and the like, all listed, with the OFL text, in
 `MIT-NerdFontsSymbols.txt`. Replace both together, from the same release.
 
+## Deferred improvements
+
+Recorded after the code review on 2026-11-10. Pavel explicitly asked to
+remember these and leave implementation for later; do not start them until
+he asks.
+
+- **Jump-host references and renaming.** Renaming a saved session does not
+  update other sessions' `JumpHost.host` references to its old name. A new
+  connection then treats the old name as a literal host and loses the saved
+  endpoint's address, user, port and authentication settings. Separate a
+  session's stable identity from its display name, with a migration for
+  existing data, and cover renaming a referenced bastion in tests.
+- **SFTP request ordering.** Concurrent `FileBrowser.load` calls can finish
+  out of order: an older listing replaces a newer directory. Apply only the
+  latest navigation request's result. Also review serialization of uploads
+  triggered by saving a remote file in an external editor.
+- **Snippet persistence.** An unreadable `snippets.json` silently loads as
+  an empty list and is overwritten on the next change. Preserve the original
+  file and report the problem, following session persistence's recovery
+  behavior; surface save failures to the user too.
+
+The three reproductions used temporary files and a delayed file-source
+stub, without changing application sources. The existing full suite passed
+with the Docker lab running: 450 tests, no failures or skips. That suite
+does not currently catch these three cases.
+
 ## Known pitfalls
 
 These have each cost real time. They are not hypothetical.
