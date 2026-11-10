@@ -4,7 +4,7 @@ import Observation
 /// Everything about the session tree that outlives a launch. Selection and the
 /// live state of connections are deliberately absent.
 struct SessionSnapshot: Codable, Equatable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     var version = SessionSnapshot.currentVersion
     var tree: [SessionGroup]
@@ -50,6 +50,18 @@ enum SessionPersistence {
         let data = try encoder.encode(snapshot)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
+        do {
+            let original = try Data(contentsOf: url)
+            if let previous = try? JSONDecoder().decode(SessionSnapshot.self, from: original) {
+                if previous.version < snapshot.version {
+                    try FileRecovery.backup(original, from: url, reason: "before-v\(snapshot.version)")
+                }
+            } else {
+                try FileRecovery.backup(original, from: url, reason: "corrupt")
+            }
+        } catch {
+            if !FileRecovery.isMissing(error) { throw error }
+        }
         try data.write(to: url, options: [.atomic])
     }
 
@@ -84,7 +96,8 @@ extension SessionStore {
 
     func apply(_ snapshot: SessionSnapshot) {
         tree = snapshot.tree
-        sessions = Dictionary(snapshot.sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        sessions = SessionReferences.normalized(
+            Dictionary(snapshot.sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
         // A pin for a session that no longer exists would render as a blank row.
         pinnedIDs = snapshot.pinnedIDs.filter { sessions[$0] != nil }
         collapsedGroupIDs = Set(snapshot.collapsedGroupIDs)
@@ -113,7 +126,10 @@ final class SessionStorage {
     let startsWithSample: Bool
     /// Set when the saved file could not be read, for the one-time alert.
     var loadProblem: String?
+    var saveProblem: String?
+    private(set) var hasUnsavedChanges = false
     @ObservationIgnored private var lastSaved: SessionSnapshot?
+    @ObservationIgnored private var pendingSnapshot: SessionSnapshot?
 
     private init(url: URL?, snapshot: SessionSnapshot, sample: Bool, problem: String?) {
         self.url = url
@@ -161,12 +177,28 @@ final class SessionStorage {
     }
 
     func save(_ snapshot: SessionSnapshot) {
-        guard let url, snapshot != lastSaved else { return }
+        guard let url else { return }
+        guard snapshot != lastSaved else {
+            pendingSnapshot = nil
+            saveProblem = nil
+            hasUnsavedChanges = false
+            return
+        }
+        pendingSnapshot = snapshot
+        hasUnsavedChanges = true
         do {
             try SessionPersistence.save(snapshot, to: url)
             lastSaved = snapshot
+            pendingSnapshot = nil
+            saveProblem = nil
+            hasUnsavedChanges = false
         } catch {
+            saveProblem = "Your session changes have not been saved to \(url.path). \(error.localizedDescription)"
             NSLog("Termstead: could not save sessions to %@: %@", url.path, String(describing: error))
         }
+    }
+
+    func retrySave() {
+        if let pendingSnapshot { save(pendingSnapshot) }
     }
 }

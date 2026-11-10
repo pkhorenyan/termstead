@@ -36,6 +36,17 @@ struct SSHLaunchPlan: Equatable, Sendable {
     var target: SSHEndpoint
     /// The contents of the ssh_config file the connection runs with.
     var config: String
+
+    /// A closed tab can reconnect using this plan after the Keychain item has
+    /// moved to a session's new name. The endpoint itself stays the same.
+    mutating func renameSessionAccount(from oldID: String, to newID: String) {
+        let old = SSHLaunch.sessionPasswordAccount(oldID)
+        let new = SSHLaunch.sessionPasswordAccount(newID)
+        for index in hops.indices where hops[index].passwordAccount == old {
+            hops[index].passwordAccount = new
+        }
+        if target.passwordAccount == old { target.passwordAccount = new }
+    }
     /// One of the session's tunnels as ssh is told it: `-L spec` and so on.
     struct Forward: Equatable, Sendable {
         var forward: PortForward
@@ -88,6 +99,7 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
     case forward(index: Int, problem: String)
     /// A hop named after a saved RDP session: it has no ssh to jump through.
     case notSSH(String)
+    case missingSavedSession(String)
 
     var description: String {
         switch self {
@@ -101,6 +113,8 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
             "Port forward \(index + 1) \(problem)."
         case .notSSH(let name):
             "“\(name)” is an RDP session and cannot be a jump host."
+        case .missingSavedSession(let name):
+            "The saved jump host “\(name)” was deleted. Choose another jump host in the session settings."
         }
     }
 }
@@ -163,10 +177,13 @@ enum SSHLaunch {
             let typedUser = hop.user.trimmingCharacters(in: .whitespaces)
             let explicitUser = typedUser.isEmpty ? nil : typedUser
 
-            if let saved = sessions[typed] {
+            if let saved = try SessionReferences.savedSession(for: hop, in: sessions) {
                 // A hop named after a saved session connects the way that
                 // session does, unless the hop says otherwise.
                 guard saved.id != session.id else { throw SSHLaunchError.jumpLoop(saved.id) }
+                if let id = session.persistentID, id == saved.persistentID {
+                    throw SSHLaunchError.jumpLoop(saved.id)
+                }
                 guard saved.kind == .ssh else { throw SSHLaunchError.notSSH(saved.id) }
                 let hopAuth: SSHEndpoint.Auth
                 let account: String

@@ -57,6 +57,9 @@ final class FileBrowser {
     /// as a password prompt went unanswered.
     @ObservationIgnored private var retryDelay: Duration = .seconds(1)
     @ObservationIgnored private var edits: [String: RemoteEdit] = [:]
+    @ObservationIgnored private var loadRequest = UUID()
+    @ObservationIgnored private var stopped = false
+    @ObservationIgnored private var pendingSaves: [String: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private lazy var editDirectory: URL = {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("sb-edit-" + UUID().uuidString.prefix(8).lowercased(), isDirectory: true)
@@ -93,7 +96,7 @@ final class FileBrowser {
     /// Shows the terminal's folder (or the home folder) the first time, and
     /// catches up with the terminal each time the panel comes back.
     func start() {
-        guard !isLoading else { return }
+        guard !stopped, !isLoading else { return }
         retryDelay = .seconds(1)
         if path == nil {
             Task { await loadFirstFolder() }
@@ -103,11 +106,13 @@ final class FileBrowser {
     }
 
     private func loadFirstFolder() async {
-        if followsTerminal, let directory = await client?.terminalDirectory() {
-            await load(directory)
-        } else {
-            await load(nil)
-        }
+        guard !stopped, !Task.isCancelled else { return }
+        let request = beginLoad()
+        defer { if request == loadRequest { isLoading = false } }
+        let directory: String?
+        if followsTerminal { directory = await client?.terminalDirectory() } else { directory = nil }
+        guard isCurrent(request) else { return }
+        await load(directory, request: request)
     }
 
     /// Loads a folder before the panel is shown, so that it opens on files
@@ -131,8 +136,10 @@ final class FileBrowser {
     }
 
     private func followTerminal() async {
+        guard !stopped, !Task.isCancelled else { return }
+        let request = loadRequest
         guard followsTerminal, let client, let directory = await client.terminalDirectory(),
-              directory != path else { return }
+              isCurrent(request), followsTerminal, directory != path else { return }
         await load(directory)
     }
 
@@ -147,23 +154,42 @@ final class FileBrowser {
 
     /// `nil` means the home folder.
     func load(_ target: String?) async {
+        guard !stopped, !Task.isCancelled else { return }
+        await load(target, request: beginLoad())
+    }
+
+    private func beginLoad() -> UUID {
         retry?.cancel()
+        retry = nil
+        loadRequest = UUID()
+        isLoading = true
+        return loadRequest
+    }
+
+    private func isCurrent(_ request: UUID) -> Bool {
+        request == loadRequest && !stopped && !Task.isCancelled
+    }
+
+    private func load(_ target: String?, request: UUID) async {
+        defer { if request == loadRequest { isLoading = false } }
+        guard isCurrent(request) else { return }
         guard let client else {
             problem = "Not connected."
             return
         }
-        isLoading = true
-        defer { isLoading = false }
         do {
             let directory: String
             if let target { directory = target } else { directory = try await client.home() }
+            guard isCurrent(request) else { return }
             let listing = try await client.list(directory)
+            guard isCurrent(request) else { return }
             path = listing.path
             files = listing.files
             problem = nil
             retryDelay = .seconds(1)
             if let selection, !files.contains(where: { $0.path == selection }) { self.selection = nil }
         } catch SFTPError.notReady {
+            guard isCurrent(request) else { return }
             // The terminal is still logging in — a password prompt, say.
             // Check again shortly rather than making the user press Refresh.
             problem = SFTPError.notReady.description
@@ -173,10 +199,13 @@ final class FileBrowser {
             retryDelay = min(retryDelay * 2, .seconds(5))
             retry = Task { [weak self] in
                 try? await Task.sleep(for: delay)
-                guard !Task.isCancelled, self?.isShown == true else { return }
-                await self?.load(target)
+                guard let self, isCurrent(request), isShown else { return }
+                // Do not cancel this task when load starts its next request.
+                retry = nil
+                await load(target)
             }
         } catch {
+            guard isCurrent(request) else { return }
             problem = (error as? SFTPError)?.description ?? error.localizedDescription
         }
     }
@@ -376,14 +405,38 @@ final class FileBrowser {
         edit.open()
     }
 
-    private func saveBack(_ name: String, local: URL, remote: String) {
-        guard let client else { return }
-        Task { await perform("Save “\(name)” to the server") { try await client.replace(remote, with: local) } }
+    func saveBack(_ name: String, local: URL, remote: String) {
+        guard !stopped, let client else { return }
+        let previous = pendingSaves[remote]?.task
+        let id = UUID()
+        let task = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled, !stopped else { return }
+            defer { if pendingSaves[remote]?.id == id { pendingSaves[remote] = nil } }
+            let snapshot = local.deletingLastPathComponent().appendingPathComponent(".upload-\(id)")
+            await perform("Save “\(name)” to the server") {
+                // Editors can replace the local file while sftp is reading it.
+                // Each upload gets an immutable copy, and the next upload waits
+                // for this one before reading the latest saved contents.
+                defer { try? FileManager.default.removeItem(at: snapshot) }
+                try Task.checkCancellation()
+                try await BlockingWork.run { try FileManager.default.copyItem(at: local, to: snapshot) }
+                try Task.checkCancellation()
+                try await client.replace(remote, with: snapshot)
+            }
+        }
+        pendingSaves[remote] = (id, task)
     }
 
     /// The tab is closing: stop watching and throw away the local copies.
     func stop() {
+        stopped = true
+        loadRequest = UUID()
+        isLoading = false
         retry?.cancel()
+        follow?.cancel()
+        for save in pendingSaves.values { save.task.cancel() }
+        pendingSaves.removeAll()
         edits.values.forEach { $0.stop() }
         edits.removeAll()
         try? FileManager.default.removeItem(at: editDirectory)

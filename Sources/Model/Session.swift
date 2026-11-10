@@ -32,7 +32,12 @@ struct JumpHost: Identifiable, Hashable, Codable, Sendable {
     /// A host name or address, or the name of a saved session. A pasted
     /// `user@host:port` still works: `SSHLaunch` splits it, and the fields
     /// below win over whatever it contained.
-    var host: String
+    var host: String {
+        didSet {
+            // Typing another host explicitly replaces the saved-session link.
+            if host != oldValue { sessionIdentity = nil }
+        }
+    }
     /// Empty leaves the user name to ssh and `~/.ssh/config`; for a hop named
     /// after a saved session, to that session.
     var user: String = ""
@@ -41,6 +46,9 @@ struct JumpHost: Identifiable, Hashable, Codable, Sendable {
     var auth: Auth = .session
     /// Only meaningful while `auth` is `.key`.
     var keyPath: String = Session.defaultKeyPath
+    /// A saved session's permanent identity. `host` remains its readable name;
+    /// old files are linked by name when the session tree is loaded.
+    var sessionIdentity: UUID? = nil
 
     /// The host on its own, for the chain summary and the route chips.
     var hostPart: String {
@@ -229,6 +237,10 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     var rdpOptions: RDPOptions? = nil
     /// Read through `logs`; `nil` (off) in every file from before logs.
     var logToFile: Bool? = nil
+    /// Permanent identity for references from other sessions. The historical
+    /// `id` remains the display name and the tree/Keychain key for compatibility.
+    /// Assigned on admission to SessionStore, including files from version 1.
+    var persistentID: UUID? = nil
 
     var forwards: [PortForward] {
         get { portForwards ?? [] }

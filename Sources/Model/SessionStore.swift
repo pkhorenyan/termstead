@@ -63,7 +63,7 @@ final class SessionStore {
 
     init(tree: [SessionGroup], sessions: [String: Session], selectedID: String?, pinnedIDs: [String]) {
         self.tree = tree
-        self.sessions = sessions
+        self.sessions = SessionReferences.normalized(sessions)
         selection = selectedID.map { .session($0, inPinned: false) }
         self.pinnedIDs = pinnedIDs
         collapsedGroupIDs = []
@@ -835,7 +835,11 @@ final class SessionStore {
         guard !name.isEmpty, sessions[name] == nil else { return nil }
         var stored = session
         stored.id = name
+        if stored.persistentID == nil || sessions.values.contains(where: { $0.persistentID == stored.persistentID }) {
+            stored.persistentID = UUID()
+        }
         sessions[name] = stored
+        sessions = SessionReferences.normalized(sessions)
 
         let target = parentID ?? tree.first?.id
         if let target {
@@ -861,6 +865,7 @@ final class SessionStore {
               let position = position(of: SidebarDragItem(kind: .session, id: id)) else { return nil }
         var copy = original
         copy.id = Self.copyName(of: id, taken: Set(sessions.keys))
+        copy.persistentID = UUID()
         copy.jumps = original.jumps.map { hop in
             var fresh = hop
             fresh.id = UUID()
@@ -1069,12 +1074,25 @@ final class SessionStore {
     /// rename (the name is the id) and a move to another group.
     func applySessionEdits(originalID: String, updated: Session, parentID: String?) {
         let newID = updated.id.trimmingCharacters(in: .whitespaces)
-        guard !newID.isEmpty else { return }
-
-        sessions[originalID] = nil
+        guard !newID.isEmpty, sessions[originalID] != nil,
+              newID == originalID || sessions[newID] == nil else { return }
+        // Resolve legacy links before removing the old name, including a
+        // newly typed hop in an edited session.
+        sessions = SessionReferences.normalized(sessions)
+        let originalIdentity = sessions[originalID]?.persistentID
         var stored = updated
         stored.id = newID
+        stored.persistentID = originalIdentity ?? stored.persistentID
+        stored.jumps = stored.jumps.map { hop in
+            var linked = hop
+            if hop.sessionIdentity == nil {
+                linked.sessionIdentity = sessions[hop.host.trimmingCharacters(in: .whitespaces)]?.persistentID
+            }
+            return linked
+        }
+        sessions[originalID] = nil
         sessions[newID] = stored
+        sessions = SessionReferences.normalized(sessions)
 
         if newID != originalID {
             replaceSessionID(originalID, with: newID)
@@ -1261,6 +1279,7 @@ final class SessionStore {
         for session in lab.sessions where sessions[session.id] == nil {
             sessions[session.id] = session
         }
+        sessions = SessionReferences.normalized(sessions)
         tree.removeAll { $0.id == lab.group.id }
         for session in lab.sessions { detachSession(session.id) }
         tree.append(lab.group)

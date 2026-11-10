@@ -683,31 +683,33 @@ for. Nerd Fonts is MIT; its icons come from thirteen projects under MIT,
 CC BY 4.0, Apache 2.0, OFL and the like, all listed, with the OFL text, in
 `MIT-NerdFontsSymbols.txt`. Replace both together, from the same release.
 
-## Deferred improvements
+## Session references and persistence
 
-Recorded after the code review on 2026-11-10. Pavel explicitly asked to
-remember these and leave implementation for later; do not start them until
-he asks.
-
-- **Jump-host references and renaming.** Renaming a saved session does not
-  update other sessions' `JumpHost.host` references to its old name. A new
-  connection then treats the old name as a literal host and loses the saved
-  endpoint's address, user, port and authentication settings. Separate a
-  session's stable identity from its display name, with a migration for
-  existing data, and cover renaming a referenced bastion in tests.
-- **SFTP request ordering.** Concurrent `FileBrowser.load` calls can finish
-  out of order: an older listing replaces a newer directory. Apply only the
-  latest navigation request's result. Also review serialization of uploads
-  triggered by saving a remote file in an external editor.
-- **Snippet persistence.** An unreadable `snippets.json` silently loads as
-  an empty list and is overwritten on the next change. Preserve the original
-  file and report the problem, following session persistence's recovery
-  behavior; surface save failures to the user too.
-
-The three reproductions used temporary files and a delayed file-source
-stub, without changing application sources. The existing full suite passed
-with the Docker lab running: 450 tests, no failures or skips. That suite
-does not currently catch these three cases.
+- **Names and permanent identities.** `Session.id` remains the display name
+  and the historical tree/Keychain key. `persistentID` is a separate UUID;
+  `JumpHost.sessionIdentity` links to it, while `host` keeps a readable label.
+  `SessionReferences` assigns missing identities and binds legacy name-based
+  links when a tree is loaded or edited. Changing a hop's host explicitly
+  clears its link. A missing linked UUID is an error, never a literal host
+  or another session that happens to reuse the old name.
+- **Renaming and reconnecting.** The form and sidebar still move the named
+  Keychain item. `ConnectionStore.renameSession` also updates password
+  accounts in cached SSH, desktop/Telnet tunnel and forwarding plans.
+- **Session files are version 2.** Before replacing an older file,
+  `SessionPersistence` keeps its original bytes in a `before-v2-…` copy.
+  `FileRecovery` gives each recovery file a unique name. An unreadable
+  snippets file must be backed up before new edits can replace it; failure
+  to create that copy continues to block replacement on subsequent saves.
+- **Save failures remain visible.** SessionStorage and SnippetStore keep
+  pending changes in memory. MainView shows the error; the status bar keeps
+  a Retry button even if the alert is dismissed. A successful retry clears
+  the unsaved state.
+- **SFTP operations have an order.** Each folder load owns a request token;
+  only the latest may update the files, path, error, retry or loading state.
+  This includes initial-folder and follow-terminal queries. Saves from an
+  external editor form a queue per remote path, each uploading an immutable
+  local snapshot. Closing the browser invalidates loads and cancels queued
+  saves.
 
 ## Known pitfalls
 

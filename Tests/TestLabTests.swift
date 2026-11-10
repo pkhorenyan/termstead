@@ -525,6 +525,51 @@ final class TestLabTests {
 
     // MARK: - Files (the lab seeds each home folder; see TestLab/entrypoint.sh)
 
+    /// Both a new plan and a tab's cached reconnect plan must follow a
+    /// renamed saved bastion and its moved Keychain password.
+    @Test func renamingASavedBastionKeepsPasswordAuthAndSFTPOnReconnect() async throws {
+        let model = SessionStore(tree: [lab.group], sessions: sessions, selectedID: nil, pinnedIDs: [])
+        var bastion = try #require(model.session("lab-bastion"))
+        bastion.auth = .password
+        model.applySessionEdits(originalID: bastion.id, updated: bastion, parentID: nil)
+        let oldAccount = SSHLaunch.sessionPasswordAccount(bastion.id)
+        let newAccount = SSHLaunch.sessionPasswordAccount("renamed bastion")
+        store("lab", for: oldAccount)
+        accounts.append(newAccount)
+        let target = try #require(model.session("lab-app-1-jump"))
+        var launch = try SSHLaunch.plan(for: target, sessions: model.sessions)
+        launch.config = """
+        Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile \(directory.appendingPathComponent("known_hosts").path)
+          IdentityAgent none
+
+        """ + launch.config
+        let tabs = ConnectionStore()
+        let connection = Connection(sessionID: target.id, title: target.id, address: "", keyDescription: "",
+                                    keychain: keychain)
+        tabs.add(connection)
+        defer { tabs.closeAll() }
+        connection.start(launch)
+        try await wait(timeout: 20) { connection.isLoggedIn }
+
+        #expect(model.renameSession(bastion.id, to: "renamed bastion"))
+        tabs.renameSession(from: bastion.id, to: "renamed bastion")
+        keychain.move(oldAccount, to: newAccount)
+        let fresh = try SSHLaunch.plan(for: #require(model.session(target.id)), sessions: model.sessions)
+        #expect(fresh.hops[0].host == bastion.host)
+        #expect(fresh.hops[0].passwordAccount == newAccount)
+        #expect(connection.plan?.hops[0].passwordAccount == newAccount)
+
+        connection.terminalView.send(txt: "exit\r")
+        try await wait { !connection.state.isRunning }
+        connection.restart()
+        try await wait(timeout: 20) { connection.isLoggedIn }
+        let client = try #require(connection.sftp)
+        let listing = try await client.list("/home/lab")
+        #expect(listing.files.contains { $0.name == "whoami.txt" })
+    }
+
     /// The Files tab two jumps deep, over the terminal's connection.
     @Test func filesThroughTwoJumps() async throws {
         try await expectShell(on: "lab-db-2-jumps", reaching: "db") { connection in

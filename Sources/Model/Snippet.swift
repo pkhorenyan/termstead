@@ -32,7 +32,11 @@ struct Snippet: Identifiable, Hashable, Codable, Sendable {
 @Observable
 final class SnippetStore {
     private(set) var snippets: [Snippet]
+    var loadProblem: String?
+    var saveProblem: String?
+    private(set) var hasUnsavedChanges = false
     @ObservationIgnored private let url: URL?
+    @ObservationIgnored private var needsRecoveryCopy = false
 
     static var defaultURL: URL {
         SessionPersistence.defaultURL.deletingLastPathComponent().appendingPathComponent("snippets.json")
@@ -40,13 +44,31 @@ final class SnippetStore {
 
     init(url: URL?, snippets: [Snippet]? = nil) {
         self.url = url
-        if let snippets {
-            self.snippets = snippets
-        } else if let url, let data = try? Data(contentsOf: url),
-                  let saved = try? JSONDecoder().decode([Snippet].self, from: data) {
-            self.snippets = saved
-        } else {
-            self.snippets = []
+        self.snippets = snippets ?? []
+        if snippets == nil, url != nil { read() }
+    }
+
+    private func read() {
+        guard let url else { return }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            guard !FileRecovery.isMissing(error) else { return }
+            needsRecoveryCopy = true
+            loadProblem = "Your snippets at \(url.path) could not be read. The original file will be kept until a recovery copy can be made. \(error.localizedDescription)"
+            return
+        }
+        do {
+            snippets = try JSONDecoder().decode([Snippet].self, from: data)
+        } catch {
+            do {
+                let backup = try FileRecovery.backup(data, from: url, reason: "corrupt")
+                loadProblem = "Your saved snippets could not be read. A copy was kept at \(backup.path), and Termstead started with an empty list."
+            } catch {
+                needsRecoveryCopy = true
+                loadProblem = "Your snippets at \(url.path) could not be read or backed up. The original file will be kept until a recovery copy can be made."
+            }
         }
     }
 
@@ -102,13 +124,32 @@ final class SnippetStore {
 
     private func write() {
         guard let url else { return }
+        hasUnsavedChanges = true
         do {
+            // A failed backup must never become permission to overwrite the
+            // unreadable original on the next edit or retry.
+            if needsRecoveryCopy {
+                do {
+                    let original = try Data(contentsOf: url)
+                    try FileRecovery.backup(original, from: url, reason: "recovery")
+                } catch {
+                    if !FileRecovery.isMissing(error) { throw error }
+                }
+                needsRecoveryCopy = false
+            }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(snippets).write(to: url, options: .atomic)
+            hasUnsavedChanges = false
+            saveProblem = nil
         } catch {
+            saveProblem = "Your snippet changes have not been saved to \(url.path). \(error.localizedDescription)"
             NSLog("Termstead: could not save snippets to %@: %@", url.path, String(describing: error))
         }
+    }
+
+    func retrySave() {
+        if hasUnsavedChanges { write() }
     }
 }

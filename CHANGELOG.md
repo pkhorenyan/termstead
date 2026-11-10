@@ -15,6 +15,17 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Renaming a saved jump host keeps the sessions that refer to it working,
+  including reconnecting existing tabs and restarting tunnels with a saved
+  password. Reusing a deleted session's name does not redirect its references.
+- A slow SFTP response no longer returns the Files panel to an older folder
+  or replaces a newer request's error and loading state.
+- Saves from an external editor upload in order, using a separate copy for
+  each upload, so an earlier save cannot overwrite a later one on the server.
+- An unreadable snippets file is kept in a recovery copy before new snippets
+  can replace it. A failed recovery copy leaves the original protected.
+- Failures to save sessions or snippets are shown in the window. Unsaved
+  edits stay in memory, with a Retry button in the status bar until saved.
 - Selected terminal text stays readable in Daylight and Sepia: a light
   accent tint under dark text, including colored output. The terminal's
   backing layer follows theme changes instead of keeping its old color.

@@ -323,6 +323,12 @@ final class ConnectionStore {
     /// session's live connection.
     func renameSession(from oldID: String, to newID: String) {
         guard oldID != newID else { return }
+        for connection in everyConnection {
+            connection.renameSessionAccount(from: oldID, to: newID)
+        }
+        for id in Array(tunnelLaunches.keys) {
+            tunnelLaunches[id]?.plan.renameSessionAccount(from: oldID, to: newID)
+        }
         for connection in connections where connection.sessionID == oldID && !connection.isTunnelOnly {
             connection.sessionID = newID
             connection.title = newID

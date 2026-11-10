@@ -133,12 +133,29 @@ struct MainView: View {
         } message: {
             Text("Their ssh sessions end, and anything running in them that is not under tmux or nohup stops.")
         }
-        .alert("Saved sessions could not be read",
-               isPresented: Binding(get: { storage.loadProblem != nil },
-                                    set: { if !$0 { storage.loadProblem = nil } })) {
-            Button("OK") {}
+        .alert("Saved data could not be read",
+               isPresented: Binding(get: { storage.loadProblem != nil || snippetStore.loadProblem != nil },
+                                    set: {
+                                        if !$0 { storage.loadProblem = nil; snippetStore.loadProblem = nil }
+                                    })) {
+            Button("OK") { storage.loadProblem = nil; snippetStore.loadProblem = nil }
         } message: {
-            Text(storage.loadProblem ?? "")
+            Text([storage.loadProblem, snippetStore.loadProblem].compactMap { $0 }.joined(separator: "\n\n"))
+        }
+        .alert("Changes could not be saved",
+               isPresented: Binding(get: { storage.saveProblem != nil || snippetStore.saveProblem != nil },
+                                    set: {
+                                        if !$0 { storage.saveProblem = nil; snippetStore.saveProblem = nil }
+                                    })) {
+            Button("Retry") {
+                // Let the alert finish dismissing before a failed retry can
+                // present its error again.
+                DispatchQueue.main.async { storage.retrySave(); snippetStore.retrySave() }
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text([storage.saveProblem, snippetStore.saveProblem].compactMap { $0 }.joined(separator: "\n\n")
+                 + "\n\nThe changes are still in memory. Try saving again before quitting Termstead.")
         }
         // A hidden sidebar takes the keyboard with it when the tree or its
         // search field had it; the terminal in front gets it instead.

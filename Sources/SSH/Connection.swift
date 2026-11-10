@@ -404,6 +404,15 @@ final class Connection: Identifiable {
         start(plan)
     }
 
+    func renameSessionAccount(from oldID: String, to newID: String) {
+        plan?.renameSessionAccount(from: oldID, to: newID)
+        desktopTunnel?.renameSessionAccount(from: oldID, to: newID)
+        if var target = telnetTarget {
+            target.tunnel?.renameSessionAccount(from: oldID, to: newID)
+            telnetTarget = target
+        }
+    }
+
     /// Ends the process and cleans up; the tab is going away.
     func close() {
         didClose = true

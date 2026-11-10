@@ -5,6 +5,7 @@ struct StatusBarView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(ConnectionStore.self) private var connectionStore
     @Environment(SessionStorage.self) private var storage
+    @Environment(SnippetStore.self) private var snippetStore
     @Environment(ThemeStore.self) private var themeStore
 
     var body: some View {
@@ -109,7 +110,20 @@ struct StatusBarView: View {
     /// is how a debug launch once passed for the real app.
     @ViewBuilder
     private var unsavedNote: some View {
-        if storage.url == nil {
+        if storage.hasUnsavedChanges || snippetStore.hasUnsavedChanges {
+            Button {
+                storage.retrySave()
+                snippetStore.retrySave()
+            } label: {
+                Label("Unsaved changes · Retry", systemImage: "exclamationmark.triangle")
+                    .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.ansiRed.color)
+            .help("The changes are still in memory. Click to try saving again before quitting.")
+            .fixedSize()
+            .layoutPriority(3)
+        } else if storage.url == nil {
             Text("In memory only — not saved")
                 .foregroundStyle(theme.ansiYellow.color)
                 .accessibilityLabel("Sessions in this window are not saved")
