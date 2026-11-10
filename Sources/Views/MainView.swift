@@ -114,6 +114,8 @@ struct MainView: View {
                 if let id = appState.pendingClose { connectionStore.close(id) }
                 appState.pendingClose = nil
             }
+                // A destructive button is not the default by itself; Return should close.
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { appState.pendingClose = nil }
         } message: {
             Text("Its ssh session ends, and anything running in it that is not under tmux or nohup stops.")
@@ -125,6 +127,8 @@ struct MainView: View {
                 appState.pendingCloseGroup?.forEach(connectionStore.close)
                 appState.pendingCloseGroup = nil
             }
+                // A destructive button is not the default by itself; Return should close.
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { appState.pendingCloseGroup = nil }
         } message: {
             Text("Their ssh sessions end, and anything running in them that is not under tmux or nohup stops.")
