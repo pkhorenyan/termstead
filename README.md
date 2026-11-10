@@ -54,7 +54,8 @@
   a VPN reconnects on its own once there is a network again; `exit` stays
   closed.
 - **Jump hosts.** Chain as many as you need; a jump host can be a saved session,
-  with its own user, key or password.
+  with its own user, key or password. Renaming it keeps its saved references
+  and credentials working.
 - **Import and export sessions.** Use File → Import Sessions / Export Sessions,
   or right-click a folder to export it with its required jump hosts. Review
   imports before adding them, keeping existing sessions or adding renamed
@@ -89,6 +90,9 @@
 - **Import from `~/.ssh/config`** — your existing hosts become sessions in one
   click.
 - **Find in the output** (⌘F), with the scrollback size of your choice.
+- **Select through the scrollback.** Drag a text selection above or below
+  the terminal to scroll automatically. Selections stay readable in light
+  themes and stop before the scrollbar.
 - **Keyword highlighting** of errors, warnings, IP addresses and URLs in output
   the server did not color itself — or, for network gear, interface names,
   up/down and MAC addresses too.
