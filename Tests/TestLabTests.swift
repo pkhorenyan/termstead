@@ -610,6 +610,62 @@ final class TestLabTests {
         #expect(listing.files.contains { $0.name == "whoami.txt" })
     }
 
+    @Test func repeatedEncryptedImportUsesThePreviouslyImportedAndRenamedBastion() async throws {
+        let sourceSecrets = KeychainStore(service: "termstead-repeat-source-\(UUID())")
+        let source = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        var bastion = try #require(sessions["lab-bastion"])
+        bastion.auth = .password
+        source.createSession(bastion, parentID: nil)
+        let oldAccount = SSHLaunch.sessionPasswordAccount(bastion.id)
+        sourceSecrets.set("lab", for: oldAccount)
+        var target = try #require(sessions["lab-app-1-jump"])
+        target.auth = .password
+        target.forwards = []
+        let targetAccount = SSHLaunch.sessionPasswordAccount(target.id)
+        defer { sourceSecrets.delete(oldAccount); sourceSecrets.delete(targetAccount) }
+        func archive() throws -> SessionArchive.Contents {
+            let credentials = try SessionTransfer.credentials(for: source.snapshot, using: sourceSecrets)
+            let document = try SessionArchive.document(source.snapshot, credentials: credentials)
+            let data = try SessionArchive.encode(document, password: "repeat-import-password")
+            return try SessionArchive.decode(data, password: "repeat-import-password")
+        }
+        let destination = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        let group = try #require(destination.createGroup(name: "Imported", parentID: nil, colorID: nil))
+        let (first, firstSaved) = try await SessionTransfer.importSessions(archive(), into: destination,
+            conflict: .keepBoth, destinationGroupID: group, keepFolders: false, keychain: keychain)
+        accounts.append(contentsOf: first.secrets.map(\.account))
+        #expect(firstSaved == 1)
+        let renamed = "previously imported bastion"
+        let newAccount = SSHLaunch.sessionPasswordAccount(renamed)
+        accounts.append(newAccount)
+        #expect(destination.renameSession(bastion.id, to: renamed))
+        keychain.move(oldAccount, to: newAccount)
+        source.createSession(target, parentID: nil)
+        sourceSecrets.set("lab", for: targetAccount)
+        let (second, secondSaved) = try await SessionTransfer.importSessions(archive(), into: destination,
+            conflict: .skip, destinationGroupID: group, keepFolders: false, keychain: keychain)
+        accounts.append(contentsOf: second.secrets.map(\.account))
+        #expect(second.added.map(\.id) == [target.id])
+        #expect(second.skipped == 1)
+        #expect(secondSaved == 1)
+        let imported = try #require(destination.session(target.id))
+        var launch = try SSHLaunch.plan(for: imported, sessions: destination.sessions)
+        #expect(launch.hops.first?.passwordAccount == newAccount)
+        launch.config = """
+        Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile \(directory.appendingPathComponent("known_hosts").path)
+          IdentityAgent none
+
+        """ + launch.config
+        let connection = Connection(sessionID: imported.id, title: imported.id, address: "", keyDescription: "", keychain: keychain)
+        defer { connection.close() }
+        connection.start(launch)
+        try await wait(timeout: 20) { connection.isLoggedIn }
+        let listing = try await #require(connection.sftp).list("/home/lab")
+        #expect(listing.files.contains { $0.name == "whoami.txt" })
+    }
+
     /// The Files tab two jumps deep, over the terminal's connection.
     @Test func filesThroughTwoJumps() async throws {
         try await expectShell(on: "lab-db-2-jumps", reaching: "db") { connection in

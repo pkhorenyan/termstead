@@ -704,11 +704,18 @@ CC BY 4.0, Apache 2.0, OFL and the like, all listed, with the OFL text, in
   from the imported session. Generic session-password roles work for future
   desktop protocols too. Keep the existing Keychain service identifier.
 - Folder export includes saved jump-host dependencies from other folders.
-  Import remaps session, hop and group identities. Keeping both sessions
-  remaps the whole chain; skipping a same-name but unrelated jump host also
+  First imports retain available session identities; additional copies get
+  fresh ones. Hop and group identities are remapped. Keeping both sessions
+  remaps the whole copied chain; skipping a same-name but unrelated jump host also
   skips its dependents. Missing references never bind to a coincidental local
   name or UUID. Existing Keychain values are never replaced; failed writes
   roll back newly inserted values before the session tree can change.
+- In "Skip existing" mode, a saved UUID identifies a previously imported hop
+  even after a local rename. Earlier development builds regenerated all UUIDs;
+  their same-name SSH hops can be reused only when host, user, port and auth
+  match (including the key path for key auth). Compare the settings a saved
+  hop actually contributes to `SSHLaunch`, not its display metadata. A same-name
+  hop with different endpoint settings still causes dependent sessions to skip.
 - `SessionTransferSheet` uses the shared movable form window. Native file
   panels are sheets on that form. PBKDF2, file I/O and Keychain access run on
   `BlockingWork`; the form cannot close during a transfer. The tree is checked

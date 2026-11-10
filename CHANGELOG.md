@@ -27,6 +27,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Repeated imports in "Skip existing sessions" mode can add new sessions
+  through a previously imported jump host, including one renamed locally.
+  First imports preserve session identities; same-name SSH hops from older
+  imports are reused only when their connection and authentication settings match.
 - App icons use the system's normal rendering and rounded corners in
   development builds as well as installed copies.
 - Renaming a saved jump host keeps the sessions that refer to it working,

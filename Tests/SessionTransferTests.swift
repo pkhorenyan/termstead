@@ -22,6 +22,98 @@ struct SessionTransferTests {
         try SessionArchive.contents(SessionArchive.document(snapshot))
     }
 
+    private func addServer(to source: SessionStore) -> Session {
+        var session = Session(id: "app-2", user: "ops", host: "app2.internal", port: 22, icon: .server, auth: .password)
+        session.jumps = [JumpHost(host: "bastion")]
+        source.createSession(session, parentID: nil)
+        return source.session(session.id)!
+    }
+
+    @Test(arguments: SessionTransfer.Conflict.allCases)
+    func firstImportPreservesSessionIdentities(_ conflict: SessionTransfer.Conflict) throws {
+        let original = chain()
+        let imported = try SessionTransfer.plan(contents(original), into: .empty, conflict: conflict)
+        #expect(imported.added.map(\.persistentID) == original.sessions.map(\.persistentID))
+    }
+
+    @Test func repeatedImportAddsNewServersThroughThePreviouslyImportedBastion() throws {
+        let source = SessionStore(snapshot: chain())
+        let first = try SessionTransfer.plan(contents(source.snapshot), into: .empty, conflict: .keepBoth)
+        let second = addServer(to: source)
+        var archive = try contents(source.snapshot)
+        let bastion = try #require(source.session("bastion"))
+        archive.credentials = [
+            .init(sessionID: bastion.persistentID!, role: "password", value: "must-not-replace-local"),
+            .init(sessionID: second.persistentID!, role: "password", value: "new-password")]
+        let update = try SessionTransfer.plan(archive, into: first.snapshot, conflict: .skip)
+        #expect(update.added.map(\.id) == ["app-2"])
+        #expect(update.skipped == 2)
+        #expect(update.added.first?.jumps[0].sessionIdentity == bastion.persistentID)
+        #expect(update.snapshot.sessions.first { $0.id == "bastion" } == bastion)
+        #expect(update.secrets.map(\.account) == [SSHLaunch.sessionPasswordAccount(second.id)])
+        let imported = SessionStore(snapshot: update.snapshot)
+        let launch = try SSHLaunch.plan(for: #require(imported.session(second.id)), sessions: imported.sessions)
+        #expect(launch.hops.first?.host == "jump.example")
+        #expect(launch.hops.first?.passwordAccount == SSHLaunch.sessionPasswordAccount("bastion"))
+        let again = try SessionTransfer.plan(archive, into: update.snapshot, conflict: .skip)
+        #expect(again.added.isEmpty)
+        #expect(again.snapshot == update.snapshot)
+        #expect(again.secrets.isEmpty)
+    }
+
+    @Test func repeatedImportRecognizesOlderImportsWithRegeneratedIdentities() throws {
+        let source = SessionStore(snapshot: chain())
+        var legacy = source.snapshot
+        let identities = Dictionary(uniqueKeysWithValues: legacy.sessions.map { ($0.persistentID!, UUID()) })
+        legacy.sessions = legacy.sessions.map { session in
+            var copy = session
+            copy.persistentID = identities[session.persistentID!]
+            copy.jumps = session.jumps.map { hop in
+                var copy = hop
+                copy.id = UUID()
+                copy.sessionIdentity = hop.sessionIdentity.flatMap { identities[$0] }
+                return copy
+            }
+            return copy
+        }
+        let second = addServer(to: source)
+        let update = try SessionTransfer.plan(contents(source.snapshot), into: legacy, conflict: .skip)
+        let bastion = try #require(legacy.sessions.first { $0.id == "bastion" })
+        #expect(update.added.map(\.id) == [second.id])
+        #expect(update.added.first?.jumps[0].sessionIdentity == bastion.persistentID)
+        #expect(update.snapshot.sessions.first { $0.id == "bastion" } == bastion)
+        let imported = SessionStore(snapshot: update.snapshot)
+        let launch = try SSHLaunch.plan(for: #require(imported.session(second.id)), sessions: imported.sessions)
+        #expect(launch.hops.first?.host == bastion.host)
+        #expect(launch.hops.first?.port == bastion.port)
+    }
+
+    @Test(arguments: ["host", "user", "port", "auth", "key"])
+    func olderImportsMustMatchEverySSHJumpEndpointSetting(_ difference: String) throws {
+        let original = chain()
+        var bastion = try #require(original.sessions.first { $0.id == "bastion" })
+        bastion.persistentID = UUID()
+        var archive = try contents(original)
+        switch difference {
+        case "host": bastion.host = "unrelated.example"
+        case "user": bastion.user = "another-user"
+        case "port": bastion.port += 1
+        case "auth": bastion.auth = .key
+        default:
+            let index = try #require(archive.snapshot.sessions.firstIndex { $0.id == bastion.id })
+            archive.snapshot.sessions[index].auth = .key
+            archive.snapshot.sessions[index].keyPath = "~/.ssh/source-key"
+            bastion.auth = .key
+            bastion.keyPath = "~/.ssh/different-key"
+        }
+        let local = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        local.createSession(bastion, parentID: nil)
+        let update = try SessionTransfer.plan(archive, into: local.snapshot, conflict: .skip)
+        #expect(update.added.isEmpty)
+        #expect(update.skipped == 2)
+        #expect(update.snapshot == local.snapshot)
+    }
+
     @Test func exportingAFolderIncludesExternalJumpDependencies() throws {
         let original = chain()
         let folder = try #require(original.tree.first { $0.name == "Servers" })
@@ -77,7 +169,8 @@ struct SessionTransferTests {
 
     @Test func skipCanReuseTheSamePermanentIdentityAfterLocalRename() throws {
         let original = chain()
-        let store = SessionStore(snapshot: original)
+        let imported = try SessionTransfer.plan(contents(original), into: .empty, conflict: .keepBoth)
+        let store = SessionStore(snapshot: imported.snapshot)
         _ = store.delete([SidebarDragItem(kind: .session, id: "app")])
         var bastion = try #require(store.session("bastion"))
         bastion.id = "renamed-bastion"

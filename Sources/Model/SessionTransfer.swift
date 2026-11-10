@@ -153,10 +153,21 @@ enum SessionTransfer {
         let existingByID = Dictionary(uniqueKeysWithValues: current.sessions.compactMap { s in s.persistentID.map { ($0, s) } })
         let sourceByName = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0) })
         let sourceByID = Dictionary(uniqueKeysWithValues: incoming.map { ($0.persistentID!, $0) })
+        var reusedJumps: [UUID: Session] = [:]
         var skipped: Set<UUID> = []
         if conflict == .skip {
-            for session in incoming where existingByName[session.id] != nil || existingByID[session.persistentID!] != nil {
-                skipped.insert(session.persistentID!)
+            for session in incoming {
+                let identity = session.persistentID!
+                if let existing = existingByID[identity] {
+                    skipped.insert(identity)
+                    reusedJumps[identity] = existing
+                } else if let existing = existingByName[session.id] {
+                    skipped.insert(identity)
+                    // Older imports replaced every UUID. Reuse their SSH hop
+                    // only if all settings used by a saved jump endpoint match;
+                    // a matching name alone must never redirect a new chain.
+                    if sameJumpEndpoint(session, existing) { reusedJumps[identity] = existing }
+                }
             }
             // A same-name conflict is not proof that two hosts are the same.
             // Do not redirect an imported chain to an unrelated existing host.
@@ -166,7 +177,7 @@ enum SessionTransfer {
                 for session in incoming where !skipped.contains(session.persistentID!) {
                     if session.jumps.contains(where: { hop in
                         let target = hop.sessionIdentity ?? sourceByName[hop.host]?.persistentID
-                        return target.map { skipped.contains($0) && existingByID[$0] == nil } ?? false
+                        return target.map { skipped.contains($0) && reusedJumps[$0] == nil } ?? false
                     }) { changed = skipped.insert(session.persistentID!).inserted || changed }
                 }
             }
@@ -182,7 +193,7 @@ enum SessionTransfer {
         for session in incoming {
             let identity = session.persistentID!
             if skipped.contains(identity) {
-                if let existing = existingByID[identity] { identities[identity] = existing.persistentID }
+                if let existing = reusedJumps[identity] { identities[identity] = existing.persistentID }
                 continue
             }
             var copy = session
@@ -193,7 +204,9 @@ enum SessionTransfer {
                 usedNames.insert(copy.id)
                 renamed.append((session.id, copy.id))
             }
-            copy.persistentID = UUID()
+            // A first import keeps its identity for later updates and local
+            // renames. Only an additional copy needs a new identity.
+            copy.persistentID = existingByID[identity] != nil || existingByName[session.id] != nil ? UUID() : identity
             identities[identity] = copy.persistentID
             copy.jumps = copy.jumps.map { hop in
                 var copy = hop
@@ -215,7 +228,7 @@ enum SessionTransfer {
                     let mapped = identities[targetID] ?? missingIDs[targetID] ?? UUID()
                     missingIDs[targetID] = mapped
                     let label = sourceByID[targetID].flatMap { copies[$0.persistentID!]?.id }
-                        ?? existingByID[targetID]?.id ?? hop.host
+                        ?? reusedJumps[targetID]?.id ?? hop.host
                     copy.host = label
                     copy.sessionIdentity = mapped
                 } else if existingByName[hop.host.trimmingCharacters(in: .whitespaces)] != nil {
@@ -277,6 +290,14 @@ enum SessionTransfer {
         }
         return Plan(snapshot: snapshot, added: added, skipped: skipped.count, renamed: renamed,
                     secrets: writes.sorted { $0.key < $1.key }.map { SecretWrite(account: $0.key, value: $0.value) })
+    }
+
+    /// SSHLaunch resolves a saved hop using these fields. Its own jumps,
+    /// forwards, icon and color do not participate in that endpoint.
+    private static func sameJumpEndpoint(_ source: Session, _ existing: Session) -> Bool {
+        source.kind == .ssh && existing.kind == .ssh
+            && source.host == existing.host && source.user == existing.user && source.port == existing.port
+            && source.auth == existing.auth && (source.auth != .key || source.keyPath == existing.keyPath)
     }
 
     /// Only insert new accounts. Existing secrets (notably a shared key's
