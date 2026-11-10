@@ -99,3 +99,22 @@ restore the cursor: typing and output landed at the top of the screen, over
 what was there. `CSI ? u`, `CSI > 1 u`, `CSI < u`, `CSI ? 1 ; 1 S` and the
 like did the same. Those finals with a prefix or an intermediate now go to the
 fallback, which logs them.
+
+## Selection: scroll while dragging past the viewport
+
+The selection computed an autoscroll speed but never started a timer; its
+unused callback scrolled upward in both directions and did not extend the
+selection. A weak timer on the main run loop's common modes now scrolls in
+the pointer's direction and extends to each newly visible edge, even while
+the pointer is still. Distance past the edge controls the speed, capped at
+twelve lines per tick. Reentering, releasing, removing the view, reaching
+the buffer's end, or handing the mouse to a terminal application stops it.
+The initial press is kept as the selection's anchor, including when the
+first drag event is already outside the view.
+
+## Drawing: leave the scroll bar outside the terminal canvas
+
+The last cell's background was extended to the view's full width, painting
+the selection underneath the scroll bar and showing through its track.
+The macOS renderer is clipped to `getEffectiveWidth`, the same width used
+to calculate columns, so text, backgrounds and images stay in the canvas.

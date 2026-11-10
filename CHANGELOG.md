@@ -10,12 +10,16 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Return confirms the question before closing a live tab, or several.
+- Dragging a text selection above or below the terminal scrolls through
+  the output, faster the farther the pointer goes past the edge.
 
 ### Fixed
 
 - Selected terminal text stays readable in Daylight and Sepia: a light
   accent tint under dark text, including colored output. The terminal's
   backing layer follows theme changes instead of keeping its old color.
+- A terminal selection stops before the scroll bar instead of coloring
+  its track.
 
 ## [0.8.1] - 2026-11-01
 

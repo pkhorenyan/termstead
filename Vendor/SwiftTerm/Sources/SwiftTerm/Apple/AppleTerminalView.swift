@@ -887,6 +887,14 @@ extension TerminalView {
     // TODO: this should not render any lines outside the dirtyRect
     func drawTerminalContents (dirtyRect: TTRect, context: CGContext, bufferOffset: Int)
     {
+        #if os(macOS)
+        // The last cell's background extends to the canvas edge. The scroll
+        // bar is a separate, sometimes transparent view, not part of it.
+        context.saveGState()
+        context.clip(to: CGRect(x: bounds.minX, y: bounds.minY,
+                                width: max(0, getEffectiveWidth(size: bounds.size)), height: bounds.height))
+        defer { context.restoreGState() }
+        #endif
         let lineDescent = CTFontGetDescent(fontSet.normal)
         let lineLeading = CTFontGetLeading(fontSet.normal)
         let yOffset = ceil(lineDescent+lineLeading)

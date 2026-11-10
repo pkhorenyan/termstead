@@ -67,6 +67,31 @@ struct TerminalSelectionTests {
         #expect(view.selectedTextBackgroundColor == theme.terminalSelection.nsColor)
         #expect(view.selectedTextForegroundColor == theme.ansiText.nsColor)
     }
+
+    @Test(arguments: [Theme.daylight, .sepia, .graphite])
+    func selectionStopsBeforeTheScrollBar(_ theme: Theme) throws {
+        let view = terminal()
+        TerminalStyle.apply(theme: theme, font: view.font, to: view)
+        view.layoutSubtreeIfNeeded()
+        let scroller = try #require(view.subviews.compactMap { $0 as? NSScroller }.first)
+        // Reveal what the terminal paints underneath the track, including
+        // where a transparent or hidden scroll bar would let it show through.
+        scroller.isHidden = true
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width
+        let first = Int(ceil(scroller.frame.minX * scale))
+        #expect(first > 0 && first < bitmap.pixelsWide)
+        var selectionPixels = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in first..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if RGB(r: color.redComponent, g: color.greenComponent, b: color.blueComponent)
+                    .isNear(theme.terminalSelection) { selectionPixels += 1 }
+            }
+        }
+        #expect(selectionPixels == 0, "Selection fill must not be drawn underneath the scroll bar")
+    }
 }
 
 private extension RGB {
