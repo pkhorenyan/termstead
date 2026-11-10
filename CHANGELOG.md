@@ -11,6 +11,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Return confirms the question before closing a live tab, or several.
 
+### Fixed
+
+- Selected terminal text stays readable in Daylight and Sepia: a light
+  accent tint under dark text, including colored output. The terminal's
+  backing layer follows theme changes instead of keeping its old color.
+
 ## [0.8.1] - 2026-11-01
 
 ### Added

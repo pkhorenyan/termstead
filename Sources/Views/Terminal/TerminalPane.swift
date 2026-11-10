@@ -230,9 +230,13 @@ enum TerminalStyle {
         view.appliedStyle = key
 
         view.nativeBackgroundColor = theme.terminal.nsColor
+        // SwiftTerm sets its layer's background only during setup. It must
+        // follow theme changes too, including the space under a selection.
+        view.layer?.backgroundColor = theme.terminal.nsColor.cgColor
         view.nativeForegroundColor = theme.ansiText.nsColor
         view.caretColor = theme.accent.nsColor
-        view.selectionStyle = .init(fill: theme.accent.nsColor.withAlphaComponent(theme.isDark ? 0.32 : 0.26))
+        view.selectionStyle = .init(fill: theme.terminalSelection.nsColor,
+                                    text: theme.onTerminalSelection?.nsColor)
         view.matchStyle = .init(fill: theme.findMatch.nsColor, text: theme.onFindMatch.nsColor)
         view.installColors(theme.terminalPalette.map(\.terminalColor))
         // SwiftTerm's font setter clears the selection, so a theme change

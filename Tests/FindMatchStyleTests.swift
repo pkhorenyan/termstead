@@ -3,7 +3,7 @@ import Testing
 @testable import Termstead
 
 /// A find match is drawn as a solid fill with its own text color; a selection
-/// made with the mouse keeps the theme's translucent accent.
+/// made with the mouse uses the theme's accent tint.
 @MainActor
 struct FindMatchStyleTests {
     // The cursor is hidden: in High contrast it is the yellow of the match.

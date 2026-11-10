@@ -22,6 +22,15 @@ extension Theme {
         return normal + bright
     }
 
+    /// SwiftTerm replaces a selected cell's background rather than drawing
+    /// the tint over it. Resolve the tint against this theme's canvas first,
+    /// so a translucent selection cannot reveal an old backing-layer color.
+    var terminalSelection: RGB { terminal.mix(accent, isDark ? 0.32 : 0.26) }
+
+    /// Light themes' ANSI colors can disappear on the tinted background.
+    /// Dark themes keep each cell's own foreground when selected.
+    var onTerminalSelection: RGB? { isDark ? nil : ansiText }
+
     /// The find match: a solid fill with a text color of its own, the way a
     /// highlighter marks paper. It used to be the selection — a translucent
     /// accent over each cell's own text — which stood out from the canvas by

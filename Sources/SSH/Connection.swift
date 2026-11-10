@@ -728,8 +728,8 @@ final class SSHTerminalView: LocalProcessTerminalView {
 
     /// Set by `TerminalStyle`. SwiftTerm shows a find match as the selection,
     /// so the view switches between the two as the selection changes hands:
-    /// a match is a solid fill with its own text color, a selection made with
-    /// the mouse keeps the translucent one.
+    /// a match is a solid fill with its own text color; a mouse selection
+    /// uses the theme's accent tint and, in light themes, a dark foreground.
     var selectionStyle = SelectionStyle(fill: .selectedTextBackgroundColor) {
         didSet { applySelectionStyle() }
     }
