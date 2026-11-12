@@ -87,6 +87,10 @@ struct StatusBarView: View {
                                 .help("Zoom: ⌘+ and ⌘− change it, ⌘0 goes back to the session's")
                         }
                     }
+                } else if let size = tab.vnc?.size {
+                    Text(verbatim: "\(Int(size.width))×\(Int(size.height))")
+                        .font(SBFont.mono(11.5))
+                        .help("VNC desktop size in pixels; scaled to fit the tab")
                 } else if tab.columns > 0 {
                     Text("\(tab.columns)×\(tab.rows)")
                         .font(SBFont.mono(11.5))

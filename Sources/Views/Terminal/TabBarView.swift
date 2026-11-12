@@ -174,6 +174,11 @@ struct TabBarView: View {
             Button("Send Windows Key") { desktop.sendWindowsKey() }
             Divider()
         }
+        if let desktop = tab.vnc, desktop.phase == .showing {
+            Button("Send Ctrl+Alt+Del") { desktop.sendControlAltDelete() }.disabled(desktop.viewOnly)
+            Button("Send Windows Key") { desktop.sendWindowsKey() }.disabled(desktop.viewOnly)
+            Divider()
+        }
         Button("Duplicate Tab") { duplicate(tab) }
             // A session deleted since the tab opened has nothing to copy.
             .disabled(tab.sessionID != nil && saved == nil)

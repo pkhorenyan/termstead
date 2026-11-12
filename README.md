@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  A native macOS SSH, RDP and Telnet client for people who keep a lot of servers
+  A native macOS SSH, RDP, VNC and Telnet client for people who keep a lot of servers
   in their head — sessions in a tree, jump hosts, SFTP next to the terminal,
   remote desktops in tabs, your Mac's own shell beside them, and passwords in
   the macOS Keychain. Built for anyone coming
@@ -73,6 +73,12 @@
 - **Telnet** for switches, routers and older gear, in a tab like the rest,
   through your jump hosts if need be, with logs, snippets and broadcast input
   — macOS ships no telnet of its own any more, so Termstead brings one.
+- **VNC desktops in tabs** (unreleased). Connect directly or through SSH jump
+  hosts using a VNC password or Apple Remote Desktop credentials. The server's
+  existing desktop fits the pane; keyboard, mouse, text clipboard and a
+  view-only mode are supported. VNC settings and saved passwords travel with
+  session exports. Direct VNC screen traffic is unencrypted; use a trusted
+  network or SSH jump hosts. TLS-only VNC servers are not supported yet.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -151,6 +157,12 @@ against the project's signing key before it is installed.
 - **Telnet is not encrypted** — passwords included — and the session form
   says so. Through jump hosts, ssh protects it only as far as the last one.
   Use it for gear that speaks nothing else, on a network you trust.
+- VNC runs in its own **LibVNCClient** process. Standard VNC password and
+  Apple Remote Desktop authentication are supported; classic VNC passwords
+  use only their first eight bytes. Servers with no authentication need an
+  explicit opt-in. Screen and input traffic is not encrypted; SSH jump hosts
+  protect it up to the last hop. VNC text clipboard sharing can be disabled
+  and only shares your Mac's clipboard while the desktop has the keyboard.
 - Session logs are written only when you ask, to a folder you choose
   (`~/Documents/Termstead Logs` at first), readable only by you.
 - Sessions and snippets are stored in `~/Library/Application Support/Termstead/`
@@ -199,6 +211,7 @@ and Return is enough to connect.
 ```sh
 brew install xcodegen cmake ninja
 scripts/build-rdp-deps.sh   # FreeRDP and OpenSSL for the RDP engine, once
+scripts/build-vnc-deps.sh   # LibVNCClient for the VNC engine, once
 xcodegen generate
 xcodebuild -project Termstead.xcodeproj -scheme Termstead -configuration Release \
   -derivedDataPath build build
@@ -224,8 +237,10 @@ this app.
 It includes [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) by Miguel de
 Icaza (MIT), vendored with small patches,
 [Sparkle](https://sparkle-project.org) for updates (MIT),
-[FreeRDP](https://www.freerdp.com) for remote desktops and
-[OpenSSL](https://www.openssl.org) under it (both Apache-2.0; FreeRDP is
+[FreeRDP](https://www.freerdp.com) for RDP,
+[LibVNCClient](https://libvnc.github.io/) for VNC (GPL-2.0-or-later), and
+[OpenSSL](https://www.openssl.org) for cryptography (FreeRDP and OpenSSL are
+both Apache-2.0; FreeRDP is
 built with small patches, in `scripts/rdp-patches`), and the typefaces
 [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and
 [IBM Plex Sans](https://www.ibm.com/plex/), both under the SIL Open Font

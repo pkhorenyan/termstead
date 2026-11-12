@@ -10,7 +10,9 @@ struct FilesPanel: View {
 
     var body: some View {
         if let connection = connectionStore.active {
-            if connection.kind == .rdp {
+            if connection.kind == .vnc {
+                placeholder("VNC desktop", "VNC has no SFTP connection. Open an SSH session to browse this server's files.")
+            } else if connection.kind == .rdp {
                 placeholder("Remote desktop",
                             "Files are browsed over SFTP, which an RDP session does not have.")
             } else if connection.kind == .telnet {

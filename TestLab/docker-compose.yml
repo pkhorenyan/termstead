@@ -78,6 +78,17 @@ services:
     cap_add: [SYS_ADMIN]
     security_opt: [apparmor:unconfined]
 
+  vnc:
+    build:
+      context: ./vnc
+      additional_contexts:
+        termstead-lab-xrdp: service:rdp
+    image: termstead-lab-vnc
+    restart: unless-stopped
+    hostname: vnc
+    ports: ["127.0.0.1:5901:5900"]
+    networks: [default, dmz]
+
 networks:
   dmz: { internal: true }
   core: { internal: true }

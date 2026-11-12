@@ -35,6 +35,7 @@ targets:
       - path: Sources
       - path: Shared
       - path: SharedRDP
+      - path: SharedVNC
       - path: Resources/Fonts
         type: folder
       - path: Resources/Licenses
@@ -55,6 +56,8 @@ targets:
           destination: executables
       # The RDP engine, in Contents/XPCServices.
       - target: TermsteadRDP
+        embed: true
+      - target: TermsteadVNC
         embed: true
     settings:
       base:
@@ -174,6 +177,45 @@ targets:
         OTHER_LDFLAGS: [-lfreerdp-client3, -lrdpsnd-common, -lfreerdp3, -lwinpr3, -lssl, -lcrypto, -lz,
                         -framework, AVFoundation, -framework, AudioToolbox, -framework, CoreAudio,
                         -framework, Carbon, -framework, IOKit, -framework, Security]
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+        DEAD_CODE_STRIPPING: YES
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: NO
+          ENABLE_HARDENED_RUNTIME: NO
+        Release:
+          DEPLOYMENT_POSTPROCESSING: YES
+    configFiles:
+      Release: Config/Signing.xcconfig
+
+  TermsteadVNC:
+    type: xpc-service
+    platform: macOS
+    sources:
+      - path: Helpers/VNC
+        excludes: [Info.plist]
+      - path: SharedVNC
+    preBuildScripts:
+      - name: Check the VNC library
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ ! -f "$PROJECT_DIR/Vendor/vnc/.versions" ]; then
+            echo "error: The VNC library is missing: run scripts/build-vnc-deps.sh"
+            exit 1
+          fi
+    settings:
+      base:
+        PRODUCT_NAME: TermsteadVNC
+        PRODUCT_BUNDLE_IDENTIFIER: com.pavelkhorenyan.Termstead.vnc
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Helpers/VNC/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: Helpers/VNC/vnc_bridge.h
+        HEADER_SEARCH_PATHS: [Vendor/vnc/include]
+        LIBRARY_SEARCH_PATHS: [Vendor/vnc/lib, Vendor/rdp/lib]
+        OTHER_LDFLAGS: [-lvncclient, -lssl, -lcrypto, -lz]
         SKIP_INSTALL: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES

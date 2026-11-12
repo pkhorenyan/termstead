@@ -153,7 +153,7 @@ struct TermsteadApp: App {
             } else {
                 Button("Default Font Size") { connectionStore.active?.fontSize = nil }
                     .keyboardShortcut("0", modifiers: .command)
-                    .disabled(connectionStore.active?.fontSize == nil || formIsOpen)
+                    .disabled(!activeIsTerminal || connectionStore.active?.fontSize == nil || formIsOpen)
             }
             Divider()
             // ⌘D and ⇧⌘D as in iTerm2; the same four layouts as the buttons
@@ -260,10 +260,16 @@ struct TermsteadApp: App {
                 .disabled(connectionStore.active.flatMap({ $0.log?.url ?? $0.lastLogURL }) == nil || formIsOpen)
             Divider()
             // Keys a Mac keeps for itself, for the remote desktop in front.
-            Button("Send Ctrl+Alt+Del") { activeDesktop?.sendControlAltDelete() }
-                .disabled(activeDesktop == nil || formIsOpen)
-            Button("Send Windows Key") { activeDesktop?.sendWindowsKey() }
-                .disabled(activeDesktop == nil || formIsOpen)
+            Button("Send Ctrl+Alt+Del") {
+                activeDesktop?.sendControlAltDelete()
+                connectionStore.active?.vnc?.sendControlAltDelete()
+            }
+                .disabled((activeDesktop == nil && connectionStore.active?.vnc?.phase != .showing) || formIsOpen)
+            Button("Send Windows Key") {
+                activeDesktop?.sendWindowsKey()
+                connectionStore.active?.vnc?.sendWindowsKey()
+            }
+                .disabled((activeDesktop == nil && connectionStore.active?.vnc?.phase != .showing) || formIsOpen)
             Divider()
             // ⇧⌘[ and ⇧⌘], as in Safari, Terminal and Xcode. Declared as the
             // characters those keys type, "{" and "}" with ⌘, the way Terminal
@@ -297,6 +303,7 @@ struct TermsteadApp: App {
     private func zoom(by delta: Int) {
         guard let connection = connectionStore.active else { return }
         if let desktop = connection.desktop { return desktop.zoom(by: delta) }
+        guard connection.kind.hasTerminal else { return }
         connection.fontSize = themeStore.zoomedSize(from: connection.fontSize, by: delta)
     }
 
@@ -304,6 +311,7 @@ struct TermsteadApp: App {
     private func canZoom(by delta: Int) -> Bool {
         guard let connection = connectionStore.active, !formIsOpen else { return false }
         if let desktop = connection.desktop { return desktop.zoomed(by: delta) != nil }
+        guard connection.kind.hasTerminal else { return false }
         let size = connection.fontSize ?? themeStore.terminalFontSize
         return (themeStore.zoomedSize(from: connection.fontSize, by: delta) ?? themeStore.terminalFontSize) != size
     }

@@ -80,7 +80,7 @@ final class ConnectionStore {
     /// The tab a snippet goes to: the one in front, while its program runs.
     /// A remote desktop has no shell to type into.
     var snippetTarget: Connection? {
-        guard let tab = active, tab.state.isRunning, tab.desktop == nil else { return nil }
+        guard let tab = active, tab.state.isRunning, tab.kind.hasTerminal else { return nil }
         return tab
     }
 
@@ -263,11 +263,15 @@ final class ConnectionStore {
             }
             return
         }
-        if session.kind == .rdp {
+        if session.kind == .rdp || session.kind == .vnc {
             let password = KeychainStore.shared.secret(for: SSHLaunch.sessionPasswordAccount(session.id)) ?? ""
             do {
                 let tunnel = session.jumps.isEmpty ? nil : try Self.tunnelPlan(for: session, in: store)
-                connection.start(RDPLaunch(session: session, password: password), tunnel: tunnel)
+                if session.kind == .vnc {
+                    connection.start(VNCLaunch(session: session, password: password), tunnel: tunnel)
+                } else {
+                    connection.start(RDPLaunch(session: session, password: password), tunnel: tunnel)
+                }
             } catch {
                 connection.fail(String(describing: error))
             }
@@ -481,6 +485,7 @@ final class ConnectionStore {
     static func keyDescription(for session: Session) -> String {
         switch (session.kind, session.auth) {
         case (.rdp, _): "RDP"
+        case (.vnc, _): "VNC"
         case (.telnet, _): "not encrypted"
         case (.ssh, .password): "password"
         case (.ssh, .key):

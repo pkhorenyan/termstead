@@ -48,6 +48,7 @@ struct SessionSheet: View {
     /// save here untouched.
     @State private var forwards: [PortForward] = []
     @State private var rdp = RDPOptions()
+    @State private var vnc = VNCOptions()
     /// The fixed size's fields, as typed; read into `rdp.display` on save.
     @State private var displayChoice: DisplayChoice = .fitTab
     @State private var fixedWidth = "1920"
@@ -101,7 +102,7 @@ struct SessionSheet: View {
             ) {
                 SegmentedPicker(options: SessionKind.allCases, selection: kindSelection,
                                 label: \.label, title: "Session type")
-                    .frame(width: 228)
+                    .frame(width: 296)
             }
 
             HStack(alignment: .top, spacing: 28) {
@@ -159,8 +160,8 @@ struct SessionSheet: View {
 
             // Telnet has no user of its own: the server asks on screen.
             if kind != .telnet {
-                FormField(label: "User") {
-                    SBTextField(text: $user, placeholder: "deploy", font: SBFont.mono(13))
+                FormField(label: kind == .vnc ? "User (Apple Remote Desktop only)" : "User") {
+                    SBTextField(text: $user, placeholder: kind == .vnc ? "optional" : "deploy", font: SBFont.mono(13))
                 }
             }
 
@@ -353,6 +354,7 @@ struct SessionSheet: View {
                 guard new != kind else { return }
                 if Int(port) == kind.defaultPort || port.isEmpty { port = String(new.defaultPort) }
                 if icon == kind.defaultIcon { icon = new.defaultIcon }
+                if new == .vnc, user == NSUserName() { user = "" }
                 kind = new
             }
         )
@@ -362,7 +364,17 @@ struct SessionSheet: View {
 
     @ViewBuilder
     private var authenticationColumn: some View {
-        if kind == .rdp {
+        if kind == .vnc {
+            VStack(alignment: .leading, spacing: 16) {
+                passwordFields
+                InsetNote(text: "The server's existing desktop is scaled to fit this tab. Use its VNC password, or a user and password for Apple Remote Desktop. Classic VNC passwords use only the first 8 bytes.")
+                checkbox("View only", isOn: $vnc.viewOnly)
+                checkbox("Share text clipboard", isOn: $vnc.clipboard)
+                checkbox("Allow servers without authentication", isOn: $vnc.allowNoAuth)
+                InsetNote(text: "VNC screen and input traffic is not encrypted. Use a trusted network or SSH jump hosts; SSH protects the route up to the last jump host. TLS-only VNC servers are not supported yet.")
+                jumpHostsSection
+            }
+        } else if kind == .rdp {
             rdpColumn
         } else if kind == .telnet {
             telnetColumn
@@ -839,6 +851,7 @@ struct SessionSheet: View {
             forwards = session.forwards
             kind = session.kind
             rdp = session.rdp
+            vnc = session.vnc
             if case .fixed(let width, let height) = session.rdp.display {
                 displayChoice = .fixed
                 fixedWidth = String(width)
@@ -869,7 +882,7 @@ struct SessionSheet: View {
         }
         guard saveToKeychain else { return }
 
-        if authMode == .password || kind == .rdp, !password.isEmpty {
+        if authMode == .password || !kind.hasTerminal, !password.isEmpty {
             keychain.set(password, for: SSHLaunch.sessionPasswordAccount(sessionID))
         }
         if kind == .ssh, authMode == .key, !passphrase.isEmpty, let passphraseAccount {
@@ -892,7 +905,7 @@ struct SessionSheet: View {
             port: Int(port) ?? kind.defaultPort,
             icon: icon,
             // A remote desktop always logs in with a password.
-            auth: kind == .rdp ? .password : authMode,
+            auth: !kind.hasTerminal ? .password : authMode,
             keyPath: keyPath.trimmingCharacters(in: .whitespaces).isEmpty
                 ? Session.defaultKeyPath
                 : keyPath.trimmingCharacters(in: .whitespaces),
@@ -906,6 +919,8 @@ struct SessionSheet: View {
         switch kind {
         case .rdp:
             session.rdp = rdpOptionsToSave
+        case .vnc:
+            session.vnc = vnc
         case .ssh:
             session.forwards = forwards
         case .telnet:

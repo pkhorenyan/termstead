@@ -54,20 +54,20 @@ struct SessionArchiveTests {
         }
     }
 
-    @Test func futureVNCSessionsAreSkippedBeforeDecodingTheirOptions() throws {
+    @Test func futureProtocolsAreSkippedBeforeDecodingTheirOptions() throws {
         let snapshot = sample()
         var document = try SessionArchive.document(snapshot)
-        document.sessions.append(.init(type: "vnc", settings: .object([
-            "id": .string("future-vnc"), "persistentID": .string(UUID().uuidString),
-            "vncOptions": .object(["encoding": .string("future-encoding")])
+        document.sessions.append(.init(type: "future-protocol", settings: .object([
+            "id": .string("future-protocol"), "persistentID": .string(UUID().uuidString),
+            "futureOptions": .object(["encoding": .string("future-encoding")])
         ])))
-        document.groups[0].children.append(.session("future-vnc"))
+        document.groups[0].children.append(.session("future-protocol"))
         let contents = try SessionArchive.decode(SessionArchive.encode(document))
         #expect(contents.snapshot.sessions == snapshot.sessions)
         #expect(contents.snapshot.sessions.count == document.sessions.count - 1)
-        #expect(contents.unsupportedTypes == ["vnc"])
+        #expect(contents.unsupportedTypes == ["future-protocol"])
         #expect(contents.unsupportedCount == 1)
-        #expect(!contents.snapshot.tree[0].children.contains(.session("future-vnc")))
+        #expect(!contents.snapshot.tree[0].children.contains(.session("future-protocol")))
     }
 
     @Test func newerEnvelopeAndBadFilesAreRejected() throws {

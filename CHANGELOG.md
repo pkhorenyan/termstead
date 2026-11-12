@@ -7,6 +7,16 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- VNC sessions in tabs and split panes, directly or through SSH jump hosts.
+  VNC password and Apple Remote Desktop authentication, Keychain passwords,
+  text clipboard sharing, view-only mode, and session import/export. The
+  server's existing desktop scales to fit the pane. LibVNCClient runs in a
+  separate XPC process. Direct traffic is unencrypted; TLS-only VNC servers
+  are not supported yet. Unauthenticated servers require explicit opt-in.
+- A VNC server and sample sessions in the Docker test lab.
+
 ### Changed
 
 - Refresh the README screenshots for 0.8.2. The RDP demo hides Xfce's

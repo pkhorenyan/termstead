@@ -123,7 +123,7 @@ struct PortForward: Identifiable, Hashable, Codable, Sendable {
 /// What a session opens: a shell over ssh, a remote desktop, or Telnet —
 /// switches, routers and other gear that speaks nothing newer.
 enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
-    case ssh, rdp, telnet
+    case ssh, rdp, telnet, vnc
 
     var id: String { rawValue }
     var label: String {
@@ -131,6 +131,7 @@ enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
         case .ssh: "SSH"
         case .rdp: "RDP"
         case .telnet: "Telnet"
+        case .vnc: "VNC"
         }
     }
     var defaultPort: Int {
@@ -138,18 +139,35 @@ enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
         case .ssh: 22
         case .rdp: 3389
         case .telnet: 23
+        case .vnc: 5900
         }
     }
     /// What a new session of this kind starts out showing.
     var defaultIcon: SessionIcon {
         switch self {
         case .ssh: .server
-        case .rdp: .monitor
+        case .rdp, .vnc: .monitor
         case .telnet: .router
         }
     }
     /// A terminal tab: typing, Find, broadcast input and snippets apply.
-    var hasTerminal: Bool { self != .rdp }
+    var hasTerminal: Bool { self == .ssh || self == .telnet }
+}
+
+/// VNC displays the server's existing desktop, scaled to fit its pane.
+struct VNCOptions: Hashable, Codable, Sendable {
+    var clipboard = true
+    var viewOnly = false
+    /// Explicit opt-in: never silently downgrade to an anonymous desktop.
+    var allowNoAuth = false
+
+    init() {}
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        clipboard = try values.decodeIfPresent(Bool.self, forKey: .clipboard) ?? true
+        viewOnly = try values.decodeIfPresent(Bool.self, forKey: .viewOnly) ?? false
+        allowNoAuth = try values.decodeIfPresent(Bool.self, forKey: .allowNoAuth) ?? false
+    }
 }
 
 /// How an RDP session looks and what it shares. Only meaningful while the
@@ -235,6 +253,7 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     var sessionKind: SessionKind? = nil
     /// Read through `rdp`; `nil` until an RDP session is saved.
     var rdpOptions: RDPOptions? = nil
+    var vncOptions: VNCOptions? = nil
     /// Read through `logs`; `nil` (off) in every file from before logs.
     var logToFile: Bool? = nil
     /// Permanent identity for references from other sessions. The historical
@@ -258,6 +277,11 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
         set { rdpOptions = newValue }
     }
 
+    var vnc: VNCOptions {
+        get { vncOptions ?? VNCOptions() }
+        set { vncOptions = newValue }
+    }
+
     /// Each tab of the session writes its output to a file (`SessionLog`).
     var logs: Bool {
         get { logToFile ?? false }
@@ -265,7 +289,8 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     }
 
     var address: String {
-        port == 22 ? "\(user)@\(host)" : "\(user)@\(host):\(port)"
+        if kind == .vnc, user.isEmpty { return "\(host):\(port)" }
+        return port == 22 ? "\(user)@\(host)" : "\(user)@\(host):\(port)"
     }
 
     /// Rendered after the address, e.g. "via bastion-01 → nat-gw". Derived, so
@@ -285,8 +310,9 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     /// Status bar form, which always shows the port and the key type.
     var statusAddress: String {
         // Telnet has no user of its own: the server asks for one on screen.
-        if kind == .telnet {
-            return jumpSummary.map { "telnet \(host):\(port) · \($0)" } ?? "telnet \(host):\(port)"
+        if kind == .telnet || kind == .vnc {
+            let base = "\(kind.rawValue) \(host):\(port)"
+            return jumpSummary.map { "\(base) · \($0)" } ?? base
         }
         let base = "\(user)@\(host):\(port)"
         guard let jumpSummary else { return base }

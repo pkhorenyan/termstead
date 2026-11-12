@@ -1,0 +1,21 @@
+--- a/src/libvncclient/rfbclient.c
++++ b/src/libvncclient/rfbclient.c
+@@ -1046,6 +1046,18 @@
+   
+   rfbClientLog("Selected Security Scheme %d\n", authScheme);
+   client->authScheme = authScheme;
++
++  /* RFB 3.3 sends one security type instead of negotiating a list. Apply
++   * the caller's allowlist here too, before authentication or ClientInit. */
++  if (authScheme != rfbConnFailed && client->clientAuthSchemes) {
++    int i;
++    for (i = 0; client->clientAuthSchemes[i]; ++i)
++      if (client->clientAuthSchemes[i] == authScheme) break;
++    if (!client->clientAuthSchemes[i]) {
++      rfbClientLog("The server requires a security type disabled by this client: %u\n", authScheme);
++      return FALSE;
++    }
++  }
+   
+   switch (authScheme) {
+ 

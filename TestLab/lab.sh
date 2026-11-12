@@ -46,12 +46,14 @@ case "${1:-}" in
         wait_for 2201
         wait_for 2202
         wait_for 3390
+        wait_for 5901
         echo
         echo "Lab is up. In Termstead: Debug ▸ Add Test Lab Sessions, or launch with -sb-sample YES."
         echo "  direct   127.0.0.1:2201"
         echo "  bastion  127.0.0.1:2202 ─▶ app"
         echo "  bastion  ─▶ middle ─▶ db"
         echo "  rdp      127.0.0.1:3390, or rdp:3389 through bastion (RDP; users lab and lab2)"
+        echo "  vnc      127.0.0.1:5901, or vnc:5900 through bastion (VNC; password lab)"
         echo "User lab, password lab, key $KEY"
         echo "Each home folder holds files to try the Files tab on (see entrypoint.sh)."
         ;;

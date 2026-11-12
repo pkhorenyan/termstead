@@ -196,6 +196,43 @@ copy saves that frame into the real defaults, so put the user's back after.
 the form by its rectangle (`-R`, from `CGWindowListCopyWindowInfo`) with the
 app in front.
 
+## VNC
+
+`scripts/build-vnc-deps.sh` builds LibVNCClient 0.9.15 as a static universal
+library in `Vendor/vnc` (gitignored). Run it after `build-rdp-deps.sh`: it uses
+that build's pinned OpenSSL for Apple Remote Desktop authentication. The new
+target `TermsteadVNC.xpc` is separate from the RDP engine. Sources, checksum,
+build flags and the RFB 3.3 authentication allowlist patch are kept in the
+repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
+
+- `SharedVNC/VNCProtocol.swift` is the XPC interface; the app hands over a
+  connected TCP socket or the end of the existing SSH Unix-socket tunnel.
+- `Helpers/VNC/` owns LibVNCClient on one thread. Input is queued onto that
+  thread, never sent while a decoder is running on another queue. Shutdown
+  interrupts partial reads; SO_NOSIGPIPE prevents closing one desktop from
+  killing the shared VNC engine. Changed rectangles are copied into a shared
+  BGRA IOSurface, with opaque alpha, and shown by the app's layer.
+  Drain `rfbClient.buffered` before waiting on the socket: LibVNCClient reads
+  ahead, and waiting for another network packet can strand a complete frame.
+- `Sources/VNC/` owns the tab's lifecycle, login questions, view, RFB keysyms
+  (including Unicode), pointer mapping and text clipboard. The server's
+  framebuffer is scaled to fit the tab; the shared server desktop is not
+  resized. Desktop dimensions are capped at 8192 per edge and 16M pixels.
+- Authentication is restricted to VNC password and Apple ARD, with an
+  explicit option for no authentication. The patch applies the same allowlist
+  to RFB 3.3 as to 3.7/3.8. TLS/VeNCrypt are deliberately not selected until
+  server certificate verification is integrated. The session form explains
+  the plain transport and classic VNC's eight-byte password limit.
+- `Session.vncOptions` is optional for old-file compatibility. Session
+  archives already preserve protocol-specific fields and passwords. VNC is
+  excluded from snippets, broadcast input, SFTP and terminal Find.
+- The lab's `vnc` service reuses the RDP image's Xfce installation, adding
+  TigerVNC only: localhost:5901 directly, vnc:5900 through lab-bastion,
+  password `lab`. `lab-vnc` and `lab-vnc-via-bastion` are sample sessions.
+- `VNCSessionTests`, `VNCProtocolTests` and `VNCLabTests` cover persistence,
+  encrypted transfer, legacy authentication policy, malformed dimensions,
+  pixels, real connections and reconnects, jump hosts, keyboard and clipboard.
+
 ## Releases
 
 ```sh

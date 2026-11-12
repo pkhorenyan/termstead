@@ -112,7 +112,7 @@ enum SSHLaunchError: Error, Equatable, CustomStringConvertible {
         case .forward(let index, let problem):
             "Port forward \(index + 1) \(problem)."
         case .notSSH(let name):
-            "“\(name)” is an RDP session and cannot be a jump host."
+            "“\(name)” is not an SSH session and cannot be a jump host."
         case .missingSavedSession(let name):
             "The saved jump host “\(name)” was deleted. Choose another jump host in the session settings."
         }

@@ -79,6 +79,8 @@ final class Connection: Identifiable {
     let kind: SessionKind
     /// The remote desktop, for an RDP tab.
     let desktop: RDPDesktop?
+    let vnc: VNCDesktop?
+    @ObservationIgnored private var vncLaunch: VNCLaunch?
     /// What the RDP tab connected with, to reconnect with on Return.
     @ObservationIgnored private var desktopLaunch: RDPLaunch?
     /// The ssh that carries it through its jump hosts; `nil` for a desktop
@@ -129,6 +131,7 @@ final class Connection: Identifiable {
         self.isLocalShell = isLocalShell
         self.kind = kind
         desktop = kind == .rdp ? RDPDesktop() : nil
+        vnc = kind == .vnc ? VNCDesktop() : nil
         self.sessionID = sessionID
         self.title = title
         self.address = address
@@ -152,6 +155,8 @@ final class Connection: Identifiable {
             self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n")
         }
         desktop?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
+        vnc?.log = { [weak self] line in self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n") }
+        vnc?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
         desktop?.availableSize = { [weak self] in
             // The pane holding the terminal, while the desktop is not up.
             guard let pane = self?.terminalView.superview ?? self?.desktop?.view.superview,
@@ -183,6 +188,20 @@ final class Connection: Identifiable {
 
     /// The tunnel is logged in: the desktop goes through it.
     private func openDesktopThroughTunnel() {
+        if let vnc, let launch = vncLaunch, let workDirectory {
+            let socket = workDirectory.appendingPathComponent("vnc").path
+            vnc.start(launch) { [weak self] in
+                guard let self else { throw RDPSocket.Failure.connect("the tab closed") }
+                if !FileManager.default.fileExists(atPath: socket) {
+                    let arguments = try SSHLaunch.socketForwardArguments(socket: socket, host: launch.host, port: launch.port)
+                    if let problem = await forward(arguments) {
+                        throw RDPSocket.Failure.connect(ConnectionStore.lastLine(problem))
+                    }
+                }
+                return try RDPSocket.connect(unixPath: socket)
+            }
+            return
+        }
         guard let desktop, let launch = desktopLaunch, let workDirectory else { return }
         let socket = workDirectory.appendingPathComponent("rdp").path
         desktop.start(launch) { [weak self] in
@@ -196,6 +215,21 @@ final class Connection: Identifiable {
                 }
             }
             return try RDPSocket.connect(unixPath: socket)
+        }
+    }
+
+    func start(_ launch: VNCLaunch, tunnel: SSHLaunchPlan? = nil) {
+        guard !didClose, let vnc else { return }
+        vncLaunch = launch
+        desktopTunnel = tunnel
+        desktopEndReason = nil
+        state = .running
+        if let tunnel {
+            let route = (tunnel.hops + [tunnel.target]).map(\.host).joined(separator: " → ")
+            terminalView.feed(text: "\u{1b}[2mOpening a tunnel through \(route)…\u{1b}[0m\r\n")
+            start(tunnel)
+        } else {
+            vnc.start(launch) { try await RDPSocket.connect(host: launch.host, port: launch.port) }
         }
     }
 
@@ -379,6 +413,11 @@ final class Connection: Identifiable {
     func restart() {
         reconnect?.cancel()
         reconnect = nil
+        if let vncLaunch, !state.isRunning {
+            terminalView.feed(text: "\r\n")
+            start(vnc?.lastLaunch ?? vncLaunch, tunnel: desktopTunnel)
+            return
+        }
         if let telnetTarget {
             guard !state.isRunning else { return }
             terminalView.feed(text: "\r\n")
@@ -407,6 +446,10 @@ final class Connection: Identifiable {
     func renameSessionAccount(from oldID: String, to newID: String) {
         plan?.renameSessionAccount(from: oldID, to: newID)
         desktopTunnel?.renameSessionAccount(from: oldID, to: newID)
+        let oldAccount = SSHLaunch.sessionPasswordAccount(oldID)
+        let newAccount = SSHLaunch.sessionPasswordAccount(newID)
+        if vncLaunch?.passwordAccount == oldAccount { vncLaunch?.passwordAccount = newAccount }
+        vnc?.renameAccount(from: oldAccount, to: newAccount)
         if var target = telnetTarget {
             target.tunnel?.renameSessionAccount(from: oldID, to: newID)
             telnetTarget = target
@@ -427,6 +470,7 @@ final class Connection: Identifiable {
         exitWatch?.cancel()
         exitWatch = nil
         desktop?.stop()
+        vnc?.stop()
         if state.isRunning, terminalView.process.running { terminalView.terminate() }
         removeWorkDirectory()
     }
@@ -488,7 +532,7 @@ final class Connection: Identifiable {
         didLogIn = true
         reconnectAttempts = 0
         // An RDP tab's ssh is only its tunnel: no Files tab, no server load.
-        if kind == .rdp {
+        if !kind.hasTerminal {
             openDesktopThroughTunnel()
             return
         }
@@ -583,6 +627,7 @@ final class Connection: Identifiable {
         removeWorkDirectory()
         // A desktop's tunnel gone takes the desktop with it.
         desktop?.stop()
+        vnc?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
         log?.note((isLocalShell ? "The shell exited" : "Connection closed") + detail)
         if reconnectsAutomatically, desktopEndReason == nil,
