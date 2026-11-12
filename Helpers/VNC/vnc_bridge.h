@@ -13,12 +13,16 @@ typedef struct {
     void (*cursor)(void *, const uint8_t *, int, int, int, int);
     bool (*certificate)(void *, const char *);
     void (*resize_support)(void *, bool);
+    /* Called only on the worker, also while a partial message waits for data. */
+    void (*input)(void *, tsv_session *);
 } tsv_callbacks;
 /* Owns socket, including when initialization fails. All calls run on one thread. */
 tsv_session *tsv_new(int socket, const char *host, const char *user, const char *password, bool allow_none,
                      bool view_only, bool clipboard, bool receive_clipboard, int quality,
                      bool require_tls, tsv_callbacks callbacks);
 bool tsv_connect(tsv_session *);
+/* Borrowed nonblocking pipe: the worker drains it; its owner writes on input. */
+void tsv_set_wakeup(tsv_session *, int descriptor);
 int tsv_poll(tsv_session *);
 void tsv_key(tsv_session *, uint32_t keysym, bool down);
 void tsv_pointer(tsv_session *, int x, int y, int buttons);

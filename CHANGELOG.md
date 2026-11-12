@@ -35,6 +35,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Reject unused Ultra/UltraZip encodings before decoding, including when a
+  server sends them without negotiation. This blocks the vulnerable bundled
+  UltraZip parser (GHSA-87q7-v983-qwcj).
+- VNC input wakes the worker immediately and is serviced while an incomplete
+  frame waits for more data. Idle connections no longer poll every 10 ms.
+- VNC reconnect limits reset only after 30 seconds of continuous connection;
+  long backoff pauses no longer renew the retry budget, including SSH tunnels.
 - VNC cursor movement no longer waits for a screen update from the server.
   Cursor shapes and hot spots are received separately and rendered locally,
   scaled to the pane, including hidden and transparent cursors.

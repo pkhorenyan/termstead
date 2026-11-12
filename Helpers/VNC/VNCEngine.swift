@@ -15,10 +15,35 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
     }
     private var inputs: [Input] = []
     private var certificateAnswer: CertificateAnswer?
+    private let wakeRead: Int32
+    private let wakeWrite: Int32
     // Worker-thread state only.
     private var surface: IOSurfaceRef?
 
-    init(connection: NSXPCConnection) { self.connection = connection }
+    init(connection: NSXPCConnection) {
+        self.connection = connection
+        var descriptors: [Int32] = [-1, -1]
+        if pipe(&descriptors) == 0 {
+            for fd in descriptors {
+                _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+                _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+            }
+        }
+        wakeRead = descriptors[0]
+        wakeWrite = descriptors[1]
+    }
+    deinit {
+        if wakeRead >= 0 { close(wakeRead) }
+        if wakeWrite >= 0 { close(wakeWrite) }
+    }
+    /// Called under `lock`. A full pipe already represents a pending wake.
+    private func wake() {
+        guard wakeWrite >= 0 else { return }
+        var byte: UInt8 = 1
+        var result: Int
+        repeat { result = withUnsafePointer(to: &byte) { Darwin.write(wakeWrite, $0, 1) } }
+        while result < 0 && errno == EINTR
+    }
     private var client: (any VNCClientProtocol)? {
         connection?.remoteObjectProxyWithErrorHandler { _ in } as? any VNCClientProtocol
     }
@@ -28,7 +53,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         lock.lock()
         guard !started, !stopped else { lock.unlock(); return }
         started = true
-        let fd = dup(socket.fileDescriptor)
+        let fd = wakeRead >= 0 ? dup(socket.fileDescriptor) : -1
         descriptor = fd
         lock.unlock()
         let thread = Thread { [self] in
@@ -45,6 +70,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard !stopped else { return }
+        let wasEmpty = inputs.isEmpty
         // Coalesce adjacent mouse moves; never drop a key release.
         if case .pointer(_, _, let buttons) = input,
            case .pointer(_, _, let previous) = inputs.last, previous == buttons {
@@ -55,6 +81,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             stopped = true
             if descriptor >= 0 { shutdown(descriptor, SHUT_RDWR) }
         }
+        if wasEmpty { wake() }
     }
 
     func key(_ keysym: Int, down: Bool) { enqueue(.key(UInt32(clamping: keysym), down)) }
@@ -71,6 +98,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         stopped = true
         inputs.removeAll()
         if descriptor >= 0 { shutdown(descriptor, SHUT_RDWR) }
+        wake()
         let answer = certificateAnswer
         lock.unlock()
         answer?.give(false)
@@ -112,6 +140,11 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             },
             resize_support: { context, supported in
                 autoreleasepool { owner(context).client?.resizeSupport(supported) }
+            },
+            input: { context, session in
+                autoreleasepool {
+                    if let session { owner(context).flushInput(session) }
+                }
             })
         guard socket >= 0,
               let session = tsv_new(socket, host, user, password, allowNoAuth, viewOnly, clipboard,
@@ -125,6 +158,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             tsv_free(session)
             surface = nil
         }
+        tsv_set_wakeup(session, wakeRead)
         if lock.withLock({ stopped }) { return }
         guard tsv_connect(session) else {
             let code = Int(tsv_error_code(session))
@@ -142,28 +176,35 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         }
         client?.connected()
         while !lock.withLock({ stopped }) {
-            let pending = lock.withLock { () -> [Input] in
-                defer { inputs.removeAll(keepingCapacity: true) }
-                return inputs
-            }
-            for event in pending {
-                switch event {
-                case .key(let symbol, let down): tsv_key(session, symbol, down)
-                case .pointer(let x, let y, let buttons):
-                    tsv_pointer(session, Int32(x), Int32(y), Int32(buttons))
-                case .clipboard(let text):
-                    let latin = text.data(using: .isoLatin1, allowLossyConversion: true) ?? Data()
-                    latin.withUnsafeBytes { bytes in
-                        tsv_clipboard(session, text, Int32(text.utf8.count),
-                                      bytes.bindMemory(to: CChar.self).baseAddress, Int32(latin.count))
-                    }
-                case .resize(let width, let height): tsv_resize(session, Int32(clamping: width), Int32(clamping: height))
-                }
-            }
+            autoreleasepool { flushInput(session) }
             if tsv_poll(session) < 0 { break }
         }
         if !lock.withLock({ stopped }) {
             client?.disconnected(reason: "The VNC connection closed.", code: 1)
+        }
+    }
+
+    /// Always on the worker, including while a partially received RFB message
+    /// waits for more bytes. Outgoing messages do not mutate the read buffer.
+    private func flushInput(_ session: OpaquePointer) {
+        let pending = lock.withLock { () -> [Input] in
+            guard !stopped else { return [] }
+            defer { inputs.removeAll(keepingCapacity: true) }
+            return inputs
+        }
+        for event in pending {
+            switch event {
+            case .key(let symbol, let down): tsv_key(session, symbol, down)
+            case .pointer(let x, let y, let buttons):
+                tsv_pointer(session, Int32(x), Int32(y), Int32(buttons))
+            case .clipboard(let text):
+                let latin = text.data(using: .isoLatin1, allowLossyConversion: true) ?? Data()
+                latin.withUnsafeBytes { bytes in
+                    tsv_clipboard(session, text, Int32(text.utf8.count),
+                                  bytes.bindMemory(to: CChar.self).baseAddress, Int32(latin.count))
+                }
+            case .resize(let width, let height): tsv_resize(session, Int32(clamping: width), Int32(clamping: height))
+            }
         }
     }
 

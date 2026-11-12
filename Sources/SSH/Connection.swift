@@ -157,7 +157,7 @@ final class Connection: Identifiable {
         desktop?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
         vnc?.log = { [weak self] line in self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n") }
         vnc?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
-        vnc?.onConnected = { [weak self] in self?.reconnectAttempts = 0 }
+        vnc?.onStableDisconnect = { [weak self] in self?.reconnectAttempts = 0 }
         desktop?.availableSize = { [weak self] in
             // The pane holding the terminal, while the desktop is not up.
             guard let pane = self?.terminalView.superview ?? self?.desktop?.view.superview,
@@ -411,10 +411,11 @@ final class Connection: Identifiable {
         return "/bin/zsh"
     }
 
-    func restart() {
+    func restart(automatically: Bool = false) {
         reconnect?.cancel()
         reconnect = nil
         if let vncLaunch, !state.isRunning {
+            if !automatically { reconnectAttempts = 0 }
             terminalView.feed(text: "\r\n")
             start(vnc?.lastLaunch ?? vncLaunch, tunnel: desktopTunnel)
             return
@@ -627,6 +628,7 @@ final class Connection: Identifiable {
         serverLoad = nil
         removeWorkDirectory()
         // A desktop's tunnel gone takes the desktop with it.
+        if vnc?.hasStableConnection == true { reconnectAttempts = 0 }
         desktop?.stop()
         vnc?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
@@ -683,7 +685,7 @@ final class Connection: Identifiable {
             guard !Task.isCancelled, let self, !self.state.isRunning else { return }
             // `restart` cancels `reconnect`, this task; it has nothing left to do.
             self.reconnect = nil
-            self.restart()
+            self.restart(automatically: true)
         }
     }
 

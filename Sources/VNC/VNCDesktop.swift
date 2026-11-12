@@ -44,6 +44,7 @@ final class VNCDesktop {
     @ObservationIgnored var hasKeyboard: () -> Bool = { false }
     @ObservationIgnored var onEnded: ((String) -> Void)?
     @ObservationIgnored var onConnected: (() -> Void)?
+    @ObservationIgnored var onStableDisconnect: (() -> Void)?
     @ObservationIgnored var log: ((String) -> Void)?
     @ObservationIgnored private var engine: VNCEngineConnection?
     @ObservationIgnored private var attempt = 0
@@ -58,7 +59,13 @@ final class VNCDesktop {
     @ObservationIgnored private var retries = 0
     @ObservationIgnored var reconnectDelays = Connection.reconnectDelays
     @ObservationIgnored private var didConnect = false
-    @ObservationIgnored private var connectedAt = Date.distantPast
+    @ObservationIgnored private var connectedAt: TimeInterval?
+    @ObservationIgnored var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// Backoff time is not time spent connected. The tunnel owner checks this
+    /// before stopping a desktop whose SSH transport has dropped.
+    var hasStableConnection: Bool {
+        connectedAt.map { uptime() - $0 >= 30 } ?? false
+    }
     private(set) var zoomOverride: Int?
     static let zoomSteps = [25, 50, 75, 100, 125, 150, 200, 300, 400]
     var zoom: Int {
@@ -101,6 +108,7 @@ final class VNCDesktop {
         resizeTask?.cancel(); resizeTask = nil
         retryMessage = nil; supportsResize = false; resizeMessage = nil
         asksScale = false
+        connectedAt = nil
         let answer = certificateAnswer
         certificateAnswer = nil; certificateQuestion = nil
         answer?(false)
@@ -170,8 +178,7 @@ final class VNCDesktop {
                 made.onConnected = { [weak self] in
                     guard let self, current == attempt else { return }
                     phase = .showing
-                    if Date().timeIntervalSince(connectedAt) >= 30 { retries = 0 }
-                    didConnect = true; connectedAt = Date()
+                    didConnect = true; connectedAt = uptime()
                     onConnected?()
                     startClipboard()
                 }
@@ -192,6 +199,8 @@ final class VNCDesktop {
                 }
                 made.onDisconnected = { [weak self] reason, code in
                     guard let self, current == attempt else { return }
+                    if hasStableConnection { retries = 0; onStableDisconnect?() }
+                    connectedAt = nil
                     clipboardWatch?.cancel(); clipboardWatch = nil
                     view.releaseInput()
                     let answer = certificateAnswer

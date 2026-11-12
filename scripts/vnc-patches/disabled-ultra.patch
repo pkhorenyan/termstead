@@ -1,0 +1,17 @@
+--- a/src/libvncclient/rfbclient.c
++++ b/src/libvncclient/rfbclient.c
+@@ -2246,6 +2246,14 @@
+           continue;
+       }
+ 
++      /* Termstead never requests these encodings. WITH_LZO=OFF still
++       * compiles bundled minilzo, including the vulnerable UltraZip parser
++       * (GHSA-87q7-v983-qwcj). Refuse both before any decoder or allocation. */
++      if (rect.encoding == rfbEncodingUltra || rect.encoding == rfbEncodingUltraZip) {
++          rfbClientLog("Ultra/UltraZip encodings are disabled.\n");
++          return FALSE;
++      }
++
+       /* rfbEncodingUltraZip is a collection of subrects.   x = # of subrects, and h is always 0 */
+       if (rect.encoding != rfbEncodingUltraZip)
+       {

@@ -352,6 +352,38 @@ struct VNCLabTests {
         #expect(tab.state.isRunning)
         #expect(tab.plan?.target.host == "127.0.0.1")
     }
+    @Test func tunnelRetryBudgetSurvivesBriefVNCLoginsAndRenewsAfterStableUse() async throws {
+        let store = SessionStore.sample()
+        let session = try #require(store.session("lab-vnc-via-bastion"))
+        var plan = try ConnectionStore.tunnelPlan(for: session, in: store)
+        plan.config = "Host *\n StrictHostKeyChecking no\n UserKnownHostsFile /dev/null\n IdentityAgent none\n\n" + plan.config
+        let tab = Connection(sessionID: session.id, title: session.id, address: session.statusAddress,
+                             keyDescription: "VNC", kind: .vnc)
+        defer { tab.close() }
+        let desktop = try #require(tab.vnc)
+        var time: TimeInterval = 0
+        desktop.uptime = { time }
+        var connections = 0
+        desktop.onConnected = { connections += 1 }
+        tab.start(VNCLaunch(session: session, password: "lab"), tunnel: plan)
+        for count in 1...3 {
+            await wait { connections == count && desktop.phase == .showing }
+            try #require(connections == count && desktop.phase == .showing)
+            #expect(tab.reconnectAttempts == count - 1)
+            if count == 3 { time += 31 }
+            tab.terminalView.terminate() // Drop only this viewer's SSH tunnel.
+        }
+        await wait { connections == 4 && desktop.phase == .showing }
+        #expect(connections == 4 && desktop.phase == .showing)
+        #expect(tab.reconnectAttempts == 1, "stable VNC use renews the SSH tunnel retry budget")
+        tab.terminalView.terminate()
+        await wait { !tab.state.isRunning && tab.reconnectAttempts == 2 }
+        try #require(!tab.state.isRunning && tab.reconnectAttempts == 2)
+        tab.restart() // A manual retry starts a fresh budget, without the wait.
+        await wait { connections == 5 && desktop.phase == .showing }
+        #expect(connections == 5 && desktop.phase == .showing)
+        #expect(tab.reconnectAttempts == 0)
+    }
     @Test func closingAnEngineDoesNotReportAFailure() async throws {
         let engine = VNCEngineConnection()
         var ended: String?
@@ -400,10 +432,19 @@ struct VNCLabTests {
         try await Task.sleep(for: .milliseconds(100))
         #expect(second.phase == .showing)
     }
-    @Test func keyboardInputRunsACommandOnTheServer() async throws {
+    @Test(arguments: [false, true])
+    func keyboardInputRunsACommandOnTheServer(_ tls: Bool) async throws {
         let desktop = VNCDesktop()
         defer { desktop.stop() }
-        await open(desktop)
+        let pins = FileManager.default.temporaryDirectory.appendingPathComponent("vnc-input-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: pins) }
+        desktop.knownHosts = RDPKnownHosts(url: pins)
+        var settings = launch()
+        settings.options.security = tls ? .tls : .standard
+        desktop.start(settings) { try await RDPSocket.connect(host: "127.0.0.1", port: 5901) }
+        await wait { desktop.phase == .showing || desktop.certificateQuestion != nil || desktop.phase != .connecting }
+        if desktop.certificateQuestion != nil { desktop.answerCertificate(trust: true) }
+        await wait { desktop.phase == .showing || desktop.phase != .connecting }
         try #require(desktop.phase == .showing)
         let marker = "/tmp/termstead-vnc-typed-\(Int.random(in: 1000...9999))"
         desktop.press([0xffe3, 0xffe9, 0x74]) // Xfce: Ctrl+Alt+T

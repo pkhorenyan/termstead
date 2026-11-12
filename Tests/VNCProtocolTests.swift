@@ -6,14 +6,23 @@ import Testing
 /// A deliberately small RFB peer checks legacy security and malformed
 /// framebuffer sizes without depending on a desktop server's behavior.
 private final class VNCFakeServer: @unchecked Sendable {
-    enum Scenario: Sendable { case legacyNoAuth, rawFrame, oversized, cursorShapes, unsafeVeNCrypt }
+    enum Scenario: Sendable, Equatable {
+        case legacyNoAuth, rawFrame, oversized, cursorShapes, unsafeVeNCrypt, partialFrame
+        case disabledEncoding(UInt32)
+    }
     private let lock = NSLock()
     private var initialized = false
     private var keys: [UInt32] = []
     private var pointerCount = 0
+    private var partial = false
+    private var closed = false
+    private var updates = 0
     var receivedKeys: [UInt32] { lock.withLock { keys } }
     var receivedPointers: Int { lock.withLock { pointerCount } }
     var receivedClientInit: Bool { lock.withLock { initialized } }
+    var hasPartialFrame: Bool { lock.withLock { partial } }
+    var isClosed: Bool { lock.withLock { closed } }
+    var updateRequests: Int { lock.withLock { updates } }
     let socket: FileHandle
 
     init(_ scenario: Scenario) throws {
@@ -26,7 +35,7 @@ private final class VNCFakeServer: @unchecked Sendable {
         var on: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         DispatchQueue.global().async { [self] in
-            defer { close(fd) }
+            defer { close(fd); lock.withLock { closed = true } }
             func read(_ count: Int) throws -> [UInt8] {
                 var result = [UInt8](repeating: 0, count: count)
                 var offset = 0
@@ -80,6 +89,7 @@ private final class VNCFakeServer: @unchecked Sendable {
                         _ = try read((Int(header[1]) << 8 | Int(header[2])) * 4)
                     case 3:
                         let request = try read(9)
+                        lock.withLock { updates += 1 }
                         if scenario == .cursorShapes {
                             if !sentCursor {
                                 sentCursor = true
@@ -94,11 +104,34 @@ private final class VNCFakeServer: @unchecked Sendable {
                             continue
                         }
                         if request[0] != 0 { continue }
+                        if case .disabledEncoding(let encoding) = scenario {
+                            let encoded = [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: encoding >> $0) }
+                            // A benign empty payload would succeed in the old
+                            // Ultra/UltraZip decoders, even when not requested.
+                            try write([0, 0, 0, 1] + [0, 0, 0, 0, 0, 1, 0, 1] + encoded + [0, 0, 0, 0])
+                            continue
+                        }
                         let pixels = Array(repeating: [UInt8](arrayLiteral: 0, 0, 255, 0), count: 4).flatMap { $0 }
                         // Two messages in one write: the second can remain in
                         // LibVNCClient's read-ahead buffer while select is idle.
                         let clipboard: [UInt8] = [3, 0, 0, 0, 0, 0, 0, 5] + Array("ready".utf8)
-                        try write([0, 0, 0, 1] + [0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0] + pixels + clipboard)
+                        let frame = [UInt8](arrayLiteral: 0, 0, 0, 1) + [0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0] + pixels
+                        if scenario == .partialFrame {
+                            try write(Array(frame.prefix(20)))
+                            lock.withLock { partial = true }
+                            // Do not send the remaining pixels until BOTH key
+                            // events arrive. A worker blocked on the frame can
+                            // never satisfy this handshake.
+                            for _ in 0..<2 {
+                                let event = try read(8)
+                                guard event[0] == 4 else { return }
+                                let symbol = event.suffix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+                                lock.withLock { keys.append(symbol) }
+                            }
+                            try write(Array(frame.dropFirst(20)))
+                        } else {
+                            try write(frame + clipboard)
+                        }
                     case 4:
                         let key = try read(7)
                         let symbol = key.suffix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
@@ -125,6 +158,107 @@ struct VNCProtocolTests {
     private func wait(_ condition: () -> Bool) async {
         let deadline = Date().addingTimeInterval(8)
         while !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(25)) }
+    }
+    @Test(arguments: [UInt32(9), UInt32(0xffff0009)])
+    func ultraAndUltraZipAreRejectedEvenWhenTheServerIgnoresOurEncodings(_ encoding: UInt32) async throws {
+        let peer = try VNCFakeServer(.disabledEncoding(encoding))
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var reason: String?
+        var painted = false
+        engine.onDisconnected = { text, _ in reason = text }
+        engine.onChange = { painted = true }
+        engine.connect(launch(allowNone: true), socket: peer.socket)
+        await wait { reason != nil }
+        #expect(reason != nil && !painted)
+        #expect(peer.updateRequests == 1, "the disabled decoder must not accept the rectangle and request another frame")
+    }
+    @Test func queuedKeysAreSentBeforeTheRestOfAFrameArrives() async throws {
+        let peer = try VNCFakeServer(.partialFrame)
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var painted = false
+        var ended = false
+        engine.onChange = { painted = true }
+        engine.onDisconnected = { _, _ in ended = true }
+        engine.connect(launch(allowNone: true), socket: peer.socket)
+        await wait { peer.hasPartialFrame }
+        try #require(peer.hasPartialFrame && !painted)
+        engine.key(0x61, down: true)
+        engine.key(0x61, down: false)
+        await wait { painted || ended }
+        #expect(peer.receivedKeys == [0x61, 0x61])
+        #expect(painted && !ended)
+    }
+    @Test func closingWhileAPartialFrameWaitsInterruptsTheWorker() async throws {
+        let peer = try VNCFakeServer(.partialFrame)
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var ended = false
+        engine.onDisconnected = { _, _ in ended = true }
+        engine.connect(launch(allowNone: true), socket: peer.socket)
+        await wait { peer.hasPartialFrame }
+        try #require(peer.hasPartialFrame)
+        let began = ContinuousClock.now
+        engine.close()
+        await wait { peer.isClosed }
+        #expect(peer.isClosed && began.duration(to: .now) < .seconds(1))
+        #expect(!ended)
+    }
+    @Test func backoffBetweenBriefConnectionsDoesNotRenewTheRetryBudget() async throws {
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        desktop.reconnectDelays = [0, 0]
+        var time: TimeInterval = 0
+        desktop.uptime = { time }
+        var peers: [VNCFakeServer] = []
+        var connections = 0
+        var ended = false
+        desktop.onConnected = { connections += 1 }
+        desktop.onEnded = { _ in ended = true }
+        desktop.start(launch(allowNone: true)) {
+            // Simulate a long backoff without making the test sleep. No
+            // active connection exists while this clock advances.
+            time += 60
+            let peer = try VNCFakeServer(.rawFrame)
+            peers.append(peer)
+            return peer.socket
+        }
+        for count in 1...3 {
+            await wait { connections >= count || ended }
+            try #require(connections == count && desktop.phase == .showing)
+            shutdown(try #require(peers.last).socket.fileDescriptor, SHUT_RDWR)
+        }
+        await wait { ended }
+        #expect(ended && connections == 3 && peers.count == 3)
+    }
+    @Test func thirtySecondsOfContinuousConnectionRenewsTheRetryBudget() async throws {
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        desktop.reconnectDelays = [0]
+        var time: TimeInterval = 0
+        desktop.uptime = { time }
+        var peers: [VNCFakeServer] = []
+        var connections = 0, stableLosses = 0
+        var ended = false
+        desktop.onConnected = { connections += 1 }
+        desktop.onStableDisconnect = { stableLosses += 1 }
+        desktop.onEnded = { _ in ended = true }
+        desktop.start(launch(allowNone: true)) {
+            let peer = try VNCFakeServer(.rawFrame)
+            peers.append(peer)
+            return peer.socket
+        }
+        for count in 1...3 {
+            await wait { connections >= count || ended }
+            try #require(connections == count && desktop.phase == .showing)
+            if count == 2 { time += 31 }
+            #expect(desktop.hasStableConnection == (count == 2))
+            shutdown(try #require(peers.last).socket.fileDescriptor, SHUT_RDWR)
+        }
+        await wait { ended }
+        #expect(ended && connections == 3 && peers.count == 3)
+        #expect(stableLosses == 1)
     }
     @Test func legacyRFB33CannotBypassTheAuthenticationSetting() async throws {
         let peer = try VNCFakeServer(.legacyNoAuth)

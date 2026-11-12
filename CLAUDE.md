@@ -214,6 +214,16 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   BGRA IOSurface, with opaque alpha, and shown by the app's layer.
   Drain `rfbClient.buffered` and `SSL_pending` before waiting on the socket:
   both libraries read ahead, so select can strand a complete message.
+- **The VNC worker waits on the network socket and a nonblocking input pipe.**
+  `input-wakeup.patch` adds a wait hook in LibVNCClient's read path, so input
+  is also flushed when a partially received frame waits for data. Library
+  access remains on the same worker thread. Do not restore 10 ms idle polling
+  or move library writes to XPC callback threads. Disconnect shuts down the
+  network socket and wakes the pipe; the pipe descriptors outlive the worker.
+- **WITH_LZO=OFF does not remove Ultra/UltraZip:** LibVNCClient falls back to
+  bundled minilzo. `disabled-ultra.patch` rejects both before decoding because
+  Termstead does not request them and the bundled UltraZip parser has an
+  out-of-bounds read (GHSA-87q7-v983-qwcj). Keep the unsolicited-encoding tests.
 - **VNC cursors are local.** Advertise RichCursor/XCursor with
   `useRemoteCursor`, convert BGRA plus the decoded mask to RGBA, and send only
   the shape and hot spot through XPC. The app caches a native cursor at the
@@ -256,6 +266,11 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   app shortcuts stay local. `VNCDesktop` retries drops only after a successful
   connection, at 2/5/10/30/60 seconds, then ends. Authentication and certificate
   failures ask/stop, never retry automatically. Stopping cancels retries.
+- Retry budgets are renewed after 30 seconds of **continuous** connection,
+  measured with monotonic uptime when it ends. A long backoff must not count
+  as stability. The SSH tunnel's budget follows the same rule, whichever
+  disconnect callback arrives first.
+  A manual reconnect starts a fresh budget; an automatic retry preserves it.
 - `Session.vncOptions` is optional for old-file compatibility. Session
   archives already preserve protocol-specific fields and passwords. VNC is
   excluded from snippets, broadcast input, SFTP and terminal Find.

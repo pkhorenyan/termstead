@@ -1,0 +1,24 @@
+--- a/include/rfb/rfbclient.h
++++ b/include/rfb/rfbclient.h
+@@ -474,6 +474,9 @@
+ 	 */
+ 	MUTEX(tlsRwMutex);
+ 
++        /* Termstead: wait for network data and queued input on the worker. */
++        int (*WaitForInput)(struct _rfbClient *, unsigned int usecs);
++
+ 	rfbBool requestedResize;
+         /**
+          * Used for intended dimensions, rfbClient.width and rfbClient.height are used to manage the real framebuffer dimensions.
+--- a/src/libvncclient/sockets.c
++++ b/src/libvncclient/sockets.c
+@@ -851,6 +851,9 @@
+   struct timeval timeout;
+   int num;
+ 
++  if (client->WaitForInput)
++    return client->WaitForInput(client, usecs);
++
+   if (client->serverPort==-1)
+     /* playing back vncrec file */
+     return 1;

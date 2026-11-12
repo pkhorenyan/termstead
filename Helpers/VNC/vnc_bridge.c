@@ -11,6 +11,10 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <limits.h>
+#include <poll.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <openssl/ssl.h>
 #include <openssl/provider.h>
@@ -22,6 +26,8 @@ struct tsv_session {
     char error[1024];
     bool view_only, clipboard, receive_clipboard, needs_user, certificate_rejected, resize_supported, dirty;
     uint8_t *display;
+    int wake_descriptor;
+    bool ready, handling_input;
 };
 static _Thread_local tsv_session *current;
 static pthread_once_t log_once = PTHREAD_ONCE_INIT;
@@ -144,6 +150,45 @@ static rfbBool certificate(rfbClient *client, const char *pem) {
     s->certificate_rejected = !ok;
     return ok;
 }
+static uint64_t monotonic_microseconds(void) {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return (uint64_t)time.tv_sec * 1000000 + (uint64_t)time.tv_nsec / 1000;
+}
+static int wait_for_input(rfbClient *client, unsigned int usecs) {
+    tsv_session *s = owner(client);
+    bool infinite = usecs == UINT_MAX;
+    uint64_t deadline = infinite ? 0 : monotonic_microseconds() + usecs;
+    for (;;) {
+        struct pollfd waiting[2] = {
+            { .fd = client->sock, .events = POLLIN },
+            { .fd = s->wake_descriptor, .events = POLLIN }
+        };
+        uint64_t now = monotonic_microseconds();
+        int timeout = infinite ? -1 : (int)(((deadline > now ? deadline - now : 0) + 999) / 1000);
+        int result = poll(waiting, 2, timeout);
+        if (result < 0 && errno == EINTR) continue;
+        if (result <= 0) return result;
+        if (waiting[1].revents & POLLIN) {
+            char bytes[128];
+            while (read(s->wake_descriptor, bytes, sizeof(bytes)) > 0) {}
+            if (s->ready && !s->handling_input && s->callbacks.input) {
+                s->handling_input = true;
+                s->callbacks.input(s->callbacks.context, s);
+                s->handling_input = false;
+            }
+        }
+        if (waiting[0].revents || (client->tlsSession && SSL_pending(client->tlsSession) > 0)) return 1;
+        if (waiting[1].revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
+        if (infinite) return 0; /* Queued input was serviced; recheck stop state. */
+        // An input wake must not consume a read-timeout retry. Continue waiting
+        // for the remainder of the library's original timeout on this thread.
+    }
+}
+void tsv_set_wakeup(tsv_session *s, int descriptor) {
+    s->wake_descriptor = descriptor;
+    s->client->WaitForInput = descriptor >= 0 ? wait_for_input : NULL;
+}
 tsv_session *tsv_new(int socket, const char *host, const char *user, const char *secret, bool allow_none,
                      bool view_only, bool clipboard, bool receive_clipboard, int quality,
                      bool require_tls, tsv_callbacks callbacks) {
@@ -151,6 +196,7 @@ tsv_session *tsv_new(int socket, const char *host, const char *user, const char 
     tsv_session *s = calloc(1, sizeof(*s));
     if (!s) { close(socket); return NULL; }
     current = s;
+    s->wake_descriptor = -1;
     s->callbacks = callbacks;
     s->view_only = view_only;
     s->clipboard = clipboard;
@@ -213,14 +259,15 @@ bool tsv_connect(tsv_session *s) {
     c->updateRect.x = c->updateRect.y = 0;
     c->updateRect.w = c->width; c->updateRect.h = c->height;
     c->isUpdateRectManagedByLib = TRUE;
-    return SendFramebufferUpdateRequest(c, 0, 0, c->width, c->height, FALSE);
+    s->ready = SendFramebufferUpdateRequest(c, 0, 0, c->width, c->height, FALSE);
+    return s->ready;
 }
 int tsv_poll(tsv_session *s) {
     current = s;
     // ReadFromRFBServer reads ahead. Drain those bytes before select: a
     // complete update may already be buffered while the socket is idle.
     int result = s->client->buffered > 0 || (s->client->tlsSession && SSL_pending(s->client->tlsSession) > 0)
-        ? 1 : WaitForMessage(s->client, 10000);
+        ? 1 : WaitForMessage(s->client, s->wake_descriptor >= 0 ? UINT_MAX : 10000);
     if (result <= 0) return result;
     if (!HandleRFBServerMessage(s->client)) return -1;
     bool supported = s->client->screen.width != 0 && s->client->screen.height != 0;
