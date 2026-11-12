@@ -22,6 +22,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Refresh the README screenshots for 0.8.2. The RDP demo hides Xfce's
   bottom dock and places its windows fully inside the remote desktop.
 
+### Fixed
+
+- VNC cursor movement no longer waits for a screen update from the server.
+  Cursor shapes and hot spots are received separately and rendered locally,
+  scaled to the pane, including hidden and transparent cursors.
+
 ## [0.8.2] - 2026-11-10
 
 ### Added

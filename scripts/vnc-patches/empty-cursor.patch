@@ -1,0 +1,15 @@
+--- a/src/libvncclient/cursor.c
++++ b/src/libvncclient/cursor.c
+@@ -53,8 +53,11 @@
+   bytesPerRow = (width + 7) / 8;
+   bytesMaskData = bytesPerRow * height;
+ 
+-  if (width * height == 0)
++  if (width * height == 0) {
++    if (client->GotCursorShape)
++      client->GotCursorShape(client, xhot, yhot, 0, 0, bytesPerPixel);
+     return TRUE;
++  }
+ 
+   if (width >= MAX_CURSOR_SIZE || height >= MAX_CURSOR_SIZE)
+     return FALSE;

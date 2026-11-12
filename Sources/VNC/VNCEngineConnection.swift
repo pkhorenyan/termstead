@@ -6,6 +6,7 @@ final class VNCEngineConnection {
     var onSurface: ((IOSurface, Int, Int) -> Void)?
     var onChange: (() -> Void)?
     var onClipboard: ((String) -> Void)?
+    var onCursor: ((Data, Int, Int, Int, Int) -> Void)?
     var onConnected: (() -> Void)?
     var onDisconnected: ((String, Int) -> Void)?
     private let connection: NSXPCConnection
@@ -62,6 +63,11 @@ final class VNCEngineConnection {
         }
         func surfaceChanged() { onMain { $0.onChange?() } }
         func serverClipboard(_ text: String) { onMain { $0.onClipboard?(text) } }
+        func cursorShape(_ rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
+            guard width >= 0, height >= 0, width <= 1024, height <= 1024,
+                  rgba.count == width * height * 4 else { return }
+            onMain { $0.onCursor?(rgba, width, height, hotX, hotY) }
+        }
         func connected() { onMain { $0.onConnected?() } }
         func disconnected(reason: String, code: Int) { onMain { $0.finish(reason, code: code) } }
     }

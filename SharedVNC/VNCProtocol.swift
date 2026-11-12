@@ -20,6 +20,8 @@ enum VNCService {
     func showSurface(_ surface: IOSurface, width: Int, height: Int)
     func surfaceChanged()
     func serverClipboard(_ text: String)
+    /// Straight-alpha RGBA; zero dimensions mean an invisible cursor.
+    func cursorShape(_ rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int)
     func connected()
     /// Codes: 1 transport/protocol, 2 password rejected, 3 ARD needs a user.
     func disconnected(reason: String, code: Int)

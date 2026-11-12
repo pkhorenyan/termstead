@@ -10,6 +10,7 @@ typedef struct {
     void (*pixels)(void *, const uint8_t *, int, int, int, int, int);
     void (*frame)(void *);
     void (*clipboard)(void *, const char *, int, bool);
+    void (*cursor)(void *, const uint8_t *, int, int, int, int);
 } tsv_callbacks;
 /* Owns socket, including when initialization fails. All calls run on one thread. */
 tsv_session *tsv_new(int socket, const char *user, const char *password, bool allow_none,

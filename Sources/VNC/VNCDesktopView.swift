@@ -13,6 +13,9 @@ final class VNCDesktopView: NSView {
     private var horizontalWheel = RDPPointer.Wheel()
     private var wheelUnits = 0
     private var horizontalWheelUnits = 0
+    private var cursorShape: RDPPointer.Shape?
+    private var cursorIsHidden = false
+    private var madeCursor: NSCursor?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -30,7 +33,51 @@ final class VNCDesktopView: NSView {
     var hasKeyboard: Bool {
         NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self
     }
-    func show(_ surface: IOSurface?) { self.surface = surface; surfaceChanged() }
+    func show(_ surface: IOSurface?) {
+        self.surface = surface
+        if surface == nil { cursorShape = nil; cursorIsHidden = false }
+        cursorChanged()
+        surfaceChanged()
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { cursorChanged() }
+    }
+    func showCursor(rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
+        if width == 0 || height == 0 {
+            cursorShape = nil
+            cursorIsHidden = true
+        } else {
+            guard let shape = RDPPointer.Shape(rgba: rgba, width: width, height: height, hotX: hotX, hotY: hotY) else { return }
+            cursorShape = shape
+            cursorIsHidden = false
+        }
+        cursorChanged()
+    }
+    var cursor: NSCursor {
+        if let madeCursor { return madeCursor }
+        let result: NSCursor
+        if cursorIsHidden {
+            result = RDPPointer.hidden
+        } else if let cursorShape, let surface {
+            result = cursorShape.cursor(scale: RDPPointer.scale(of: CGSize(width: surface.width, height: surface.height), in: bounds.size))
+        } else {
+            result = .arrow
+        }
+        madeCursor = result
+        return result
+    }
+    private func cursorChanged() {
+        madeCursor = nil
+        guard let window else { return }
+        window.invalidateCursorRects(for: self)
+        let root = window.contentView?.superview ?? window.contentView
+        if window.isKeyWindow,
+           root?.hitTest(root!.convert(window.mouseLocationOutsideOfEventStream, from: nil)) === self {
+            cursor.set()
+        }
+    }
     func surfaceChanged() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -54,14 +101,10 @@ final class VNCDesktopView: NSView {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
     override func resetCursorRects() {
-        guard let surface, desktop?.viewOnly == false else { return }
-        let rect = RDPPointer.shownRect(of: CGSize(width: surface.width, height: surface.height), in: bounds.size)
-        addCursorRect(rect, cursor: RDPPointer.hidden)
+        addCursorRect(bounds, cursor: cursor)
     }
     override func cursorUpdate(with event: NSEvent) {
-        // The server paints its own pointer when cursor pseudo-encodings are
-        // off; a local arrow on top would draw two pointers at different scales.
-        if desktop?.viewOnly == false { RDPPointer.hidden.set() } else { NSCursor.arrow.set() }
+        cursor.set()
     }
     override func becomeFirstResponder() -> Bool {
         DispatchQueue.main.async { [weak self] in self?.desktop?.keyboardArrived() }
@@ -109,7 +152,11 @@ final class VNCDesktopView: NSView {
         desktop?.pointer(x: lastPointer.x, y: lastPointer.y, buttons: buttons | scroll)
         if scroll != 0 { desktop?.pointer(x: lastPointer.x, y: lastPointer.y, buttons: buttons) }
     }
-    override func mouseMoved(with event: NSEvent) { move(event) }
+    override func mouseMoved(with event: NSEvent) {
+        // SwiftUI can put its arrow back when the mouse moves over an NSView.
+        if NSCursor.current !== cursor { cursor.set() }
+        move(event)
+    }
     override func mouseDragged(with event: NSEvent) { move(event) }
     override func rightMouseDragged(with event: NSEvent) { move(event) }
     override func otherMouseDragged(with event: NSEvent) { move(event) }

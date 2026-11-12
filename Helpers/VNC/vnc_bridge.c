@@ -72,6 +72,26 @@ static void frame(rfbClient *client) {
     tsv_session *s = owner(client);
     s->callbacks.frame(s->callbacks.context);
 }
+static void cursor(rfbClient *client, int hot_x, int hot_y, int width, int height, int bytes_per_pixel) {
+    tsv_session *s = owner(client);
+    if (width == 0 || height == 0) {
+        s->callbacks.cursor(s->callbacks.context, NULL, 0, 0, 0, 0);
+        return;
+    }
+    if (width < 0 || height < 0 || width > 1024 || height > 1024 || bytes_per_pixel != 4 ||
+        !client->rcSource || !client->rcMask) return;
+    size_t count = (size_t)width * height;
+    uint8_t *rgba = malloc(count * 4);
+    if (!rgba) return;
+    for (size_t i = 0; i < count; ++i) {
+        rgba[4 * i] = client->rcSource[4 * i + 2];
+        rgba[4 * i + 1] = client->rcSource[4 * i + 1];
+        rgba[4 * i + 2] = client->rcSource[4 * i];
+        rgba[4 * i + 3] = client->rcMask[i] ? 255 : 0;
+    }
+    s->callbacks.cursor(s->callbacks.context, rgba, width, height, hot_x, hot_y);
+    free(rgba);
+}
 static void cut_text(rfbClient *client, const char *text, int length) {
     tsv_session *s = owner(client);
     if (s->clipboard && length >= 0 && length <= 1048576)
@@ -107,7 +127,8 @@ tsv_session *tsv_new(int socket, const char *user, const char *secret, bool allo
     c->readTimeout = 15;
     c->appData.shareDesktop = TRUE;
     c->appData.viewOnly = view_only;
-    c->appData.useRemoteCursor = FALSE; /* The server draws its cursor. */
+    c->appData.useRemoteCursor = TRUE; /* Shape from server, movement on the Mac. */
+    c->GotCursorShape = cursor;
     c->appData.encodingsString = "zrle zlib hextile copyrect raw";
     c->format.redShift = 16; c->format.greenShift = 8; c->format.blueShift = 0;
     c->format.bigEndian = FALSE;

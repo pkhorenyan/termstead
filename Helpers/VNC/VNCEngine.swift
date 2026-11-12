@@ -91,6 +91,13 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                         owner(context).client?.serverClipboard(text)
                     }
                 }
+            },
+            cursor: { context, bytes, width, height, hotX, hotY in
+                autoreleasepool {
+                    let data = bytes.map { Data(bytes: $0, count: Int(width) * Int(height) * 4) } ?? Data()
+                    owner(context).client?.cursorShape(data, width: Int(width), height: Int(height),
+                                                       hotX: Int(hotX), hotY: Int(hotY))
+                }
             })
         guard socket >= 0,
               let session = tsv_new(socket, user, password, allowNoAuth, viewOnly, clipboard, callbacks) else {

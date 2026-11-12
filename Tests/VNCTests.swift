@@ -69,6 +69,26 @@ struct VNCSessionTests {
         #expect(VNCKeyboard.symbol(keyCode: 36, characters: "\r") == 0xff0d)
         #expect(VNCKeyboard.symbol(keyCode: 0, characters: "\u{01}") == nil)
     }
+    @Test func theCursorIsLocalScalesWithTheDesktopAndResetsOnDisconnect() throws {
+        let view = VNCDesktopView(frame: NSRect(x: 0, y: 0, width: 100, height: 50))
+        let surface = try #require(IOSurface(properties: [.width: 200, .height: 100, .bytesPerElement: 4]))
+        view.show(surface)
+        #expect(view.cursor === NSCursor.arrow)
+        let pixels = Data(repeating: 255, count: 8 * 8 * 4)
+        view.showCursor(rgba: pixels, width: 8, height: 8, hotX: 4, hotY: 2)
+        let cursor = view.cursor
+        #expect(cursor.image.size == CGSize(width: 4, height: 4))
+        #expect(cursor.hotSpot == CGPoint(x: 2, y: 1))
+        // No connection or server response is involved in choosing the
+        // hardware cursor; it remains cached between mouse moves.
+        #expect(view.cursor === cursor)
+        view.setFrameSize(CGSize(width: 200, height: 100))
+        #expect(view.cursor.image.size == CGSize(width: 8, height: 8))
+        view.showCursor(rgba: Data(), width: 0, height: 0, hotX: 0, hotY: 0)
+        #expect(view.cursor === RDPPointer.hidden)
+        view.show(nil)
+        #expect(view.cursor === NSCursor.arrow)
+    }
 }
 
 enum TestLabVNC {

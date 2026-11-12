@@ -214,6 +214,13 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   BGRA IOSurface, with opaque alpha, and shown by the app's layer.
   Drain `rfbClient.buffered` before waiting on the socket: LibVNCClient reads
   ahead, and waiting for another network packet can strand a complete frame.
+- **VNC cursors are local.** Advertise RichCursor/XCursor with
+  `useRemoteCursor`, convert BGRA plus the decoded mask to RGBA, and send only
+  the shape and hot spot through XPC. The app caches a native cursor at the
+  desktop's displayed scale. Mouse movement must never wait for the server to
+  paint a cursor into a frame. `empty-cursor.patch` forwards zero-sized cursor
+  shapes too, so a server can hide the local cursor. Keep cursor changes and
+  resizes invalidating the view's cursor rectangles, as in the RDP view.
 - `Sources/VNC/` owns the tab's lifecycle, login questions, view, RFB keysyms
   (including Unicode), pointer mapping and text clipboard. The server's
   framebuffer is scaled to fit the tab; the shared server desktop is not

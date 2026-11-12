@@ -6,7 +6,7 @@ import Testing
 /// A deliberately small RFB peer checks legacy security and malformed
 /// framebuffer sizes without depending on a desktop server's behavior.
 private final class VNCFakeServer: @unchecked Sendable {
-    enum Scenario: Sendable { case legacyNoAuth, rawFrame, oversized }
+    enum Scenario: Sendable { case legacyNoAuth, rawFrame, oversized, cursorShapes }
     private let lock = NSLock()
     private var initialized = false
     private var keys: [UInt32] = []
@@ -59,6 +59,8 @@ private final class VNCFakeServer: @unchecked Sendable {
                 lock.withLock { initialized = true }
                 let size: [UInt8] = scenario == .oversized ? [32, 0, 32, 0] : [0, 2, 0, 2]
                 try write(size + [32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0] + [0, 0, 0, 4] + Array("fake".utf8))
+                var sentCursor = false
+                var hidCursor = false
                 while true {
                     switch try read(1)[0] {
                     case 0: _ = try read(19) // SetPixelFormat
@@ -67,6 +69,19 @@ private final class VNCFakeServer: @unchecked Sendable {
                         _ = try read((Int(header[1]) << 8 | Int(header[2])) * 4)
                     case 3:
                         let request = try read(9)
+                        if scenario == .cursorShapes {
+                            if !sentCursor {
+                                sentCursor = true
+                                // RichCursor: hot spot (1,0), 2x1 BGRA pixels,
+                                // with only the first pixel visible in its mask.
+                                try write([0, 0, 0, 1] + [0, 1, 0, 0, 0, 2, 0, 1, 255, 255, 255, 17] +
+                                          [0, 0, 255, 0, 0, 255, 0, 0, 128])
+                            } else if !hidCursor {
+                                hidCursor = true
+                                try write([0, 0, 0, 1] + [0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 17])
+                            }
+                            continue
+                        }
                         if request[0] != 0 { continue }
                         let pixels = Array(repeating: [UInt8](arrayLiteral: 0, 0, 255, 0), count: 4).flatMap { $0 }
                         // Two messages in one write: the second can remain in
@@ -173,5 +188,18 @@ struct VNCProtocolTests {
         engine.connect(launch(allowNone: true), socket: peer.socket)
         await wait { text != nil }
         #expect(text == "ready")
+    }
+    @Test func cursorShapesKeepTheirMaskHotSpotAndHiddenState() async throws {
+        let peer = try VNCFakeServer(.cursorShapes)
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var shapes: [(Data, Int, Int, Int, Int)] = []
+        engine.onCursor = { shapes.append(($0, $1, $2, $3, $4)) }
+        engine.connect(launch(allowNone: true), socket: peer.socket)
+        await wait { shapes.count >= 2 }
+        try #require(shapes.count == 2)
+        #expect(shapes[0].0 == Data([255, 0, 0, 255, 0, 255, 0, 0]))
+        #expect(shapes[0].1 == 2 && shapes[0].2 == 1 && shapes[0].3 == 1 && shapes[0].4 == 0)
+        #expect(shapes[1].0.isEmpty && shapes[1].1 == 0 && shapes[1].2 == 0)
     }
 }

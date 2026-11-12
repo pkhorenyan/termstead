@@ -114,6 +114,10 @@ final class VNCDesktop {
                     guard let self, current == attempt else { return }
                     view.surfaceChanged()
                 }
+                made.onCursor = { [weak self] rgba, width, height, hotX, hotY in
+                    guard let self, current == attempt else { return }
+                    view.showCursor(rgba: rgba, width: width, height: height, hotX: hotX, hotY: hotY)
+                }
                 made.onConnected = { [weak self] in
                     guard let self, current == attempt else { return }
                     phase = .showing
