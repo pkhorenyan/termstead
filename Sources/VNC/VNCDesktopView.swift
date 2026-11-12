@@ -132,7 +132,10 @@ final class VNCDesktopView: NSView {
         DispatchQueue.main.async { [weak self] in self?.desktop?.keyboardArrived() }
         return true
     }
-    override func resignFirstResponder() -> Bool { releaseInput(); return true }
+    override func resignFirstResponder() -> Bool {
+        if let desktop { desktop.keyboardLeft() } else { releaseInput() }
+        return true
+    }
     @objc private func resigned() { desktop?.keyboardLeft() }
     @objc private func arrived() { if hasKeyboard { desktop?.keyboardArrived() } }
     func releaseInput() {

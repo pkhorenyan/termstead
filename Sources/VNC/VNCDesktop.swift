@@ -49,6 +49,7 @@ final class VNCDesktop {
     @ObservationIgnored private var engine: VNCEngineConnection?
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var clipboardWatch: Task<Void, Never>?
+    @ObservationIgnored private var clipboardFocusState: (Bool, Int)?
     @ObservationIgnored private var seenChange = -1
     @ObservationIgnored private var pendingClipboard: String?
     @ObservationIgnored private var openSocket: (@MainActor () async throws -> FileHandle)?
@@ -113,6 +114,7 @@ final class VNCDesktop {
         certificateAnswer = nil; certificateQuestion = nil
         answer?(false)
         clipboardWatch?.cancel(); clipboardWatch = nil
+        clipboardFocusState = nil
         engine?.close(); engine = nil
         loginQuestion = nil
         openSocket = nil
@@ -148,6 +150,7 @@ final class VNCDesktop {
         phase = .connecting
         retryMessage = nil
         pendingClipboard = nil
+        clipboardFocusState = nil
         engine?.close(); engine = nil
         log?("Connecting to \(launch.host):\(launch.port) over VNC…")
         Task { [weak self] in
@@ -192,8 +195,16 @@ final class VNCDesktop {
                         await check(pem, launch: launch, current: current, reply: reply)
                     }
                 }
-                made.onClipboard = { [weak self] text in
+                made.onClipboard = { [weak self] text, revision in
                     guard let self, current == attempt, launch.options.clipboard, launch.options.receiveClipboard else { return }
+                    if revision >= 0, !hasKeyboard() { return }
+                    // A fetched Apple archive may arrive after the user copied
+                    // something new locally. Preserve that copy and resync.
+                    if revision >= 0, pasteboard.changeCount != revision {
+                        offerClipboard()
+                        updateClipboardFocus()
+                        return
+                    }
                     pendingClipboard = text
                     if hasKeyboard() { receiveClipboard() }
                 }
@@ -307,25 +318,48 @@ final class VNCDesktop {
     private func startClipboard() {
         guard lastLaunch?.options.clipboard == true else { return }
         seenChange = -1
+        offerClipboard()
+        updateClipboardFocus()
         clipboardWatch = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled, let self else { return }
                 if hasKeyboard() { offerClipboard() }
+                updateClipboardFocus()
             }
         }
     }
     func keyboardArrived() {
         if pendingClipboard != nil { receiveClipboard() } else { offerClipboard() }
+        updateClipboardFocus()
     }
-    func keyboardLeft() { view.releaseInput() }
+    func keyboardLeft() {
+        view.releaseInput()
+        if let launch = lastLaunch, launch.options.clipboard {
+            let revision = pasteboard.changeCount
+            clipboardFocusState = (false, revision)
+            engine?.clipboardFocus(false, revision: revision)
+        }
+    }
+    private func updateClipboardFocus() {
+        guard phase == .showing, lastLaunch?.options.clipboard == true else { return }
+        let active = hasKeyboard(), revision = pasteboard.changeCount
+        if let previous = clipboardFocusState, previous.0 == active, previous.1 == revision { return }
+        clipboardFocusState = (active, revision)
+        engine?.clipboardFocus(active, revision: revision)
+    }
     private func receiveClipboard() {
         guard lastLaunch?.options.clipboard == true, lastLaunch?.options.receiveClipboard == true,
               let text = pendingClipboard else { return }
         pendingClipboard = nil
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        // Apple notifications can include an echo of a local copy. Do not
+        // rewrite identical text or turn it into a clipboard change loop.
+        if pasteboard.string(forType: .string) != text {
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+        }
         seenChange = pasteboard.changeCount
+        updateClipboardFocus()
     }
     func offerClipboard(onPaste: Bool = false) {
         guard phase == .showing, !viewOnly, hasKeyboard(), lastLaunch?.options.clipboard == true,

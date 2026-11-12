@@ -13,6 +13,7 @@ enum VNCService {
     func key(_ keysym: Int, down: Bool)
     func pointer(x: Int, y: Int, buttons: Int)
     func clipboard(_ text: String)
+    func clipboardFocus(_ active: Bool, revision: Int)
     func resize(width: Int, height: Int)
     func disconnect()
 }
@@ -20,7 +21,7 @@ enum VNCService {
 @objc protocol VNCClientProtocol {
     func showSurface(_ surface: IOSurface, width: Int, height: Int)
     func surfaceChanged()
-    func serverClipboard(_ text: String)
+    func serverClipboard(_ text: String, revision: Int)
     /// Straight-alpha RGBA; zero dimensions mean an invisible cursor.
     func cursorShape(_ rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int)
     func connected()

@@ -9,7 +9,9 @@ typedef struct {
     bool (*resize)(void *, int, int);
     void (*pixels)(void *, const uint8_t *, int, int, int, int, int);
     void (*frame)(void *);
-    void (*clipboard)(void *, const char *, int, bool);
+    /* Revision is the app's pasteboard generation for an Apple request;
+       -1 denotes a standard server-pushed clipboard message. */
+    void (*clipboard)(void *, const char *, int, bool, int64_t);
     void (*cursor)(void *, const uint8_t *, int, int, int, int);
     bool (*certificate)(void *, const char *);
     void (*resize_support)(void *, bool);
@@ -29,6 +31,7 @@ void tsv_pointer(tsv_session *, int x, int y, int buttons);
 void tsv_resize(tsv_session *, int width, int height);
 void tsv_clipboard(tsv_session *, const char *utf8, int utf8_length,
                    const char *latin1, int latin1_length);
+void tsv_clipboard_focus(tsv_session *, bool active, int64_t revision);
 const char *tsv_error(tsv_session *);
 int tsv_error_code(tsv_session *);
 void tsv_free(tsv_session *);

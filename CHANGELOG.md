@@ -35,6 +35,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Unicode text clipboard sharing with native macOS Screen Sharing servers,
+  using Apple's pasteboard messages in both directions. Remote changes are
+  received on notifications; stale replies cannot overwrite a newer local copy.
 - A password rejected by macOS Screen Sharing opens the VNC login prompt
   again, rather than being reported as a generic connection failure.
 - Reject unused Ultra/UltraZip encodings before decoding, including when a

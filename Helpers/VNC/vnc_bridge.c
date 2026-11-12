@@ -1,4 +1,5 @@
 #include "vnc_bridge.h"
+#include "vnc_apple_clipboard.h"
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdocumentation"
 #pragma clang diagnostic ignored "-Wdocumentation-deprecated-sync"
@@ -28,10 +29,14 @@ struct tsv_session {
     uint8_t *display;
     int wake_descriptor;
     bool ready, handling_input;
+    bool apple, clipboard_focused, fetch_pending, fetch_again, fetch_stale, apple_failed;
+    int64_t clipboard_revision, requested_revision;
 };
 static _Thread_local tsv_session *current;
 static pthread_once_t log_once = PTHREAD_ONCE_INIT;
 static char tag;
+static rfbBool apple_message(rfbClient *, rfbServerToClientMsg *);
+static rfbClientProtocolExtension apple_extension = {.handleMessage = apple_message};
 
 static void logger(const char *format, ...) {
     if (!current) return;
@@ -42,6 +47,7 @@ static void logger(const char *format, ...) {
 }
 static void setup_log(void) {
     rfbClientLog = logger; rfbClientErr = logger;
+    rfbClientRegisterExtension(&apple_extension);
     /* Keep the default provider for this engine's lifetime. LibVNCClient's
        DES helpers explicitly load/unload providers, disabling OpenSSL's
        automatic fallback. Without a retained reference, TLS has no ciphers
@@ -135,14 +141,98 @@ static void cursor(rfbClient *client, int hot_x, int hot_y, int width, int heigh
 static void cut_text(rfbClient *client, const char *text, int length) {
     tsv_session *s = owner(client);
     if (s->receive_clipboard && length >= 0 && length <= 1048576)
-        s->callbacks.clipboard(s->callbacks.context, text, length, false);
+        s->callbacks.clipboard(s->callbacks.context, text, length, false, -1);
 }
 static void cut_utf8(rfbClient *client, const char *text, int length) {
     tsv_session *s = owner(client);
     /* Extended Clipboard text counts its trailing NUL in the payload. */
     if (length > 0 && text[length - 1] == '\0') --length;
     if (s->receive_clipboard && length >= 0 && length <= 1048576)
-        s->callbacks.clipboard(s->callbacks.context, text, length, true);
+        s->callbacks.clipboard(s->callbacks.context, text, length, true, -1);
+}
+static uint32_t apple_u32(const uint8_t *p) {
+    return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+}
+static bool apple_write(tsv_session *s, const uint8_t *data, size_t length) {
+    if (WriteToRFBServer(s->client, (const char *)data, (unsigned int)length)) return true;
+    s->apple_failed = true;
+    return false;
+}
+static void apple_fetch(tsv_session *s) {
+    if (!s->apple || !s->receive_clipboard || !s->clipboard_focused || s->apple_failed) return;
+    if (s->fetch_pending) { s->fetch_again = true; return; }
+    s->fetch_pending = true; s->fetch_stale = false; s->fetch_again = false;
+    s->requested_revision = s->clipboard_revision;
+    /* Exactly eight bytes. A ninth byte would desynchronize the RFB stream. */
+    const uint8_t fetch[8] = {0x0b};
+    apple_write(s, fetch, sizeof(fetch));
+}
+void tsv_clipboard_focus(tsv_session *s, bool active, int64_t revision) {
+    bool changed = s->clipboard_revision != revision;
+    bool arrived = active && !s->clipboard_focused;
+    s->clipboard_focused = active;
+    s->clipboard_revision = revision;
+    if (!active || changed) s->fetch_stale = true;
+    if (arrived || (active && changed)) apple_fetch(s);
+}
+static rfbBool read_apple_message(rfbClient *client, rfbServerToClientMsg *message) {
+    tsv_session *s = owner(client);
+    if (!s || !s->apple) return FALSE;
+    uint8_t header[16] = {message->type};
+    if (message->type == 0x14) {
+        if (!ReadFromRFBServer(client, (char *)header + 1, 3)) return FALSE;
+        unsigned int length = (unsigned int)header[2] << 8 | header[3];
+        uint8_t body[4096];
+        if (length < 4 || length > sizeof(body) || !ReadFromRFBServer(client, (char *)body, length)) return FALSE;
+        unsigned int command = (unsigned int)body[2] << 8 | body[3];
+        if (command == 2) apple_fetch(s); /* Remote pasteboard changed. */
+        return !s->apple_failed;
+    }
+    if (message->type != 0x1f) return FALSE;
+    if (!ReadFromRFBServer(client, (char *)header + 1, 15)) return FALSE;
+    size_t expanded = apple_u32(header + 8), length = apple_u32(header + 12);
+    if (!length || length > TSV_APPLE_ARCHIVE_LIMIT || expanded > TSV_APPLE_ARCHIVE_LIMIT) return FALSE;
+    uint8_t *data = malloc(length);
+    if (!data) return FALSE;
+    bool okay = ReadFromRFBServer(client, (char *)data, (unsigned int)length);
+    char *text = NULL;
+    int text_length = 0;
+    if (okay && s->receive_clipboard && s->clipboard_focused)
+        okay = tsv_apple_clipboard_unpack(data, length, expanded, &text, &text_length);
+    free(data);
+    if (!okay) { free(text); return FALSE; }
+    int64_t revision = s->fetch_pending ? s->requested_revision : s->clipboard_revision;
+    if (text && !s->fetch_stale && header[2] == 0 && s->clipboard_focused)
+        s->callbacks.clipboard(s->callbacks.context, text, text_length, true, revision);
+    free(text);
+    s->fetch_pending = false;
+    if (s->fetch_again) { s->fetch_again = false; apple_fetch(s); }
+    return !s->apple_failed;
+}
+static rfbBool apple_message(rfbClient *client, rfbServerToClientMsg *message) {
+    tsv_session *s = owner(client);
+    if (!s || !s->apple || (message->type != 0x14 && message->type != 0x1f)) return FALSE;
+    if (!read_apple_message(client, message)) {
+        s->apple_failed = true;
+        snprintf(s->error, sizeof(s->error), "Invalid Apple VNC clipboard message.");
+    }
+    /* This type was consumed, even when malformed. FALSE means unhandled to
+       LibVNCClient, which would attempt another blocking diagnostic read. */
+    return TRUE;
+}
+static bool apple_start(tsv_session *s) {
+    s->apple = s->client->serverMajor == 3 && s->client->serverMinor == 889;
+    if (!s->apple || !s->receive_clipboard) return true;
+    /* ViewerInfo v1: declare only the MiscStatus command capability (bit 20).
+       Version fields describe the Apple wire profile, not the app version.
+       This enables change notifications without polling or Apple media codecs. */
+    uint8_t viewer[66] = {0x21, 0, 0, 62, 0, 1};
+    const uint8_t profile[28] = {0,0,0,2, 0,0,0,6, 0,0,0,1, 0,0,0,0,
+                                0,0,0,15, 0,0,0,3, 0,0,0,0};
+    memcpy(viewer + 6, profile, sizeof(profile));
+    viewer[36] = 0x08;
+    const uint8_t monitor[8] = {0x15, 0, 0, 1};
+    return apple_write(s, viewer, sizeof(viewer)) && apple_write(s, monitor, sizeof(monitor));
 }
 static rfbBool certificate(rfbClient *client, const char *pem) {
     tsv_session *s = owner(client);
@@ -259,17 +349,18 @@ bool tsv_connect(tsv_session *s) {
     c->updateRect.x = c->updateRect.y = 0;
     c->updateRect.w = c->width; c->updateRect.h = c->height;
     c->isUpdateRectManagedByLib = TRUE;
-    s->ready = SendFramebufferUpdateRequest(c, 0, 0, c->width, c->height, FALSE);
+    s->ready = apple_start(s) && SendFramebufferUpdateRequest(c, 0, 0, c->width, c->height, FALSE);
     return s->ready;
 }
 int tsv_poll(tsv_session *s) {
     current = s;
+    if (s->apple_failed) return -1;
     // ReadFromRFBServer reads ahead. Drain those bytes before select: a
     // complete update may already be buffered while the socket is idle.
     int result = s->client->buffered > 0 || (s->client->tlsSession && SSL_pending(s->client->tlsSession) > 0)
         ? 1 : WaitForMessage(s->client, s->wake_descriptor >= 0 ? UINT_MAX : 10000);
     if (result <= 0) return result;
-    if (!HandleRFBServerMessage(s->client)) return -1;
+    if (!HandleRFBServerMessage(s->client) || s->apple_failed) return -1;
     bool supported = s->client->screen.width != 0 && s->client->screen.height != 0;
     if (supported != s->resize_supported) {
         s->resize_supported = supported;
@@ -290,6 +381,16 @@ void tsv_pointer(tsv_session *s, int x, int y, int buttons) {
 }
 void tsv_clipboard(tsv_session *s, const char *utf8, int utf8_length, const char *latin1, int latin1_length) {
     if (!s->clipboard || s->view_only) return;
+    if (utf8_length < 0 || utf8_length > TSV_CLIPBOARD_TEXT_LIMIT) return;
+    if (s->apple) {
+        uint8_t *packet;
+        size_t size;
+        if (!tsv_apple_clipboard_pack(utf8, (size_t)utf8_length, &packet, &size)) return;
+        if (s->fetch_pending) { s->fetch_stale = true; s->fetch_again = true; }
+        apple_write(s, packet, size);
+        free(packet);
+        return;
+    }
     if (!SendClientCutTextUTF8(s->client, (char *)utf8, utf8_length))
         SendClientCutText(s->client, (char *)latin1, latin1_length);
 }

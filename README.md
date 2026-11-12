@@ -171,7 +171,8 @@ against the project's signing key before it is installed.
   the destination host; an untrusted or changed certificate asks in the tab.
   Approved fingerprints are saved separately from RDP. Text clipboard has
   independent send and receive controls and only shares while the desktop
-  has the keyboard. Edit commands use Command on a remote Mac and Control
+  has the keyboard, including Unicode text with macOS Screen Sharing servers.
+  Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
   Auto and Sharp preserve full color. No profile uses lossy JPEG.
 - Terminal session logs are written only when you ask, to a folder you choose

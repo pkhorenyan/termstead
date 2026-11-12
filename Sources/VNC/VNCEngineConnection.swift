@@ -5,7 +5,7 @@ import IOSurface
 final class VNCEngineConnection {
     var onSurface: ((IOSurface, Int, Int) -> Void)?
     var onChange: (() -> Void)?
-    var onClipboard: ((String) -> Void)?
+    var onClipboard: ((String, Int) -> Void)?
     var onCursor: ((Data, Int, Int, Int, Int) -> Void)?
     var onConnected: (() -> Void)?
     var onResizeSupport: ((Bool) -> Void)?
@@ -42,6 +42,7 @@ final class VNCEngineConnection {
     func key(_ symbol: UInt32, down: Bool) { engine?.key(Int(symbol), down: down) }
     func pointer(x: Int, y: Int, buttons: Int) { engine?.pointer(x: x, y: y, buttons: buttons) }
     func clipboard(_ text: String) { engine?.clipboard(text) }
+    func clipboardFocus(_ active: Bool, revision: Int) { engine?.clipboardFocus(active, revision: revision) }
     func resize(width: Int, height: Int) { engine?.resize(width: width, height: height) }
     func close() {
         guard !ended else { return }
@@ -68,7 +69,7 @@ final class VNCEngineConnection {
             onMain { $0.onSurface?(box.surface, width, height) }
         }
         func surfaceChanged() { onMain { $0.onChange?() } }
-        func serverClipboard(_ text: String) { onMain { $0.onClipboard?(text) } }
+        func serverClipboard(_ text: String, revision: Int) { onMain { $0.onClipboard?(text, revision) } }
         func cursorShape(_ rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
             guard width >= 0, height >= 0, width <= 1024, height <= 1024,
                   rgba.count == width * height * 4 else { return }

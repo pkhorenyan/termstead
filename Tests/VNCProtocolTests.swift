@@ -373,7 +373,7 @@ struct VNCProtocolTests {
         var connected = false
         var text: String?
         engine.onConnected = { connected = true }
-        engine.onClipboard = { text = $0 }
+        engine.onClipboard = { value, _ in text = value }
         engine.connect(settings, socket: peer.socket)
         await wait { connected }
         try await Task.sleep(for: .milliseconds(200))
@@ -404,7 +404,7 @@ struct VNCProtocolTests {
         let engine = VNCEngineConnection()
         defer { engine.close() }
         var text: String?
-        engine.onClipboard = { text = $0 }
+        engine.onClipboard = { value, _ in text = value }
         engine.connect(launch(allowNone: true), socket: peer.socket)
         await wait { text != nil }
         #expect(text == "ready")

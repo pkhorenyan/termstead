@@ -266,6 +266,27 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   app shortcuts stay local. `VNCDesktop` retries drops only after a successful
   connection, at 2/5/10/30/60 seconds, then ends. Authentication and certificate
   failures ask/stop, never retry automatically. Stopping cancels retries.
+- **Apple Screen Sharing needs its own pasteboard messages.** Standard
+  ClientCutText reaches the Mac but creates only legacy `TEXT`, not the
+  Unicode flavor modern apps read. `server-version.patch` retains the
+  original banner: use the Apple path only for `RFB 003.889`, even though
+  the connection negotiates 3.8. ViewerInfo's command bit 20 plus AutoPasteboard
+  (0x15, selector 1) enable change notifications (0x14, command 2).
+  ClipboardFetch (0x0b, **eight bytes**) gets a ClipboardSend (0x1f) archive;
+  sending the same archive with `public.utf8-plain-text` supports Unicode.
+  `vnc_apple_clipboard.c` bounds decompression and every archive field. The
+  archive is Z_SYNC_FLUSH-framed; ordinary end-of-stream-only decoding fails.
+  Requests run only with keyboard focus, with one outstanding at a time.
+  Carry the local pasteboard revision through XPC and discard stale replies;
+  identical echoes must not rewrite the clipboard. Do not poll the server.
+  Protocol reference: https://github.com/renegadelink/iShareScreen/blob/main/src/isharescreen/proxy/protocol/clipboard.py
+  Verified on native macOS 26.6.2, including Unicode and focus transitions.
+  `VNCMacOSTests` is opt-in: set `TERMSTEAD_MACOS_VNC_HOST` (optional `_PORT`,
+  `_USER`, `_PASSWORD`, default 5900/admin/admin) and
+  `TERMSTEAD_MACOS_VNC_SSH_CONFIG` in the test scheme's environment. The SSH
+  config must have a `macos-vnc-vm` alias for the isolated guest. The test uses
+  a named pasteboard and never reads the user's clipboard. Leave it disabled
+  without an isolated VM. `VNCAppleClipboardTests` needs no external server.
 - Retry budgets are renewed after 30 seconds of **continuous** connection,
   measured with monotonic uptime when it ends. A long backoff must not count
   as stability. The SSH tunnel's budget follows the same rule, whichever

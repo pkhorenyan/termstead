@@ -12,6 +12,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
     private var descriptor: Int32 = -1
     private enum Input: Sendable {
         case key(UInt32, Bool), pointer(Int, Int, Int), clipboard(String), resize(Int, Int)
+        case clipboardFocus(Bool, Int)
     }
     private var inputs: [Input] = []
     private var certificateAnswer: CertificateAnswer?
@@ -92,6 +93,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         guard text.utf8.count <= 1_048_576 else { return }
         enqueue(.clipboard(text))
     }
+    func clipboardFocus(_ active: Bool, revision: Int) { enqueue(.clipboardFocus(active, revision)) }
     func resize(width: Int, height: Int) { enqueue(.resize(width, height)) }
     func disconnect() {
         lock.lock()
@@ -116,12 +118,12 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                                       width: Int(width), height: Int(height))
             },
             frame: { context in autoreleasepool { owner(context).client?.surfaceChanged() } },
-            clipboard: { context, bytes, length, utf8 in
+            clipboard: { context, bytes, length, utf8, revision in
                 autoreleasepool {
                     guard let bytes, length >= 0, length <= 1_048_576 else { return }
                     let data = Data(bytes: bytes, count: Int(length))
                     if let text = String(data: data, encoding: utf8 ? .utf8 : .isoLatin1) {
-                        owner(context).client?.serverClipboard(text)
+                        owner(context).client?.serverClipboard(text, revision: Int(revision))
                     }
                 }
             },
@@ -204,6 +206,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                                   bytes.bindMemory(to: CChar.self).baseAddress, Int32(latin.count))
                 }
             case .resize(let width, let height): tsv_resize(session, Int32(clamping: width), Int32(clamping: height))
+            case .clipboardFocus(let active, let revision): tsv_clipboard_focus(session, active, Int64(revision))
             }
         }
     }

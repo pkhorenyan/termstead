@@ -1,0 +1,21 @@
+--- a/include/rfb/rfbclient.h
++++ b/include/rfb/rfbclient.h
+@@ -374,5 +374,7 @@
+ 	/** negotiated protocol version */
+ 	int major, minor;
++        /* Termstead: identify vendor protocols before the version fallback. */
++        int serverMajor, serverMinor;
+ 
+ 	/** The selected security types */
+ 	uint32_t authScheme, subAuthScheme;
+--- a/src/libvncclient/rfbclient.c
++++ b/src/libvncclient/rfbclient.c
+@@ -990,6 +990,8 @@
+   DefaultSupportedMessages(client);
+   client->major = major;
+   client->minor = minor;
++  client->serverMajor = major;
++  client->serverMinor = minor;
+ 
+   /* fall back to viewer supported version */
+   if ((major==rfbProtocolMajorVersion) && (minor>rfbProtocolMinorVersion))
