@@ -47,7 +47,7 @@ struct TitlebarSidebarButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(toggle.isHidden ? "Show the sidebar (⌃⌘S)" : "Hide the sidebar (⌃⌘S)")
+        .help(toggle.isHidden ? "Show the sidebar (⌘B)" : "Hide the sidebar (⌘B)")
         .accessibilityLabel(toggle.isHidden ? "Show Sidebar" : "Hide Sidebar")
     }
 }

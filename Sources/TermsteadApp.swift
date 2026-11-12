@@ -132,11 +132,11 @@ struct TermsteadApp: App {
         // starts at is in Settings. ⌘= reaches "Bigger" through
         // `AppDelegate.plusForEquals`.
         CommandGroup(after: .toolbar) {
-            // ⌃⌘S, the shortcut Finder, Mail and Xcode use for their sidebars.
+            // ⌘B toggles the sidebar without consuming the terminal's ⌃B.
             Button(appState.isSidebarHidden ? "Show Sidebar" : "Hide Sidebar") {
                 appState.isSidebarHidden.toggle()
             }
-            .keyboardShortcut("s", modifiers: [.command, .control])
+            .keyboardShortcut("b", modifiers: .command)
             .disabled(formIsOpen)
             Divider()
             Button("Bigger") { zoom(by: 1) }

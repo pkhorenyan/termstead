@@ -195,7 +195,7 @@ against the project's signing key before it is installed.
 | Split vertically / horizontally | ⌘D / ⇧⌘D |
 | Previous / next pane | ⌘[ / ⌘] |
 | Broadcast input to the visible panes | ⌥⌘I |
-| Hide / show the sidebar | ⌃⌘S |
+| Hide / show the sidebar | ⌘B |
 | Find / Next / Previous | ⌘F / ⌘G / ⇧⌘G |
 | Text size in the tab — or a remote desktop's zoom: bigger / smaller / default | ⌘+ / ⌘− / ⌘0 |
 | Settings | ⌘, |

@@ -140,7 +140,7 @@ final class AppState {
 
     var sidebarTab: SidebarTab = .sessions
 
-    /// The sidebar can be put away (View ▸ Hide Sidebar, ⌃⌘S, or the button
+    /// The sidebar can be put away (View ▸ Hide Sidebar, ⌘B, or the button
     /// beside the window's name), leaving the whole window to the terminals.
     /// Remembered across launches.
     var isSidebarHidden = false {

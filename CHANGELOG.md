@@ -26,6 +26,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Toggle the sidebar with Command-B instead of Control-Command-S. Update
+  menu shortcuts, tooltips and the welcome screen hints to match.
 - Hide terminal logging controls for RDP and VNC sessions and ignore their
   saved automatic logging setting. Logging remains available for terminals.
 - Refresh the README screenshots for 0.8.2. The RDP demo hides Xfce's

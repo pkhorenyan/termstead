@@ -16,7 +16,7 @@ struct EmptyStateView: View {
         ("New session", "⌘N"),
         ("New group", "⇧⌘N"),
         ("Local terminal", "⌥⌘T"),
-        ("Sidebar", "⌃⌘S"),
+        ("Sidebar", "⌘B"),
         ("Settings", "⌘,"),
     ]
 
@@ -37,7 +37,7 @@ struct EmptyStateView: View {
                     .kerning(-0.26)
                     .foregroundStyle(theme.text.color)
                 Text(appState.isSidebarHidden
-                     ? "Type an address to open a terminal, or show the sidebar (⌃⌘S) to pick a session."
+                     ? "Type an address to open a terminal, or show the sidebar (⌘B) to pick a session."
                      : "Type an address or pick a session on the \(themeStore.sidebarSide.rawValue) to open a terminal.")
                     .font(SBFont.ui(14))
                     .foregroundStyle(theme.textSecondary.color)
