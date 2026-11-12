@@ -50,6 +50,8 @@ final class ConnectionStore {
     private(set) var connections: [Connection] = []
     private(set) var layout: PaneLayout = .single
     private(set) var focusedPane = 0
+    /// Presentation keeps the pane layout and all background tabs intact.
+    var presentsDesktop = false
     /// The tab chosen last in each pane.
     private var activeByPane: [Int: UUID] = [:]
 

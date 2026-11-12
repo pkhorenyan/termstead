@@ -157,6 +157,7 @@ final class Connection: Identifiable {
         desktop?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
         vnc?.log = { [weak self] line in self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n") }
         vnc?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
+        vnc?.onConnected = { [weak self] in self?.reconnectAttempts = 0 }
         desktop?.availableSize = { [weak self] in
             // The pane holding the terminal, while the desktop is not up.
             guard let pane = self?.terminalView.superview ?? self?.desktop?.view.superview,
@@ -530,7 +531,7 @@ final class Connection: Identifiable {
         loginWatch = nil
         isLoggedIn = true
         didLogIn = true
-        reconnectAttempts = 0
+        if kind != .vnc { reconnectAttempts = 0 }
         // An RDP tab's ssh is only its tunnel: no Files tab, no server load.
         if !kind.hasTerminal {
             openDesktopThroughTunnel()
@@ -630,6 +631,11 @@ final class Connection: Identifiable {
         vnc?.stop()
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
         log?.note((isLocalShell ? "The shell exited" : "Connection closed") + detail)
+        if kind == .vnc, vncLaunch?.options.autoReconnect == true, desktopEndReason == nil,
+           didLogIn, reconnectAttempts < Self.reconnectDelays.count, !didClose {
+            scheduleReconnect()
+            return
+        }
         if reconnectsAutomatically, desktopEndReason == nil,
            Self.shouldReconnect(exitCode: exitCode, didLogIn: didLogIn, attempts: reconnectAttempts,
                                 isLocalShell: isLocalShell, isTunnelOnly: isTunnelOnly,

@@ -82,6 +82,7 @@ struct TerminalPane: NSViewRepresentable {
         /// must then leave it alone — removing it, or sizing it in `layout`,
         /// would pull it out of, or fight, the pane it now belongs to.
         private var holdsMounted: Bool { mounted?.superview === self }
+        private var keyboardView: NSView? { (mounted as? VNCViewport)?.desktopView ?? mounted }
 
         /// Switching layouts, SwiftUI mounts the terminals in the new panes
         /// and then updates the old ones once more — with the new state —
@@ -104,7 +105,7 @@ struct TerminalPane: NSViewRepresentable {
 
         func focusTerminal() {
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.holdsMounted, let view = self.mounted, let window = view.window,
+                guard let self, self.holdsMounted, let view = self.keyboardView, let window = view.window,
                       window.firstResponder !== view else { return }
                 window.makeFirstResponder(view)
             }
@@ -124,7 +125,7 @@ struct TerminalPane: NSViewRepresentable {
             paneLog.debug("click in terminal \(ObjectIdentifier(view).hashValue % 10000, privacy: .public): hit \(hit.map { String(describing: type(of: $0)) } ?? "nil", privacy: .public), claims \(hit.map { $0 === view || $0.isDescendant(of: self) } ?? false, privacy: .public)")
             guard let hit, hit === view || hit.isDescendant(of: self) else { return }
             onFocus()
-            if window.firstResponder !== view { window.makeFirstResponder(view) }
+            if let keyboardView, window.firstResponder !== keyboardView { window.makeFirstResponder(keyboardView) }
         }
 
         /// The terminal taking the keyboard any other way — the Tab key, a
@@ -153,7 +154,7 @@ struct TerminalPane: NSViewRepresentable {
             if takesFocus, window != nil { focusTerminal() }
             focusObservation = window?.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.holdsMounted, let view = self.mounted,
+                    guard let self, self.holdsMounted, let view = self.keyboardView,
                           window.firstResponder === view else { return }
                     paneLog.debug("terminal \(ObjectIdentifier(view).hashValue % 10000, privacy: .public) took the keyboard")
                     self.onFocus()

@@ -8,6 +8,8 @@ final class VNCEngineConnection {
     var onClipboard: ((String) -> Void)?
     var onCursor: ((Data, Int, Int, Int, Int) -> Void)?
     var onConnected: (() -> Void)?
+    var onResizeSupport: ((Bool) -> Void)?
+    var onCertificate: ((String, @escaping @Sendable (Bool) -> Void) -> Void)?
     var onDisconnected: ((String, Int) -> Void)?
     private let connection: NSXPCConnection
     private var ended = false
@@ -30,13 +32,17 @@ final class VNCEngineConnection {
         connection.remoteObjectProxyWithErrorHandler { _ in } as? any VNCEngineProtocol
     }
     func connect(_ launch: VNCLaunch, socket: FileHandle) {
-        engine?.connect(socket: socket, user: launch.user, password: launch.password,
+        engine?.connect(socket: socket, host: launch.host, user: launch.user, password: launch.password,
                         allowNoAuth: launch.options.allowNoAuth, viewOnly: launch.options.viewOnly,
-                        clipboard: launch.options.clipboard)
+                        clipboard: launch.options.clipboard && launch.options.sendClipboard,
+                        receiveClipboard: launch.options.clipboard && launch.options.receiveClipboard,
+                        quality: launch.options.quality == .fast ? 2 : launch.options.quality == .sharp ? 1 : 0,
+                        requireTLS: launch.options.security == .tls)
     }
     func key(_ symbol: UInt32, down: Bool) { engine?.key(Int(symbol), down: down) }
     func pointer(x: Int, y: Int, buttons: Int) { engine?.pointer(x: x, y: y, buttons: buttons) }
     func clipboard(_ text: String) { engine?.clipboard(text) }
+    func resize(width: Int, height: Int) { engine?.resize(width: width, height: height) }
     func close() {
         guard !ended else { return }
         ended = true
@@ -69,6 +75,13 @@ final class VNCEngineConnection {
             onMain { $0.onCursor?(rgba, width, height, hotX, hotY) }
         }
         func connected() { onMain { $0.onConnected?() } }
+        func resizeSupport(_ supported: Bool) { onMain { $0.onResizeSupport?(supported) } }
+        func verifyCertificate(_ pem: String, reply: @escaping @Sendable (Bool) -> Void) {
+            DispatchQueue.main.async { [weak self] in
+                guard let owner = self?.owner, !owner.ended, let question = owner.onCertificate else { return reply(false) }
+                question(pem, reply)
+            }
+        }
         func disconnected(reason: String, code: Int) { onMain { $0.finish(reason, code: code) } }
     }
 }

@@ -150,12 +150,40 @@ struct TermsteadApp: App {
                 Button("Default Zoom") { desktop.resetZoom() }
                     .keyboardShortcut("0", modifiers: .command)
                     .disabled(desktop.zoomOverride == 0 || formIsOpen)
+            } else if let desktop = connectionStore.active?.vnc {
+                Button("Fit Desktop to Tab") { desktop.setZoom(0) }
+                    .keyboardShortcut("0", modifiers: .command).disabled(formIsOpen)
+                Menu("Desktop Scale") {
+                    ForEach(VNCDesktop.zoomSteps, id: \.self) { percent in
+                        Button("\(percent)%") { desktop.setZoom(percent) }
+                    }
+                    Divider()
+                    Button("Custom Scale…") { desktop.asksScale = true }
+                }.disabled(formIsOpen)
+                Menu("Server Resolution…") {
+                    Text("Changes the shared server desktop for all viewers.")
+                    ForEach([800, 900, 1080, 1440], id: \.self) { height in
+                        let width = [800: 1280, 900: 1440, 1080: 1920, 1440: 2560][height]!
+                        Button("\(width) × \(height)") {
+                            desktop.requestResolution(width: width, height: height)
+                        }
+                    }
+                    if let message = desktop.resizeMessage { Text(message) }
+                }.disabled(!desktop.supportsResize || desktop.viewOnly || formIsOpen)
             } else {
                 Button("Default Font Size") { connectionStore.active?.fontSize = nil }
                     .keyboardShortcut("0", modifiers: .command)
                     .disabled(!activeIsTerminal || connectionStore.active?.fontSize == nil || formIsOpen)
             }
             Divider()
+            Button(connectionStore.presentsDesktop ? "Exit Full Screen Tab" : "Full Screen Tab") {
+                let presenting = connectionStore.presentsDesktop
+                connectionStore.presentsDesktop.toggle()
+                if let window = NSApp.keyWindow,
+                   window.styleMask.contains(.fullScreen) == presenting { window.toggleFullScreen(nil) }
+            }
+            .keyboardShortcut("f", modifiers: [.command, .control, .option])
+            .disabled(formIsOpen || (!connectionStore.presentsDesktop && connectionStore.active?.vnc == nil))
             // ⌘D and ⇧⌘D as in iTerm2; the same four layouts as the buttons
             // beside the gear.
             ForEach(PaneLayout.allCases, id: \.self) { layout in
@@ -303,6 +331,7 @@ struct TermsteadApp: App {
     private func zoom(by delta: Int) {
         guard let connection = connectionStore.active else { return }
         if let desktop = connection.desktop { return desktop.zoom(by: delta) }
+        if let desktop = connection.vnc { return desktop.zoom(by: delta) }
         guard connection.kind.hasTerminal else { return }
         connection.fontSize = themeStore.zoomedSize(from: connection.fontSize, by: delta)
     }
@@ -311,6 +340,7 @@ struct TermsteadApp: App {
     private func canZoom(by delta: Int) -> Bool {
         guard let connection = connectionStore.active, !formIsOpen else { return false }
         if let desktop = connection.desktop { return desktop.zoomed(by: delta) != nil }
+        if let desktop = connection.vnc { return desktop.zoomed(by: delta) != nil }
         guard connection.kind.hasTerminal else { return false }
         let size = connection.fontSize ?? themeStore.terminalFontSize
         return (themeStore.zoomedSize(from: connection.fontSize, by: delta) ?? themeStore.terminalFontSize) != size

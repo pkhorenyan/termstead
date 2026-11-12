@@ -213,7 +213,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Helpers/VNC/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: Helpers/VNC/vnc_bridge.h
-        HEADER_SEARCH_PATHS: [Vendor/vnc/include]
+        HEADER_SEARCH_PATHS: [Vendor/vnc/include, Vendor/rdp/include]
         LIBRARY_SEARCH_PATHS: [Vendor/vnc/lib, Vendor/rdp/lib]
         OTHER_LDFLAGS: [-lvncclient, -lssl, -lcrypto, -lz]
         SKIP_INSTALL: YES

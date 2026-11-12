@@ -11,9 +11,10 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
     private var stopped = false
     private var descriptor: Int32 = -1
     private enum Input: Sendable {
-        case key(UInt32, Bool), pointer(Int, Int, Int), clipboard(String)
+        case key(UInt32, Bool), pointer(Int, Int, Int), clipboard(String), resize(Int, Int)
     }
     private var inputs: [Input] = []
+    private var certificateAnswer: CertificateAnswer?
     // Worker-thread state only.
     private var surface: IOSurfaceRef?
 
@@ -22,8 +23,8 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         connection?.remoteObjectProxyWithErrorHandler { _ in } as? any VNCClientProtocol
     }
 
-    func connect(socket: FileHandle, user: String, password: String, allowNoAuth: Bool,
-                 viewOnly: Bool, clipboard: Bool) {
+    func connect(socket: FileHandle, host: String, user: String, password: String, allowNoAuth: Bool,
+                 viewOnly: Bool, clipboard: Bool, receiveClipboard: Bool, quality: Int, requireTLS: Bool) {
         lock.lock()
         guard !started, !stopped else { lock.unlock(); return }
         started = true
@@ -31,8 +32,9 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         descriptor = fd
         lock.unlock()
         let thread = Thread { [self] in
-            run(socket: fd, user: user, password: password, allowNoAuth: allowNoAuth,
-                viewOnly: viewOnly, clipboard: clipboard)
+            run(socket: fd, host: host, user: user, password: password, allowNoAuth: allowNoAuth,
+                viewOnly: viewOnly, clipboard: clipboard, receiveClipboard: receiveClipboard,
+                quality: quality, requireTLS: requireTLS)
         }
         thread.name = "LibVNCClient"
         thread.stackSize = 4 << 20
@@ -63,16 +65,19 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         guard text.utf8.count <= 1_048_576 else { return }
         enqueue(.clipboard(text))
     }
+    func resize(width: Int, height: Int) { enqueue(.resize(width, height)) }
     func disconnect() {
         lock.lock()
         stopped = true
         inputs.removeAll()
         if descriptor >= 0 { shutdown(descriptor, SHUT_RDWR) }
+        let answer = certificateAnswer
         lock.unlock()
+        answer?.give(false)
     }
 
-    private func run(socket: Int32, user: String, password: String, allowNoAuth: Bool,
-                     viewOnly: Bool, clipboard: Bool) {
+    private func run(socket: Int32, host: String, user: String, password: String, allowNoAuth: Bool,
+                     viewOnly: Bool, clipboard: Bool, receiveClipboard: Bool, quality: Int, requireTLS: Bool) {
         let callbacks = tsv_callbacks(
             context: Unmanaged.passUnretained(self).toOpaque(),
             resize: { context, width, height in
@@ -98,9 +103,19 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                     owner(context).client?.cursorShape(data, width: Int(width), height: Int(height),
                                                        hotX: Int(hotX), hotY: Int(hotY))
                 }
+            },
+            certificate: { context, pem in
+                autoreleasepool {
+                    guard let pem else { return false }
+                    return owner(context).verify(String(cString: pem))
+                }
+            },
+            resize_support: { context, supported in
+                autoreleasepool { owner(context).client?.resizeSupport(supported) }
             })
         guard socket >= 0,
-              let session = tsv_new(socket, user, password, allowNoAuth, viewOnly, clipboard, callbacks) else {
+              let session = tsv_new(socket, host, user, password, allowNoAuth, viewOnly, clipboard,
+                                    receiveClipboard, Int32(clamping: quality), requireTLS, callbacks) else {
             lock.withLock { descriptor = -1 }
             client?.disconnected(reason: "Could not create the VNC connection.", code: 1)
             return
@@ -118,8 +133,9 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             switch code {
             case 2: reason = "The VNC server refused the password."
             case 3: reason = "Apple Remote Desktop authentication needs a user name and password."
+            case 4: reason = "The VNC server's certificate was not trusted."
             default:
-                reason = "Could not complete the VNC handshake. \(detail) Supported authentication: VNC password or Apple Remote Desktop; TLS-only servers are not supported yet."
+                reason = "Could not complete the VNC handshake. \(detail)" + (requireTLS ? " Require TLS needs a VeNCrypt server with an X.509 certificate; plain VNC and anonymous TLS are refused." : " Check the server's authentication and transport settings.")
             }
             if !lock.withLock({ stopped }) { client?.disconnected(reason: reason, code: code) }
             return
@@ -141,6 +157,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                         tsv_clipboard(session, text, Int32(text.utf8.count),
                                       bytes.bindMemory(to: CChar.self).baseAddress, Int32(latin.count))
                     }
+                case .resize(let width, let height): tsv_resize(session, Int32(clamping: width), Int32(clamping: height))
                 }
             }
             if tsv_poll(session) < 0 { break }
@@ -148,6 +165,20 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         if !lock.withLock({ stopped }) {
             client?.disconnected(reason: "The VNC connection closed.", code: 1)
         }
+    }
+
+    private func verify(_ pem: String) -> Bool {
+        let answer = CertificateAnswer()
+        lock.lock()
+        guard !stopped, let connection else { lock.unlock(); return false }
+        certificateAnswer = answer
+        lock.unlock()
+        let proxy = connection.remoteObjectProxyWithErrorHandler { _ in answer.give(false) } as? any VNCClientProtocol
+        if let proxy { proxy.verifyCertificate(pem) { answer.give($0) } }
+        else { answer.give(false) }
+        let result = answer.wait()
+        lock.withLock { certificateAnswer = nil }
+        return result
     }
 
     private func resize(width: Int, height: Int) -> Bool {
@@ -174,6 +205,24 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             memcpy(destination.advanced(by: row * rowBytes + x * 4),
                    source.advanced(by: row * stride + x * 4), width * 4)
         }
+    }
+}
+
+private final class CertificateAnswer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var value: Bool?
+    func give(_ result: Bool) {
+        let first = lock.withLock { () -> Bool in
+            guard value == nil else { return false }
+            value = result
+            return true
+        }
+        if first { semaphore.signal() }
+    }
+    func wait() -> Bool {
+        semaphore.wait()
+        return lock.withLock { value ?? false }
     }
 }
 

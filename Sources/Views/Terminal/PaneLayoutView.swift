@@ -12,18 +12,22 @@ struct PaneLayoutView: View {
     @AppStorage("panes.rows") private var rows = 0.5
 
     var body: some View {
-        switch connectionStore.layout {
-        case .single:
-            PaneView(pane: 0)
-        case .sideBySide:
-            PaneSplit(axis: .horizontal, fraction: $columns) { PaneView(pane: 0) } second: { PaneView(pane: 1) }
-        case .stacked:
-            PaneSplit(axis: .vertical, fraction: $rows) { PaneView(pane: 0) } second: { PaneView(pane: 1) }
-        case .grid:
-            PaneSplit(axis: .vertical, fraction: $rows) {
+        if connectionStore.presentsDesktop {
+            PaneView(pane: connectionStore.focusedPane, hidesTabs: true)
+        } else {
+            switch connectionStore.layout {
+            case .single:
+                PaneView(pane: 0)
+            case .sideBySide:
                 PaneSplit(axis: .horizontal, fraction: $columns) { PaneView(pane: 0) } second: { PaneView(pane: 1) }
-            } second: {
-                PaneSplit(axis: .horizontal, fraction: $columns) { PaneView(pane: 2) } second: { PaneView(pane: 3) }
+            case .stacked:
+                PaneSplit(axis: .vertical, fraction: $rows) { PaneView(pane: 0) } second: { PaneView(pane: 1) }
+            case .grid:
+                PaneSplit(axis: .vertical, fraction: $rows) {
+                    PaneSplit(axis: .horizontal, fraction: $columns) { PaneView(pane: 0) } second: { PaneView(pane: 1) }
+                } second: {
+                    PaneSplit(axis: .horizontal, fraction: $columns) { PaneView(pane: 2) } second: { PaneView(pane: 3) }
+                }
             }
         }
     }
@@ -159,6 +163,7 @@ struct PaneView: View {
     @Environment(AppState.self) private var appState
 
     var pane: Int
+    var hidesTabs = false
 
     private var isFocused: Bool { connectionStore.focusedPane == pane }
     private var isSplit: Bool { connectionStore.layout.paneCount > 1 }
@@ -175,24 +180,26 @@ struct PaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TabBarView(pane: pane)
-                .frame(height: Metrics.tabBarHeight)
-                .background(theme.sidebar.color)
-                .overlay(alignment: .bottom) {
-                    if connectionStore.receivesBroadcast(pane: pane) {
-                        // Every pane typing will reach, focused or not: the
-                        // warning colour, as this is easy to forget is on.
-                        Rectangle()
-                            .fill(theme.ansiYellow.color.opacity(0.85))
-                            .frame(height: 2)
-                    } else if isSplit && isFocused {
-                        Rectangle()
-                            .fill(theme.accent.color.opacity(Self.focusLineOpacity))
-                            .frame(height: 2)
-                    } else {
-                        Divider1(theme.border)
+            if !hidesTabs {
+                TabBarView(pane: pane)
+                    .frame(height: Metrics.tabBarHeight)
+                    .background(theme.sidebar.color)
+                    .overlay(alignment: .bottom) {
+                        if connectionStore.receivesBroadcast(pane: pane) {
+                            // Every pane typing will reach, focused or not: the
+                            // warning colour, as this is easy to forget is on.
+                            Rectangle()
+                                .fill(theme.ansiYellow.color.opacity(0.85))
+                                .frame(height: 2)
+                        } else if isSplit && isFocused {
+                            Rectangle()
+                                .fill(theme.accent.color.opacity(Self.focusLineOpacity))
+                                .frame(height: 2)
+                        } else {
+                            Divider1(theme.border)
+                        }
                     }
-                }
+            }
             paneContent
                 .overlay {
                     if isDimmed {

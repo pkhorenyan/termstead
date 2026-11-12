@@ -6,7 +6,7 @@ import Testing
 /// A deliberately small RFB peer checks legacy security and malformed
 /// framebuffer sizes without depending on a desktop server's behavior.
 private final class VNCFakeServer: @unchecked Sendable {
-    enum Scenario: Sendable { case legacyNoAuth, rawFrame, oversized, cursorShapes }
+    enum Scenario: Sendable { case legacyNoAuth, rawFrame, oversized, cursorShapes, unsafeVeNCrypt }
     private let lock = NSLock()
     private var initialized = false
     private var keys: [UInt32] = []
@@ -50,6 +50,17 @@ private final class VNCFakeServer: @unchecked Sendable {
                 _ = try read(12)
                 if scenario == .legacyNoAuth {
                     try write([0, 0, 0, 1])
+                } else if scenario == .unsafeVeNCrypt {
+                    // Offer VeNCrypt, then anonymous TLSVnc (259) and Plain
+                    // (256). Neither may bypass Require TLS's X.509 policy.
+                    try write([1, 19])
+                    _ = try read(1)
+                    try write([0, 2])
+                    _ = try read(2)
+                    try write([0, 2, 0, 0, 1, 3, 0, 0, 1, 0])
+                    _ = try read(4)
+                    lock.withLock { initialized = true }
+                    return
                 } else {
                     try write([1, 1])
                     _ = try read(1)
@@ -158,6 +169,62 @@ struct VNCProtocolTests {
         let pixel = drawn.baseAddress.load(as: UInt32.self)
         drawn.unlock(options: .readOnly, seed: nil)
         #expect(pixel == 0xffff0000)
+    }
+    @Test(arguments: VNCOptions.Keyboard.allCases)
+    func editCommandsUseTheRemoteSystemsModifier(_ keyboard: VNCOptions.Keyboard) async throws {
+        let peer = try VNCFakeServer(.rawFrame)
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        var settings = launch(allowNone: true)
+        settings.options.keyboard = keyboard
+        desktop.start(settings) { peer.socket }
+        await wait { desktop.phase == .showing }
+        try #require(desktop.phase == .showing)
+        desktop.edit(0x63)
+        await wait { peer.receivedKeys.count >= 4 }
+        let modifier: UInt32 = keyboard == .macOS ? 0xffeb : 0xffe3
+        #expect(peer.receivedKeys == [modifier, 0x63, 0x63, modifier])
+    }
+    @Test func requireTLSNeverDowngradesToClassicOrAnonymousVNC() async throws {
+        let peer = try VNCFakeServer(.rawFrame)
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var settings = launch(allowNone: true)
+        settings.options.security = .tls
+        var ended = false
+        engine.onDisconnected = { _, _ in ended = true }
+        engine.connect(settings, socket: peer.socket)
+        await wait { ended }
+        #expect(ended && !peer.receivedClientInit)
+    }
+    @Test func veNCryptCannotHideAnonymousTLSOrPlainAuthentication() async throws {
+        let peer = try VNCFakeServer(.unsafeVeNCrypt)
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var settings = launch(allowNone: true)
+        settings.user = "lab"
+        settings.options.security = .tls
+        var ended = false
+        engine.onDisconnected = { _, _ in ended = true }
+        engine.connect(settings, socket: peer.socket)
+        await wait { ended }
+        #expect(ended && !peer.receivedClientInit)
+    }
+    @Test(arguments: [false, true])
+    func incomingClipboardIsFilteredInTheEngine(_ receive: Bool) async throws {
+        let peer = try VNCFakeServer(.rawFrame)
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var settings = launch(allowNone: true)
+        settings.options.receiveClipboard = receive
+        var connected = false
+        var text: String?
+        engine.onConnected = { connected = true }
+        engine.onClipboard = { text = $0 }
+        engine.connect(settings, socket: peer.socket)
+        await wait { connected }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(text == (receive ? "ready" : nil))
     }
     @Test(arguments: [false, true])
     func viewOnlyIsEnforcedByTheEngine(_ viewOnly: Bool) async throws {

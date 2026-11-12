@@ -154,18 +154,48 @@ enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
     var hasTerminal: Bool { self == .ssh || self == .telnet }
 }
 
-/// VNC displays the server's existing desktop, scaled to fit its pane.
+/// How VNC presents the shared desktop, authenticates and transfers input.
 struct VNCOptions: Hashable, Codable, Sendable {
+    enum Keyboard: String, Codable, CaseIterable, Identifiable, Sendable {
+        case linux, windows, macOS
+        var id: String { rawValue }
+        var label: String { switch self { case .linux: "Linux"; case .windows: "Windows"; case .macOS: "macOS" } }
+    }
+    enum Quality: String, Codable, CaseIterable, Identifiable, Sendable {
+        case automatic, sharp, fast
+        var id: String { rawValue }
+        var label: String { switch self { case .automatic: "Auto"; case .sharp: "Sharp"; case .fast: "Fast" } }
+    }
+    enum Security: String, Codable, CaseIterable, Identifiable, Sendable {
+        case standard, tls
+        var id: String { rawValue }
+        var label: String { self == .tls ? "Require TLS" : "Standard VNC" }
+    }
+    /// Zero fits the pane; other values are percentages of server pixels.
+    var zoom = 0
+    var keyboard: Keyboard = .linux
+    var quality: Quality = .automatic
+    var security: Security = .standard
     var clipboard = true
+    var sendClipboard = true
+    var receiveClipboard = true
     var viewOnly = false
+    var autoReconnect = true
     /// Explicit opt-in: never silently downgrade to an anonymous desktop.
     var allowNoAuth = false
 
     init() {}
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        zoom = try values.decodeIfPresent(Int.self, forKey: .zoom) ?? 0
+        keyboard = try values.decodeIfPresent(Keyboard.self, forKey: .keyboard) ?? .linux
+        quality = try values.decodeIfPresent(Quality.self, forKey: .quality) ?? .automatic
+        security = try values.decodeIfPresent(Security.self, forKey: .security) ?? .standard
         clipboard = try values.decodeIfPresent(Bool.self, forKey: .clipboard) ?? true
+        sendClipboard = try values.decodeIfPresent(Bool.self, forKey: .sendClipboard) ?? true
+        receiveClipboard = try values.decodeIfPresent(Bool.self, forKey: .receiveClipboard) ?? true
         viewOnly = try values.decodeIfPresent(Bool.self, forKey: .viewOnly) ?? false
+        autoReconnect = try values.decodeIfPresent(Bool.self, forKey: .autoReconnect) ?? true
         allowNoAuth = try values.decodeIfPresent(Bool.self, forKey: .allowNoAuth) ?? false
     }
 }

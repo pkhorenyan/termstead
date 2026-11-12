@@ -30,11 +30,20 @@ final class VNCDesktop {
     private(set) var phase: Phase = .ended("")
     private(set) var size: CGSize?
     private(set) var loginQuestion: LoginQuestion?
+    private(set) var certificateQuestion: RDPDesktop.CertificateQuestion?
+    private(set) var retryMessage: String?
+    private(set) var supportsResize = false
+    private(set) var resizeMessage: String?
+    var asksScale = false
     @ObservationIgnored let view = VNCDesktopView()
+    @ObservationIgnored lazy var viewport = VNCViewport(view: view)
+    @ObservationIgnored var knownHosts = RDPKnownHosts(url: URL.applicationSupportDirectory
+        .appendingPathComponent("Termstead/vnc_known_hosts"))
     @ObservationIgnored var keychain = KeychainStore.shared
     @ObservationIgnored var pasteboard: NSPasteboard = .general
     @ObservationIgnored var hasKeyboard: () -> Bool = { false }
     @ObservationIgnored var onEnded: ((String) -> Void)?
+    @ObservationIgnored var onConnected: (() -> Void)?
     @ObservationIgnored var log: ((String) -> Void)?
     @ObservationIgnored private var engine: VNCEngineConnection?
     @ObservationIgnored private var attempt = 0
@@ -43,6 +52,30 @@ final class VNCDesktop {
     @ObservationIgnored private var pendingClipboard: String?
     @ObservationIgnored private var openSocket: (@MainActor () async throws -> FileHandle)?
     @ObservationIgnored private(set) var lastLaunch: VNCLaunch?
+    @ObservationIgnored private var certificateAnswer: ((Bool) -> Void)?
+    @ObservationIgnored private var reconnectTask: Task<Void, Never>?
+    @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var retries = 0
+    @ObservationIgnored var reconnectDelays = Connection.reconnectDelays
+    @ObservationIgnored private var didConnect = false
+    @ObservationIgnored private var connectedAt = Date.distantPast
+    private(set) var zoomOverride: Int?
+    static let zoomSteps = [25, 50, 75, 100, 125, 150, 200, 300, 400]
+    var zoom: Int {
+        let value = zoomOverride ?? lastLaunch?.options.zoom ?? 0
+        return value == 0 ? 0 : min(max(value, 25), 400)
+    }
+    func setZoom(_ value: Int) {
+        zoomOverride = value == 0 ? 0 : min(max(value, 25), 400)
+        viewport.zoom = zoom
+        view.updateImageFrame()
+    }
+    func zoomed(by delta: Int) -> Int? {
+        let current = zoom > 0 ? zoom : Int((size.map { RDPPointer.scale(of: $0, in: viewport.contentView.bounds.size) } ?? 1) * 100)
+        return delta > 0 ? Self.zoomSteps.first { $0 > current } : Self.zoomSteps.last { $0 < current }
+    }
+    func zoom(by delta: Int) { if let next = zoomed(by: delta) { setZoom(next) } }
+    func resetZoom() { zoomOverride = nil; viewport.zoom = zoom; view.updateImageFrame() }
 
     init() {
         view.desktop = self
@@ -52,6 +85,8 @@ final class VNCDesktop {
     func start(_ launch: VNCLaunch, socket: @escaping @MainActor () async throws -> FileHandle) {
         stop()
         lastLaunch = launch
+        retries = 0; didConnect = false
+        viewport.zoom = zoom
         openSocket = socket
         phase = .connecting
         if launch.password.isEmpty && !launch.options.allowNoAuth {
@@ -62,6 +97,13 @@ final class VNCDesktop {
     }
     func stop() {
         attempt += 1
+        reconnectTask?.cancel(); reconnectTask = nil
+        resizeTask?.cancel(); resizeTask = nil
+        retryMessage = nil; supportsResize = false; resizeMessage = nil
+        asksScale = false
+        let answer = certificateAnswer
+        certificateAnswer = nil; certificateQuestion = nil
+        answer?(false)
         clipboardWatch?.cancel(); clipboardWatch = nil
         engine?.close(); engine = nil
         loginQuestion = nil
@@ -96,6 +138,8 @@ final class VNCDesktop {
         attempt += 1
         let current = attempt
         phase = .connecting
+        retryMessage = nil
+        pendingClipboard = nil
         engine?.close(); engine = nil
         log?("Connecting to \(launch.host):\(launch.port) over VNC…")
         Task { [weak self] in
@@ -108,6 +152,11 @@ final class VNCDesktop {
                 made.onSurface = { [weak self] surface, width, height in
                     guard let self, current == attempt else { return }
                     size = CGSize(width: width, height: height)
+                    viewport.pixels = CGSize(width: width, height: height)
+                    if resizeTask != nil {
+                        resizeTask?.cancel(); resizeTask = nil
+                        resizeMessage = "Server desktop: \(width) × \(height)"
+                    }
                     view.show(surface)
                 }
                 made.onChange = { [weak self] in
@@ -121,33 +170,103 @@ final class VNCDesktop {
                 made.onConnected = { [weak self] in
                     guard let self, current == attempt else { return }
                     phase = .showing
+                    if Date().timeIntervalSince(connectedAt) >= 30 { retries = 0 }
+                    didConnect = true; connectedAt = Date()
+                    onConnected?()
                     startClipboard()
                 }
+                made.onResizeSupport = { [weak self] supported in
+                    guard let self, current == attempt else { return }
+                    supportsResize = supported
+                }
+                made.onCertificate = { [weak self] pem, reply in
+                    Task { @MainActor [weak self] in
+                        guard let self, current == attempt else { return reply(false) }
+                        await check(pem, launch: launch, current: current, reply: reply)
+                    }
+                }
                 made.onClipboard = { [weak self] text in
-                    guard let self, current == attempt, launch.options.clipboard else { return }
+                    guard let self, current == attempt, launch.options.clipboard, launch.options.receiveClipboard else { return }
                     pendingClipboard = text
                     if hasKeyboard() { receiveClipboard() }
                 }
                 made.onDisconnected = { [weak self] reason, code in
                     guard let self, current == attempt else { return }
                     clipboardWatch?.cancel(); clipboardWatch = nil
+                    view.releaseInput()
+                    let answer = certificateAnswer
+                    certificateAnswer = nil; certificateQuestion = nil
+                    answer?(false)
                     engine = nil
+                    supportsResize = false
                     view.show(nil)
                     if code == 2 || code == 3 {
                         phase = .connecting
                         askLogin(problem: reason)
                     } else {
-                        phase = .ended(reason)
-                        onEnded?(reason)
+                        failed(reason, retry: code == 1)
                     }
                 }
                 made.connect(launch, socket: socket)
             } catch {
                 guard current == attempt else { return }
                 let reason = String(describing: error)
-                phase = .ended(reason)
-                onEnded?(reason)
+                failed(reason, retry: true)
             }
+        }
+    }
+
+    private func failed(_ reason: String, retry: Bool) {
+        guard retry, didConnect, lastLaunch?.options.autoReconnect == true,
+              retries < reconnectDelays.count else {
+            phase = .ended(reason); onEnded?(reason); return
+        }
+        let delay = reconnectDelays[retries]
+        retries += 1
+        retryMessage = "Connection lost. Reconnecting in \(delay) s (\(retries)/\(reconnectDelays.count))…"
+        log?(retryMessage!)
+        phase = .connecting
+        let current = attempt
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, current == attempt else { return }
+            reconnectTask = nil
+            connect()
+        }
+    }
+    private func check(_ pem: String, launch: VNCLaunch, current: Int,
+                       reply: @escaping @Sendable (Bool) -> Void) async {
+        guard let certificate = RDPCertificate(pem: pem) else { return reply(false) }
+        let known = knownHosts.fingerprint(host: launch.host, port: launch.port)
+        if known == certificate.fingerprint { return reply(true) }
+        let problem = await certificate.systemDistrust(for: launch.host)
+        guard current == attempt else { return reply(false) }
+        // A changed pin always asks, even if the new certificate has a valid CA.
+        if known == nil, problem == nil { return reply(true) }
+        certificateQuestion = .init(host: launch.host, port: launch.port, subject: certificate.subject,
+                                    fingerprint: certificate.fingerprint,
+                                    problem: problem ?? "The saved certificate differs.", changed: known != nil)
+        certificateAnswer = { [weak self] trust in
+            if trust { self?.knownHosts.trust(certificate.fingerprint, host: launch.host, port: launch.port) }
+            reply(trust)
+        }
+    }
+    func answerCertificate(trust: Bool) {
+        let answer = certificateAnswer
+        certificateAnswer = nil; certificateQuestion = nil
+        answer?(trust)
+    }
+    func requestResolution(width: Int, height: Int) {
+        guard phase == .showing, supportsResize, !viewOnly, width >= 320, height >= 200,
+              width <= 8192, height <= 8192, width * height <= 16_777_216 else { return }
+        resizeTask?.cancel()
+        engine?.resize(width: width, height: height)
+        resizeMessage = "Requesting \(width) × \(height)…"
+        resizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self else { return }
+            resizeMessage = "The server did not change its resolution."
+            resizeTask = nil
         }
     }
 
@@ -169,6 +288,12 @@ final class VNCDesktop {
     }
     func sendControlAltDelete() { press([0xffe3, 0xffe9, 0xffff]) }
     func sendWindowsKey() { press([0xffeb]) }
+    var keyboard: VNCOptions.Keyboard { lastLaunch?.options.keyboard ?? .linux }
+    func edit(_ letter: UInt32) { press([keyboard == .macOS ? 0xffeb : 0xffe3, letter]) }
+    func redo() {
+        if keyboard == .macOS { press([0xffeb, 0xffe1, 0x7a]) }
+        else { press([0xffe3, 0x79]) }
+    }
 
     private func startClipboard() {
         guard lastLaunch?.options.clipboard == true else { return }
@@ -186,7 +311,8 @@ final class VNCDesktop {
     }
     func keyboardLeft() { view.releaseInput() }
     private func receiveClipboard() {
-        guard lastLaunch?.options.clipboard == true, let text = pendingClipboard else { return }
+        guard lastLaunch?.options.clipboard == true, lastLaunch?.options.receiveClipboard == true,
+              let text = pendingClipboard else { return }
         pendingClipboard = nil
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -194,6 +320,7 @@ final class VNCDesktop {
     }
     func offerClipboard(onPaste: Bool = false) {
         guard phase == .showing, !viewOnly, hasKeyboard(), lastLaunch?.options.clipboard == true,
+              lastLaunch?.options.sendClipboard == true,
               onPaste || pasteboard.changeCount != seenChange else { return }
         seenChange = pasteboard.changeCount
         guard RDPDesktop.mayShare(pasteboard.types ?? [], onPaste: onPaste),

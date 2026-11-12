@@ -8,11 +8,12 @@ enum VNCService {
 }
 
 @objc protocol VNCEngineProtocol {
-    func connect(socket: FileHandle, user: String, password: String, allowNoAuth: Bool,
-                 viewOnly: Bool, clipboard: Bool)
+    func connect(socket: FileHandle, host: String, user: String, password: String, allowNoAuth: Bool,
+                 viewOnly: Bool, clipboard: Bool, receiveClipboard: Bool, quality: Int, requireTLS: Bool)
     func key(_ keysym: Int, down: Bool)
     func pointer(x: Int, y: Int, buttons: Int)
     func clipboard(_ text: String)
+    func resize(width: Int, height: Int)
     func disconnect()
 }
 
@@ -23,6 +24,9 @@ enum VNCService {
     /// Straight-alpha RGBA; zero dimensions mean an invisible cursor.
     func cursorShape(_ rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int)
     func connected()
-    /// Codes: 1 transport/protocol, 2 password rejected, 3 ARD needs a user.
+    func resizeSupport(_ supported: Bool)
+    func verifyCertificate(_ pem: String, reply: @escaping @Sendable (Bool) -> Void)
+    /// Codes: 1 transport/protocol, 2 password rejected, 3 ARD needs a user,
+    /// 4 certificate rejected (never automatically retry).
     func disconnected(reason: String, code: Int)
 }

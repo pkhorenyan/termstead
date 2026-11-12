@@ -13,9 +13,16 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   VNC password and Apple Remote Desktop authentication, Keychain passwords,
   text clipboard sharing, view-only mode, and session import/export. The
   server's existing desktop scales to fit the pane. LibVNCClient runs in a
-  separate XPC process. Direct traffic is unencrypted; TLS-only VNC servers
-  are not supported yet. Unauthenticated servers require explicit opt-in.
+  separate XPC process. Unauthenticated servers require explicit opt-in.
 - A VNC server and sample sessions in the Docker test lab.
+- VNC Fit, 25–400% zoom with scrollbars, and full screen tab presentation
+  without changing the saved pane layout. Explicit server resolution requests
+  are available when the server advertises support.
+- VNC macOS/Windows/Linux keyboard profiles, Auto/Sharp/Fast picture profiles,
+  separate clipboard directions and bounded automatic reconnect after a drop.
+- VNC X.509 VeNCrypt TLS with macOS certificate and hostname checks, cancellable
+  in-tab trust questions, and separate saved fingerprints. Require TLS never
+  falls back to plaintext or anonymous TLS. The Docker lab also offers TLS.
 
 ### Changed
 

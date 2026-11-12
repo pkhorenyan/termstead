@@ -16,7 +16,7 @@ struct VNCPane: NSViewRepresentable {
         container.takesFocus = takesFocus
         if desktop.phase == .showing {
             container.inset = NSEdgeInsets()
-            container.mount(desktop.view)
+            container.mount(desktop.viewport)
         } else {
             TerminalStyle.apply(theme: theme, font: font, to: connection.terminalView)
             container.inset = NSEdgeInsets(top: 8, left: 12, bottom: 4, right: 4)
@@ -32,8 +32,37 @@ struct VNCQuestionView: View {
     @State private var user = ""
     @State private var password = ""
     @State private var save = true
+    @State private var scale = "100"
     var body: some View {
-        if let question = desktop.loginQuestion {
+        if let question = desktop.certificateQuestion {
+            ZStack {
+                theme.terminal.color.opacity(0.7)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(question.changed ? "The VNC server's certificate has changed" : "Trust this VNC server?")
+                        .font(SBFont.ui(15, .semibold)).foregroundStyle(theme.text.color)
+                    Text("\(question.host):\(question.port)\n\(question.subject)")
+                        .font(SBFont.ui(13)).foregroundStyle(theme.textSecondary.color)
+                    Text(question.problem).font(SBFont.ui(13)).foregroundStyle(theme.ansiRed.color)
+                    Text("SHA-256\n\(question.fingerprint)").font(SBFont.mono(11.5))
+                        .foregroundStyle(theme.text.color).textSelection(.enabled)
+                    Text(question.changed
+                         ? "A different certificate was trusted before. Check the new fingerprint with the server administrator before continuing."
+                         : "Check the fingerprint with the server administrator. Termstead remembers certificates you trust.")
+                        .font(SBFont.ui(12)).foregroundStyle(theme.textSecondary.color)
+                    HStack {
+                        Spacer()
+                        Button("Cancel") { desktop.answerCertificate(trust: false) }
+                            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 32, horizontalPadding: 14))
+                            .keyboardShortcut(.cancelAction)
+                        Button(question.changed ? "Trust New Certificate" : "Trust") { desktop.answerCertificate(trust: true) }
+                            .buttonStyle(PrimaryButtonStyle(theme: theme, height: 32, horizontalPadding: 16))
+                    }
+                }
+                .padding(22).frame(width: 440)
+                .background(RoundedRectangle(cornerRadius: 12).fill(theme.chrome.color))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border.color, lineWidth: 1))
+            }
+        } else if let question = desktop.loginQuestion {
             ZStack {
                 theme.terminal.color.opacity(0.7)
                 VStack(alignment: .leading, spacing: 14) {
@@ -42,7 +71,7 @@ struct VNCQuestionView: View {
                     if let problem = question.problem {
                         Text(problem).font(SBFont.ui(13)).foregroundStyle(theme.ansiRed.color)
                     }
-                    FormField(label: "User (Apple Remote Desktop only)") {
+                    FormField(label: "User (ARD or TLS username login)") {
                         SBTextField(text: $user, placeholder: "optional", font: SBFont.mono(13))
                     }
                     FormField(label: "Password") {
@@ -72,6 +101,32 @@ struct VNCQuestionView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border.color, lineWidth: 1))
             }
             .onChange(of: question, initial: true) { _, question in user = question.user; password = "" }
+        } else if desktop.asksScale {
+            ZStack {
+                theme.terminal.color.opacity(0.7)
+                VStack(alignment: .leading, spacing: 14) {
+                    FormField(label: "Desktop scale (25–400%)") {
+                        SBTextField(text: $scale, placeholder: "100", font: SBFont.mono(13), focusOnAppear: true)
+                    }
+                    HStack {
+                        Spacer()
+                        Button("Cancel") { desktop.asksScale = false }
+                            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 32, horizontalPadding: 14))
+                            .keyboardShortcut(.cancelAction)
+                        Button("Apply") {
+                            if let value = Int(scale), (25...400).contains(value) { desktop.setZoom(value) }
+                            desktop.asksScale = false
+                        }
+                        .buttonStyle(PrimaryButtonStyle(theme: theme, height: 32, horizontalPadding: 16))
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(Int(scale).map { !(25...400).contains($0) } ?? true)
+                    }
+                }
+                .padding(22).frame(width: 300)
+                .background(RoundedRectangle(cornerRadius: 12).fill(theme.chrome.color))
+                .foregroundStyle(theme.text.color)
+            }
+            .onAppear { scale = String(desktop.zoom == 0 ? 100 : desktop.zoom) }
         }
     }
 }

@@ -1,0 +1,30 @@
+--- a/src/libvncclient/rfbclient.c
++++ b/src/libvncclient/rfbclient.c
+@@ -1701,8 +1701,8 @@
+ rfbBool
+ SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
+ {
+-  rfbSetDesktopSizeMsg sdm;
+-  rfbExtDesktopScreen screen;
++  rfbSetDesktopSizeMsg sdm = {0};
++  rfbExtDesktopScreen screen = client->screen;
+ 
+   if (client->screen.width == 0 && client->screen.height == 0 ) {
+     rfbClientLog("Screen not yet received from server - not sending dimensions %dx%d\n", width, height);
+@@ -2162,14 +2162,14 @@
+           if (!ReadFromRFBServer(client, ((char *)&screen), sz_rfbExtDesktopScreen)) {
+             return FALSE;
+           }
+-          if (screen.id != 0 && screen.width && screen.height) {
++          if (screen.width && screen.height) {
+             client->screen = screen;
+           } else {
+             invalidScreen = TRUE;
+           }
+         }
+ 
+-        if (!invalidScreen && (client->width != rect.r.w || client->height != rect.r.h)) {
++        if (!invalidScreen && rect.r.y == 0 && (client->width != rect.r.w || client->height != rect.r.h)) {
+           if(!ResizeClientBuffer(client, rect.r.w, rect.r.h)) {
+             return FALSE;
+           }

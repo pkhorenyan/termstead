@@ -75,10 +75,15 @@
   — macOS ships no telnet of its own any more, so Termstead brings one.
 - **VNC desktops in tabs** (unreleased). Connect directly or through SSH jump
   hosts using a VNC password or Apple Remote Desktop credentials. The server's
-  existing desktop fits the pane; keyboard, mouse, text clipboard and a
-  view-only mode are supported. VNC settings and saved passwords travel with
-  session exports. Direct VNC screen traffic is unencrypted; use a trusted
-  network or SSH jump hosts. TLS-only VNC servers are not supported yet.
+  existing desktop fits the pane or scrolls at a chosen scale. Use View for
+  100%, zoom, a full screen tab, or an explicit server resolution request
+  (when supported). Option-scroll pans the local viewport; ordinary scrolling
+  reaches the remote app. macOS, Windows and Linux keyboard profiles, Auto /
+  Sharp / Fast picture profiles, directional text clipboard, view-only mode
+  and bounded automatic reconnect are available in session settings.
+  Require TLS uses X.509 VeNCrypt with certificate and hostname verification;
+  Standard VNC needs a trusted network or SSH jump hosts. Settings and saved
+  passwords travel with session exports.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -160,9 +165,15 @@ against the project's signing key before it is installed.
 - VNC runs in its own **LibVNCClient** process. Standard VNC password and
   Apple Remote Desktop authentication are supported; classic VNC passwords
   use only their first eight bytes. Servers with no authentication need an
-  explicit opt-in. Screen and input traffic is not encrypted; SSH jump hosts
-  protect it up to the last hop. VNC text clipboard sharing can be disabled
-  and only shares your Mac's clipboard while the desktop has the keyboard.
+  explicit opt-in. Standard VNC screen traffic is unencrypted; SSH jump hosts
+  protect it up to the last hop. Require TLS refuses plaintext and anonymous
+  TLS: it needs an X.509 VeNCrypt server. macOS verifies the certificate for
+  the destination host; an untrusted or changed certificate asks in the tab.
+  Approved fingerprints are saved separately from RDP. Text clipboard has
+  independent send and receive controls and only shares while the desktop
+  has the keyboard. Edit commands use Command on a remote Mac and Control
+  on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
+  Auto and Sharp preserve full color. No profile uses lossy JPEG.
 - Session logs are written only when you ask, to a folder you choose
   (`~/Documents/Termstead Logs` at first), readable only by you.
 - Sessions and snippets are stored in `~/Library/Application Support/Termstead/`

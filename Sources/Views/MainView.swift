@@ -51,11 +51,11 @@ struct MainView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if themeStore.sidebarSide == .left {
-                    if !appState.isSidebarHidden { sidebar }
+                    if !appState.isSidebarHidden && !connectionStore.presentsDesktop { sidebar }
                     mainColumn
                 } else {
                     mainColumn
-                    if !appState.isSidebarHidden { sidebar }
+                    if !appState.isSidebarHidden && !connectionStore.presentsDesktop { sidebar }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -72,16 +72,29 @@ struct MainView: View {
             // exactly on the titlebar's lower edge.
             .overlay(alignment: .top) { Divider1(theme.border) }
 
-            StatusBarView()
-                .frame(height: Metrics.statusBarHeight)
-                .background(theme.chrome.color)
-                .overlay(alignment: .top) { Divider1(theme.border) }
+            if !connectionStore.presentsDesktop {
+                StatusBarView()
+                    .frame(height: Metrics.statusBarHeight)
+                    .background(theme.chrome.color)
+                    .overlay(alignment: .top) { Divider1(theme.border) }
+            }
         }
         // The safe-area inset is kept: the titlebar is a real one, and the
         // content belongs below it. This is the only background that reaches
         // the titlebar strip (see `.clipped()` above), so it sets the strip's
         // tone — the sidebar's, which the strip has always shown beside it.
         .background(theme.sidebar.color)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            connectionStore.presentsDesktop = false
+        }
+        .onChange(of: connectionStore.activeID) { _, _ in
+            if connectionStore.presentsDesktop, connectionStore.active?.vnc == nil {
+                connectionStore.presentsDesktop = false
+                if let window = NSApp.keyWindow, window.styleMask.contains(.fullScreen) {
+                    window.toggleFullScreen(nil)
+                }
+            }
+        }
         .background(
             WindowConfigurator(theme: theme,
                                toolbarHeight: Metrics.toolbarHeight,

@@ -124,6 +124,7 @@ extension SessionStore {
             // The lab's xrdp desktop, directly and through the bastion.
             rdpSession(id: "lab-rdp", user: "lab", host: "127.0.0.1", port: 3390, jumps: []),
             vncSession(id: "lab-vnc", host: "127.0.0.1", port: 5901, jumps: []),
+            vncSession(id: "lab-vnc-tls", host: "127.0.0.1", port: 5901, jumps: [], tls: true),
             vncSession(id: "lab-vnc-via-bastion", host: "vnc", port: 5900,
                        jumps: [JumpHost(host: "lab-bastion")]),
             // Another user, so both desktops can be open at once: xrdp keeps
@@ -134,7 +135,7 @@ extension SessionStore {
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [
                 .session("lab-direct"), .session("lab-direct-password"), .session("lab-direct-passphrase"),
-                .session("lab-rdp"), .session("lab-vnc"), .session("lab-telnet"), .session("lab-telnet-via-bastion"),
+                .session("lab-rdp"), .session("lab-vnc"), .session("lab-vnc-tls"), .session("lab-telnet"), .session("lab-telnet-via-bastion"),
             ])),
             .group(SessionGroup(id: "testlab-jump", name: "Through jump hosts", colorID: "blue", children: [
                 .session("lab-bastion"), .session("lab-app-1-jump"), .session("lab-db-2-jumps"),
@@ -152,11 +153,12 @@ extension SessionStore {
         return session
     }
 
-    private static func vncSession(id: String, host: String, port: Int, jumps: [JumpHost]) -> Session {
+    private static func vncSession(id: String, host: String, port: Int, jumps: [JumpHost], tls: Bool = false) -> Session {
         var session = Session(id: id, user: "", host: host, port: port, icon: .monitor,
                               auth: .password, jumps: jumps)
         session.kind = .vnc
         session.vnc = VNCOptions()
+        if tls { session.vnc.security = .tls }
         return session
     }
 

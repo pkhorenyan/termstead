@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import IOSurface
+import SwiftUI
 import Testing
 @testable import Termstead
 
@@ -12,6 +13,13 @@ struct VNCSessionTests {
         session.kind = .vnc
         session.vnc.viewOnly = true
         session.vnc.clipboard = false
+        session.vnc.zoom = 175
+        session.vnc.keyboard = .macOS
+        session.vnc.quality = .fast
+        session.vnc.security = .tls
+        session.vnc.sendClipboard = false
+        session.vnc.receiveClipboard = false
+        session.vnc.autoReconnect = false
         return session
     }
     @Test func optionsAndCredentialsRoundTripThroughEncryptedExport() throws {
@@ -126,6 +134,182 @@ struct VNCLabTests {
         while !predicate(), Date() < deadline { try? await Task.sleep(for: .milliseconds(50)) }
     }
     private func launch() -> VNCLaunch { VNCLaunch(session: SessionStore.sample().session("lab-vnc")!, password: "lab") }
+    @Test func viewportAndKeyboardSurvivePresentingAndRestoringSplitPanes() async throws {
+        let store = ConnectionStore()
+        store.setLayout(.sideBySide)
+        let settings = launch()
+        let tab = Connection(sessionID: "lab-vnc", title: "VNC", address: "lab", keyDescription: "VNC", kind: .vnc)
+        store.add(tab)
+        defer { store.close(tab.id) }
+        tab.start(settings)
+        let desktop = try #require(tab.vnc)
+        await wait { desktop.phase == .showing }
+        try #require(desktop.phase == .showing)
+        desktop.setZoom(175)
+        let host = NSHostingView(rootView: PaneLayoutView()
+            .environment(store).environment(ThemeStore()).environment(SessionStore.sample())
+            .environment(AppState()).environment(\.theme, Theme.graphite))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1100, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(desktop.view.window === window && window.firstResponder === desktop.view)
+        desktop.view.scroll(CGPoint(x: 100, y: 100))
+        let origin = desktop.viewport.contentView.bounds.origin
+        store.presentsDesktop = true
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(store.layout == .sideBySide && desktop.zoom == 175)
+        #expect(desktop.view.window === window && window.firstResponder === desktop.view)
+        #expect(desktop.viewport.contentView.bounds.origin == origin)
+        store.presentsDesktop = false
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(store.layout == .sideBySide && desktop.zoom == 175)
+        #expect(desktop.view.window === window && window.firstResponder === desktop.view)
+        #expect(desktop.viewport.contentView.bounds.origin == origin)
+    }
+    @Test(arguments: [false, true])
+    func tlsRequiresCertificateApprovalBeforeConnecting(_ approve: Bool) async throws {
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var settings = launch(); settings.options.security = .tls
+        var asked = false; var connected = false; var code: Int?
+        engine.onCertificate = { pem, reply in
+            asked = RDPCertificate(pem: pem) != nil
+            #expect(!connected)
+            reply(approve)
+        }
+        engine.onConnected = { connected = true }
+        engine.onDisconnected = { _, result in code = result }
+        engine.connect(settings, socket: try await RDPSocket.connect(host: "127.0.0.1", port: 5901))
+        await wait { connected || code != nil }
+        #expect(asked)
+        #expect(connected == approve)
+        #expect(code == (approve ? nil : 4))
+    }
+    @Test func classicAndTLSLoginsCanAlternateInOneEngineProcess() async throws {
+        for tls in [false, true, false, true] {
+            let engine = VNCEngineConnection()
+            var settings = launch()
+            settings.options.security = tls ? .tls : .standard
+            var connected = false; var error: String?
+            engine.onCertificate = { _, reply in reply(true) }
+            engine.onConnected = { connected = true }
+            engine.onDisconnected = { reason, _ in error = reason }
+            engine.connect(settings, socket: try await RDPSocket.connect(host: "127.0.0.1", port: 5901))
+            await wait { connected || error != nil }
+            #expect(connected, "TLS=\(tls): \(error ?? "no error")")
+            engine.close()
+        }
+    }
+    @Test func tlsTrustIsRememberedAndChangedPinsAskAgain() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vnc-cert-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        desktop.knownHosts = RDPKnownHosts(url: folder.appendingPathComponent("known_hosts"))
+        var settings = launch(); settings.options.security = .tls
+        func start() { desktop.start(settings) { try await RDPSocket.connect(host: "127.0.0.1", port: 5901) } }
+        start()
+        await wait { desktop.certificateQuestion != nil || desktop.phase != .connecting }
+        let question = try #require(desktop.certificateQuestion)
+        #expect(!question.changed && desktop.phase != .showing)
+        desktop.answerCertificate(trust: true)
+        await wait { desktop.phase == .showing }
+        #expect(desktop.phase == .showing)
+        #expect(desktop.knownHosts.fingerprint(host: "127.0.0.1", port: 5901) == question.fingerprint)
+        desktop.stop(); start()
+        await wait { desktop.phase == .showing || desktop.certificateQuestion != nil }
+        #expect(desktop.phase == .showing && desktop.certificateQuestion == nil)
+        desktop.stop()
+        desktop.knownHosts.trust("another certificate", host: "127.0.0.1", port: 5901)
+        start()
+        await wait { desktop.certificateQuestion != nil }
+        #expect(desktop.certificateQuestion?.changed == true)
+        desktop.answerCertificate(trust: false)
+        await wait { desktop.phase != .connecting }
+        #expect(desktop.phase != .showing && desktop.retryMessage == nil)
+    }
+    @Test func closingWhileCertificateApprovalIsPendingDoesNotReconnect() async throws {
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vnc-close-cert-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        desktop.knownHosts = RDPKnownHosts(url: folder.appendingPathComponent("known_hosts"))
+        var settings = launch(); settings.options.security = .tls
+        desktop.start(settings) { try await RDPSocket.connect(host: "127.0.0.1", port: 5901) }
+        await wait { desktop.certificateQuestion != nil || desktop.phase != .connecting }
+        try #require(desktop.certificateQuestion != nil)
+        desktop.stop()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(desktop.certificateQuestion == nil && desktop.phase == .ended(""))
+        await open(desktop)
+        #expect(desktop.phase == .showing)
+    }
+    @Test(arguments: VNCOptions.Quality.allCases)
+    func qualityProfilesProduceVisiblePixels(_ profile: VNCOptions.Quality) async throws {
+        let engine = VNCEngineConnection()
+        defer { engine.close() }
+        var settings = launch(); settings.options.quality = profile
+        var surface: IOSurface?; var painted = false
+        engine.onSurface = { made, _, _ in surface = made }
+        engine.onChange = { painted = true }
+        engine.connect(settings, socket: try await RDPSocket.connect(host: "127.0.0.1", port: 5901))
+        func visiblePixels() -> Int {
+            guard let pixels = surface else { return 0 }
+            pixels.lock(options: .readOnly, seed: nil)
+            defer { pixels.unlock(options: .readOnly, seed: nil) }
+            var count = 0
+            for y in stride(from: 0, to: pixels.height, by: 32) {
+                for x in stride(from: 0, to: pixels.width, by: 32) {
+                    let value = pixels.baseAddress.advanced(by: pixels.bytesPerRow * y + x * 4).load(as: UInt32.self)
+                    if value & 0xff000000 == 0xff000000, value & 0x00ffffff != 0 { count += 1 }
+                }
+            }
+            return count
+        }
+        // The first update can contain only a cursor shape. Wait for pixels,
+        // not just FinishedFrameBufferUpdate or one particular screen point.
+        await wait { painted && visiblePixels() > 100 }
+        #expect(visiblePixels() > 100)
+    }
+    @Test func lostTransportReconnectsButRepeatedFailuresAreBounded() async throws {
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        desktop.reconnectDelays = [0, 0]
+        var attempts = 0; var socket: FileHandle?; var ended = 0
+        desktop.onEnded = { _ in ended += 1 }
+        desktop.start(launch()) {
+            attempts += 1
+            if attempts > 1 { throw CocoaError(.fileReadUnknown) }
+            let made = try await RDPSocket.connect(host: "127.0.0.1", port: 5901)
+            socket = made
+            return made
+        }
+        await wait { desktop.phase == .showing }
+        try #require(desktop.phase == .showing)
+        shutdown(try #require(socket).fileDescriptor, SHUT_RDWR)
+        await wait { ended > 0 }
+        #expect(attempts == 3 && ended == 1)
+        #expect(desktop.phase != .connecting && desktop.phase != .showing)
+    }
+    @Test func serverResolutionChangesOnlyAfterAnExplicitRequest() async throws {
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        await open(desktop)
+        await wait { desktop.supportsResize }
+        try #require(desktop.supportsResize)
+        desktop.setZoom(200)
+        #expect(desktop.size == CGSize(width: 1280, height: 800))
+        desktop.requestResolution(width: 1440, height: 900)
+        await wait { desktop.size == CGSize(width: 1440, height: 900) }
+        #expect(desktop.size == CGSize(width: 1440, height: 900))
+        desktop.requestResolution(width: 1280, height: 800)
+        await wait { desktop.size == CGSize(width: 1280, height: 800) }
+        #expect(desktop.size == CGSize(width: 1280, height: 800))
+    }
     private func open(_ desktop: VNCDesktop) async {
         desktop.start(launch()) { try await RDPSocket.connect(host: "127.0.0.1", port: 5901) }
         await wait { desktop.phase == .showing || desktop.loginQuestion != nil || desktop.phase != .connecting }
@@ -136,7 +320,7 @@ struct VNCLabTests {
         await open(desktop)
         #expect(desktop.phase == .showing)
         #expect(desktop.size == CGSize(width: 1280, height: 800))
-        #expect(desktop.view.layer?.contents != nil)
+        #expect(desktop.view.layer?.sublayers?.first?.contents != nil)
         desktop.stop()
         #expect(desktop.size == nil)
         await open(desktop)
@@ -189,19 +373,22 @@ struct VNCLabTests {
         engine.onSurface = { made, _, _ in surface = made }
         engine.onChange = { changed = true }
         engine.connect(launch(), socket: try await RDPSocket.connect(host: "127.0.0.1", port: 5901))
-        await wait { changed }
-        let frame = try #require(surface)
-        frame.lock(options: .readOnly, seed: nil)
-        let stride = frame.bytesPerRow / 4
-        let pixels = frame.baseAddress.bindMemory(to: UInt32.self, capacity: stride * frame.height)
-        var colored = 0
-        for y in Swift.stride(from: 0, to: frame.height, by: 8) {
-            for x in Swift.stride(from: 0, to: frame.width, by: 8) {
-                if pixels[y * stride + x] & 0x00ffffff != 0 { colored += 1 }
+        func coloredPixels() -> Int {
+            guard let frame = surface else { return 0 }
+            frame.lock(options: .readOnly, seed: nil)
+            defer { frame.unlock(options: .readOnly, seed: nil) }
+            let stride = frame.bytesPerRow / 4
+            let pixels = frame.baseAddress.bindMemory(to: UInt32.self, capacity: stride * frame.height)
+            var colored = 0
+            for y in Swift.stride(from: 0, to: frame.height, by: 8) {
+                for x in Swift.stride(from: 0, to: frame.width, by: 8) {
+                    if pixels[y * stride + x] & 0x00ffffff != 0 { colored += 1 }
+                }
             }
+            return colored
         }
-        frame.unlock(options: .readOnly, seed: nil)
-        #expect(colored > 100)
+        await wait { changed && coloredPixels() > 100 }
+        #expect(coloredPixels() > 100)
     }
     @Test func twoViewersStayIndependent() async throws {
         let first = VNCDesktop(), second = VNCDesktop()

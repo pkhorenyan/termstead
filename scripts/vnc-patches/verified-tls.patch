@@ -1,0 +1,117 @@
+--- a/include/rfb/rfbclient.h
++++ b/include/rfb/rfbclient.h
+@@ -489,6 +489,8 @@
+ 
+         /* flag to indicate wheter updateRect is managed by lib or user */
+         rfbBool isUpdateRectManagedByLib;
++        /* Termstead: verify the peer chain before sending any credentials. */
++        rfbBool (*VerifyX509Certificate)(struct _rfbClient *, const char *pem);
+ } rfbClient;
+ 
+ /* cursor.c */
+--- a/src/libvncclient/tls_openssl.c
++++ b/src/libvncclient/tls_openssl.c
+@@ -247,6 +247,14 @@
+     return FALSE;
+ }
+ 
++/* The host app evaluates the chain using macOS trust, including hostname,
++ * expiration and saved pins. OpenSSL must complete the handshake to obtain
++ * that chain; no VNC authentication bytes are sent until the app approves. */
++static int defer_verification(int preverified, X509_STORE_CTX *ctx) {
++  (void)preverified; (void)ctx;
++  return 1;
++}
++
+ static SSL *
+ open_ssl_connection (rfbClient *client, int sockfd, rfbBool anonTLS, rfbCredential *cred)
+ {
+@@ -263,6 +271,7 @@
+   }
+ 
+   param = X509_VERIFY_PARAM_new();
++  if (client->VerifyX509Certificate) SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION);
+ 
+   /* Setup verification if not anonymous */
+   if (!anonTLS)
+@@ -312,7 +321,7 @@
+       }
+     }
+ 
+-    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
++    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, client->VerifyX509Certificate ? defer_verification : NULL);
+ 
+     if (verify_crls == rfbX509CrlVerifyClient) 
+       X509_VERIFY_PARAM_set_flags(param, X509_V_FLAG_CRL_CHECK);
+@@ -351,6 +360,7 @@
+   }
+ 
+   SSL_set_fd (ssl, sockfd);
++  SSL_set_tlsext_host_name(ssl, client->serverHost);
+   SSL_CTX_set_app_data (ssl_ctx, client);
+ 
+   do
+@@ -369,7 +379,32 @@
+     }
+   } while( n != 1 && finished != 1 );
+ 
++  if (client->VerifyX509Certificate) {
++    BIO *pem = BIO_new(BIO_s_mem());
++    X509 *leaf = SSL_get1_peer_certificate(ssl);
++    STACK_OF(X509) *chain = SSL_get_peer_cert_chain(ssl);
++    rfbBool accepted = FALSE;
++    if (pem && leaf && PEM_write_bio_X509(pem, leaf)) {
++      int i;
++      for (i = 0; chain && i < sk_X509_num(chain); ++i) {
++        X509 *cert = sk_X509_value(chain, i);
++        if (X509_cmp(cert, leaf) != 0) PEM_write_bio_X509(pem, cert);
++      }
++      BIO_write(pem, "", 1);
++      char *bytes;
++      long length = BIO_get_mem_data(pem, &bytes);
++      if (length > 0 && length < 1048576)
++        accepted = client->VerifyX509Certificate(client, bytes);
++    }
++    X509_free(leaf);
++    BIO_free(pem);
++    if (!accepted) {
++      rfbClientLog("The server certificate was not trusted.\n");
++      goto error_free_ssl;
++    }
++  }
+   X509_VERIFY_PARAM_free(param);
++  SSL_CTX_free(ssl_ctx); /* SSL_new retained its own reference. */
+   return ssl;
+ 
+ error_free_ssl:
+@@ -463,6 +498,12 @@
+     {
+         if (!ReadFromRFBServer(client, (char *)&tAuth[loop], 4)) return FALSE;
+         t=rfbClientSwap32IfLE(tAuth[loop]);
++        if (client->clientAuthSchemes) {
++          int i;
++          for (i=0; client->clientAuthSchemes[i]; ++i)
++            if (client->clientAuthSchemes[i] == t) break;
++          if (!client->clientAuthSchemes[i]) { tAuth[loop]=t; continue; }
++        }
+         rfbClientLog("%d) Received security type %d\n", loop, t);
+         if (t==rfbNoAuth ||
+             t==rfbVncAuth ||
+@@ -551,7 +592,7 @@
+   }
+   rfbClientLog("Got VeNCrypt version %d.%d from server.\n", (int)major, (int)minor);
+ 
+-  if (major != 0 && minor != 2)
++  if (major != 0 || minor != 2)
+   {
+     rfbClientLog("Unsupported VeNCrypt version.\n");
+     return FALSE;
+@@ -676,7 +717,7 @@
+       ssl_error = SSL_get_error (client->tlsSession, ret);
+     UNLOCK(client->tlsRwMutex);
+ 
+-    if (ret == 0) continue;
++    if (ret == 0) return -1;
+     if (ret < 0)
+     {
+       errno = ssl_error_to_errno(ssl_error);

@@ -160,7 +160,7 @@ struct SessionSheet: View {
 
             // Telnet has no user of its own: the server asks on screen.
             if kind != .telnet {
-                FormField(label: kind == .vnc ? "User (Apple Remote Desktop only)" : "User") {
+                FormField(label: kind == .vnc ? "User (ARD or TLS username login)" : "User") {
                     SBTextField(text: $user, placeholder: kind == .vnc ? "optional" : "deploy", font: SBFont.mono(13))
                 }
             }
@@ -367,11 +367,41 @@ struct SessionSheet: View {
         if kind == .vnc {
             VStack(alignment: .leading, spacing: 16) {
                 passwordFields
-                InsetNote(text: "The server's existing desktop is scaled to fit this tab. Use its VNC password, or a user and password for Apple Remote Desktop. Classic VNC passwords use only the first 8 bytes.")
+                InsetNote(text: "Use the server's VNC password, or a user and password for Apple Remote Desktop or TLS username login. Classic VNC passwords use only the first 8 bytes.")
+                FormField(label: "Keyboard") {
+                    SegmentedPicker(options: VNCOptions.Keyboard.allCases, selection: $vnc.keyboard,
+                                    label: \.label, title: "Remote keyboard")
+                }
+                InsetNote(text: "Copy, paste and other Edit commands use Command on macOS and Control on Windows and Linux. App shortcuts stay local.")
+                FormField(label: "Picture") {
+                    SegmentedPicker(options: VNCOptions.Quality.allCases, selection: $vnc.quality,
+                                    label: \.label, title: "VNC picture quality")
+                }
+                InsetNote(text: "Auto balances compression and speed. Sharp preserves all colors with stronger compression. Fast uses fewer colors and lighter compression. All profiles avoid JPEG artifacts.")
+                FormField(label: "Scale") {
+                    Picker("Scale", selection: $vnc.zoom) {
+                        Text("Fit tab").tag(0)
+                        ForEach(VNCDesktop.zoomSteps, id: \.self) { Text("\($0)%").tag($0) }
+                        if vnc.zoom != 0, !VNCDesktop.zoomSteps.contains(vnc.zoom) {
+                            Text("\(vnc.zoom)%").tag(vnc.zoom)
+                        }
+                    }.labelsHidden()
+                }
                 checkbox("View only", isOn: $vnc.viewOnly)
                 checkbox("Share text clipboard", isOn: $vnc.clipboard)
+                if vnc.clipboard {
+                    checkbox("Mac → server", isOn: $vnc.sendClipboard)
+                    checkbox("Server → Mac", isOn: $vnc.receiveClipboard)
+                }
+                checkbox("Reconnect after connection loss", isOn: $vnc.autoReconnect)
+                FormField(label: "Transport") {
+                    SegmentedPicker(options: VNCOptions.Security.allCases, selection: $vnc.security,
+                                    label: \.label, title: "VNC transport security")
+                }
                 checkbox("Allow servers without authentication", isOn: $vnc.allowNoAuth)
-                InsetNote(text: "VNC screen and input traffic is not encrypted. Use a trusted network or SSH jump hosts; SSH protects the route up to the last jump host. TLS-only VNC servers are not supported yet.")
+                InsetNote(text: vnc.security == .tls
+                    ? "Requires VeNCrypt with an X.509 server certificate, checked by macOS or explicitly trusted here. Anonymous TLS and plain connections are refused."
+                    : "Standard VNC screen traffic is unencrypted. Use a trusted network or SSH jump hosts, or choose Require TLS if your server supports X.509 VeNCrypt.")
                 jumpHostsSection
             }
         } else if kind == .rdp {

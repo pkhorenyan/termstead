@@ -1,8 +1,8 @@
 import AppKit
 import IOSurface
 
-/// A server-sized framebuffer, fitted to the pane without changing the
-/// desktop shared by other VNC viewers. Mouse coordinates use the same fit.
+/// One framebuffer at Fit or a fixed scale, without changing the shared
+/// server desktop. Rendering, mouse coordinates and cursor use one rectangle.
 final class VNCDesktopView: NSView {
     weak var desktop: VNCDesktop?
     private var surface: IOSurface?
@@ -16,13 +16,28 @@ final class VNCDesktopView: NSView {
     private var cursorShape: RDPPointer.Shape?
     private var cursorIsHidden = false
     private var madeCursor: NSCursor?
+    /// In Fit mode the whole pane is the drawing area; at a fixed zoom the
+    /// document can be larger in just one direction, leaving centered margins.
+    var shownRect: CGRect {
+        guard let surface else { return bounds }
+        if let zoom = desktop?.zoom, zoom > 0 {
+            let size = CGSize(width: CGFloat(surface.width) * CGFloat(zoom) / 100,
+                              height: CGFloat(surface.height) * CGFloat(zoom) / 100)
+            return CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
+                          width: size.width, height: size.height)
+        }
+        return RDPPointer.shownRect(of: CGSize(width: surface.width, height: surface.height), in: bounds.size)
+    }
+    private let imageLayer = CALayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.contentsGravity = .resizeAspect
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.isOpaque = true
+        imageLayer.contentsGravity = .resize
+        imageLayer.magnificationFilter = .nearest
+        layer?.addSublayer(imageLayer)
     }
     required init?(coder: NSCoder) { fatalError("not used") }
     override var isFlipped: Bool { true }
@@ -42,7 +57,13 @@ final class VNCDesktopView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        if changed { cursorChanged() }
+        if changed { updateImageFrame() }
+    }
+    func updateImageFrame() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        imageLayer.frame = shownRect
+        CATransaction.commit()
+        cursorChanged()
     }
     func showCursor(rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
         if width == 0 || height == 0 {
@@ -61,7 +82,7 @@ final class VNCDesktopView: NSView {
         if cursorIsHidden {
             result = RDPPointer.hidden
         } else if let cursorShape, let surface {
-            result = cursorShape.cursor(scale: RDPPointer.scale(of: CGSize(width: surface.width, height: surface.height), in: bounds.size))
+            result = cursorShape.cursor(scale: shownRect.width / CGFloat(surface.width))
         } else {
             result = .arrow
         }
@@ -81,8 +102,9 @@ final class VNCDesktopView: NSView {
     func surfaceChanged() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.contents = nil
-        layer?.contents = surface
+        imageLayer.frame = shownRect
+        imageLayer.contents = nil
+        imageLayer.contents = surface
         CATransaction.commit()
     }
     override func viewDidMoveToWindow() {
@@ -146,8 +168,11 @@ final class VNCDesktopView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         // Clicks in the letterbox do not land on the server's nearest edge.
         if button != 0, down,
-           !RDPPointer.shownRect(of: CGSize(width: surface.width, height: surface.height), in: bounds.size).contains(point) { return }
-        lastPointer = RDPPointer.pixel(at: point, desktop: CGSize(width: surface.width, height: surface.height), bounds: bounds.size)
+           !shownRect.contains(point) { return }
+        let rect = shownRect
+        guard rect.width > 0, rect.height > 0 else { return }
+        lastPointer = (min(max(Int((point.x - rect.minX) * CGFloat(surface.width) / rect.width), 0), surface.width - 1),
+                       min(max(Int((point.y - rect.minY) * CGFloat(surface.height) / rect.height), 0), surface.height - 1))
         if down { buttons |= button } else { buttons &= ~button }
         desktop?.pointer(x: lastPointer.x, y: lastPointer.y, buttons: buttons | scroll)
         if scroll != 0 { desktop?.pointer(x: lastPointer.x, y: lastPointer.y, buttons: buttons) }
@@ -167,6 +192,11 @@ final class VNCDesktopView: NSView {
     override func otherMouseDown(with event: NSEvent) { if event.buttonNumber == 2 { move(event, button: 2, down: true) } }
     override func otherMouseUp(with event: NSEvent) { if event.buttonNumber == 2 { move(event, button: 2) } }
     override func scrollWheel(with event: NSEvent) {
+        // Option-scroll pans the local viewport; an ordinary wheel still
+        // scrolls the remote application, including at 100% zoom.
+        if event.modifierFlags.contains(.option), enclosingScrollView != nil {
+            super.scrollWheel(with: event); return
+        }
         wheelUnits += wheel.steps(for: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas).reduce(0, +)
         while abs(wheelUnits) >= 120 {
             let up = wheelUnits > 0
@@ -181,12 +211,12 @@ final class VNCDesktopView: NSView {
         }
     }
     override func menu(for event: NSEvent) -> NSMenu? { nil }
-    private func edit(_ letter: UInt32) { desktop?.press([0xffe3, letter]) }
+    private func edit(_ letter: UInt32) { desktop?.edit(letter) }
     @objc func copy(_ sender: Any?) { edit(0x63) }
     @objc func cut(_ sender: Any?) { edit(0x78) }
     @objc func paste(_ sender: Any?) { desktop?.offerClipboard(onPaste: true); edit(0x76) }
     @objc override func selectAll(_ sender: Any?) { edit(0x61) }
     @objc func undo(_ sender: Any?) { edit(0x7a) }
-    @objc func redo(_ sender: Any?) { edit(0x79) }
+    @objc func redo(_ sender: Any?) { desktop?.redo() }
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool { desktop?.phase == .showing && desktop?.viewOnly == false }
 }

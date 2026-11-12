@@ -212,8 +212,8 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   interrupts partial reads; SO_NOSIGPIPE prevents closing one desktop from
   killing the shared VNC engine. Changed rectangles are copied into a shared
   BGRA IOSurface, with opaque alpha, and shown by the app's layer.
-  Drain `rfbClient.buffered` before waiting on the socket: LibVNCClient reads
-  ahead, and waiting for another network packet can strand a complete frame.
+  Drain `rfbClient.buffered` and `SSL_pending` before waiting on the socket:
+  both libraries read ahead, so select can strand a complete message.
 - **VNC cursors are local.** Advertise RichCursor/XCursor with
   `useRemoteCursor`, convert BGRA plus the decoded mask to RGBA, and send only
   the shape and hot spot through XPC. The app caches a native cursor at the
@@ -223,19 +223,47 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   resizes invalidating the view's cursor rectangles, as in the RDP view.
 - `Sources/VNC/` owns the tab's lifecycle, login questions, view, RFB keysyms
   (including Unicode), pointer mapping and text clipboard. The server's
-  framebuffer is scaled to fit the tab; the shared server desktop is not
-  resized. Desktop dimensions are capped at 8192 per edge and 16M pixels.
+  framebuffer fits the tab or lives in `VNCViewport` at 25–400% with native
+  scrollbars. Option-scroll pans locally; ordinary scroll is remote. Rendering,
+  cursor scale and pointer coordinates share `shownRect`. The persistent
+  viewport moves with the tab; `TerminalPane.Container.keyboardView` focuses
+  its document view. `presentsDesktop` hides other panes/chrome without
+  modifying the layout; native fullscreen exit restores it.
+  Server resizing is explicit, capability-gated and unavailable in view-only
+  mode. Desktop dimensions are capped at 8192 per edge and 16M pixels.
 - Authentication is restricted to VNC password and Apple ARD, with an
   explicit option for no authentication. The patch applies the same allowlist
-  to RFB 3.3 as to 3.7/3.8. TLS/VeNCrypt are deliberately not selected until
-  server certificate verification is integrated. The session form explains
-  the plain transport and classic VNC's eight-byte password limit.
+  to RFB 3.3 as to 3.7/3.8. Standard mode retains that policy. Require TLS
+  permits VeNCrypt X509VNC/X509Plain (username required) and explicitly opted
+  in X509None only. `verified-tls.patch` filters VeNCrypt subtypes and delivers
+  the peer PEM chain before VNC credentials. macOS evaluates the original
+  destination name, including through jump hosts, using `RDPCertificate`.
+  VNC pins use `vnc_known_hosts`, separate from RDP. Changed pins always ask.
+  Closing a tab cancels the engine's certificate semaphore under a lock.
+  OpenSSL's deferred verification callback is safe only because the post-TLS
+  app verification must succeed before authentication; keep that ordering.
+  Pin OpenSSL's default provider for the engine's lifetime: the upstream DES
+  helpers load/unload providers on classic VNC login, disabling automatic
+  provider fallback and leaving later SSL_CTX_new without ciphers otherwise.
+  Test alternating classic/TLS logins in the same engine process.
+- Auto uses full color/ZRLE with compression 2, Sharp full color/compression 6,
+  Fast reduced RGB565 color ranges/compression 1 (32-bit storage on the wire).
+  Convert to BGRA in a separate display buffer: never change the decoder's
+  framebuffer, which CopyRect and subsequent updates still use. Cursor
+  channels use the same pixel-format maxima. No JPEG is compiled in.
+- Clipboard directions are enforced in both app and engine. Keyboard profiles
+  map Edit commands to Super/Command on macOS, Control on Windows/Linux;
+  app shortcuts stay local. `VNCDesktop` retries drops only after a successful
+  connection, at 2/5/10/30/60 seconds, then ends. Authentication and certificate
+  failures ask/stop, never retry automatically. Stopping cancels retries.
 - `Session.vncOptions` is optional for old-file compatibility. Session
   archives already preserve protocol-specific fields and passwords. VNC is
   excluded from snippets, broadcast input, SFTP and terminal Find.
 - The lab's `vnc` service reuses the RDP image's Xfce installation, adding
   TigerVNC only: localhost:5901 directly, vnc:5900 through lab-bastion,
-  password `lab`. `lab-vnc` and `lab-vnc-via-bastion` are sample sessions.
+  password `lab`. `lab-vnc`, `lab-vnc-tls` (self-signed X.509) and
+  `lab-vnc-via-bastion` are sample sessions. Only rebuilding the VNC image is
+  needed for entrypoint changes; do not discard the cached RDP base.
 - `VNCSessionTests`, `VNCProtocolTests` and `VNCLabTests` cover persistence,
   encrypted transfer, legacy authentication policy, malformed dimensions,
   pixels, real connections and reconnects, jump hosts, keyboard and clipboard.

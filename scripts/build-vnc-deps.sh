@@ -38,7 +38,8 @@ cmake -S "$SOURCE" -B "$WORK/build" -G Ninja \
     -DWITH_SDL=OFF -DWITH_GTK=OFF -DWITH_QT=OFF -DWITH_XCB=OFF \
     -DWITH_FFMPEG=OFF -DWITH_SYSTEMD=OFF -DWITH_LIBSSHTUNNEL=OFF \
     -DWITH_EXAMPLES=OFF -DWITH_TESTS=OFF > "$WORK/configure.log"
-cmake --build "$WORK/build" --target vncclient -j "$(sysctl -n hw.ncpu)" > "$WORK/build.log"
+VNC_JOBS=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+cmake --build "$WORK/build" --target vncclient -j "$VNC_JOBS" > "$WORK/build.log"
 mkdir -p "$OUT/lib" "$OUT/include/rfb"
 cp "$WORK/build/libvncclient.a" "$OUT/lib/"
 cp "$SOURCE/include/rfb/"*.h "$WORK/build/include/rfb/"*.h "$OUT/include/rfb/"
