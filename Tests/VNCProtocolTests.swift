@@ -9,6 +9,7 @@ private final class VNCFakeServer: @unchecked Sendable {
     enum Scenario: Sendable, Equatable {
         case legacyNoAuth, rawFrame, oversized, cursorShapes, unsafeVeNCrypt, partialFrame
         case disabledEncoding(UInt32)
+        case authenticationFailure(String)
     }
     private let lock = NSLock()
     private var initialized = false
@@ -73,6 +74,12 @@ private final class VNCFakeServer: @unchecked Sendable {
                 } else {
                     try write([1, 1])
                     _ = try read(1)
+                    if case .authenticationFailure(let reason) = scenario {
+                        let text = Array(reason.utf8)
+                        let length = [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: text.count >> $0) }
+                        try write([0, 0, 0, 1] + length + text)
+                        return
+                    }
                     try write([0, 0, 0, 0])
                 }
                 _ = try read(1)
@@ -158,6 +165,18 @@ struct VNCProtocolTests {
     private func wait(_ condition: () -> Bool) async {
         let deadline = Date().addingTimeInterval(8)
         while !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(25)) }
+    }
+    @Test(arguments: ["Authentication or authorization failure", "authentication failed", "AUTHENTICATION FAILURE"])
+    func authenticationFailuresAskForCorrectedCredentials(_ reason: String) async throws {
+        let peer = try VNCFakeServer(.authenticationFailure(reason))
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        var ended = false
+        desktop.onEnded = { _ in ended = true }
+        desktop.start(launch(allowNone: true)) { peer.socket }
+        await wait { desktop.loginQuestion != nil || desktop.phase != .connecting }
+        #expect(desktop.loginQuestion?.problem != nil)
+        #expect(desktop.phase == .connecting && desktop.retryMessage == nil && !ended)
     }
     @Test(arguments: [UInt32(9), UInt32(0xffff0009)])
     func ultraAndUltraZipAreRejectedEvenWhenTheServerIgnoresOurEncodings(_ encoding: UInt32) async throws {

@@ -297,8 +297,9 @@ const char *tsv_error(tsv_session *s) { return s->error; }
 int tsv_error_code(tsv_session *s) {
     if (s->needs_user) return 3;
     if (s->certificate_rejected) return 4;
-    return strstr(s->error, "authentication failed") || strstr(s->error, "Authentication failed") ||
-           strstr(s->error, "Authentication failure") ? 2 : 1;
+    return strcasestr(s->error, "authentication failed") ||
+           strcasestr(s->error, "authentication failure") ||
+           strcasestr(s->error, "authentication or authorization failure") ? 2 : 1;
 }
 void tsv_free(tsv_session *s) {
     if (!s) return;

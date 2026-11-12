@@ -35,6 +35,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A password rejected by macOS Screen Sharing opens the VNC login prompt
+  again, rather than being reported as a generic connection failure.
 - Reject unused Ultra/UltraZip encodings before decoding, including when a
   server sends them without negotiation. This blocks the vulnerable bundled
   UltraZip parser (GHSA-87q7-v983-qwcj).
