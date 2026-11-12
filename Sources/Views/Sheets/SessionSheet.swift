@@ -320,14 +320,16 @@ struct SessionSheet: View {
             HStack(spacing: 12) {
                 FormLabel("Color")
                 Spacer(minLength: 0)
-                Toggle(isOn: $logs) {
-                    Text("Log to file")
-                        .font(SBFont.ui(13))
-                        .foregroundStyle(theme.text.color)
+                if kind.hasTerminal {
+                    Toggle(isOn: $logs) {
+                        Text("Log to file")
+                            .font(SBFont.ui(13))
+                            .foregroundStyle(theme.text.color)
+                    }
+                    .toggleStyle(.checkbox)
+                    .tint(theme.accent.color)
+                    .help("Each tab of this session writes its output to the log folder (Settings ▸ Terminal ▸ Logs).")
                 }
-                .toggleStyle(.checkbox)
-                .tint(theme.accent.color)
-                .help("Each tab of this session writes its output to the log folder (Settings ▸ Terminal ▸ Logs).")
                 Toggle(isOn: $pinToTop) {
                     Text("Pin to top")
                         .font(SBFont.ui(13))
@@ -945,7 +947,7 @@ struct SessionSheet: View {
             colorID: colorID
         )
         session.kind = kind
-        session.logs = logs
+        session.logs = kind.hasTerminal && logs
         switch kind {
         case .rdp:
             session.rdp = rdpOptionsToSave

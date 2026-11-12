@@ -652,7 +652,7 @@ final class Connection: Identifiable {
     /// Starts writing the output to a new file in `folder`. A failure is
     /// said in the terminal, and the tab goes on without a log.
     func startLog(in folder: URL) {
-        guard log == nil else { return }
+        guard kind.hasTerminal, log == nil else { return }
         do {
             let made = try SessionLog(folder: folder, title: title, address: address)
             log = made

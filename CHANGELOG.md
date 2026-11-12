@@ -26,6 +26,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Hide terminal logging controls for RDP and VNC sessions and ignore their
+  saved automatic logging setting. Logging remains available for terminals.
 - Refresh the README screenshots for 0.8.2. The RDP demo hides Xfce's
   bottom dock and places its windows fully inside the remote desktop.
 

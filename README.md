@@ -47,9 +47,9 @@
   Sessions and SFTP and sent with a double-click or ⌃⌥1–⌃⌥9 to the tab in
   front — or to every pane with broadcast input. A snippet can stop short
   of Return, to finish the command by hand.
-- **Session logs.** A tab's output to a plain-text file with the time on
-  each line — no colors or control codes — for a session always, or for any
-  tab when you choose.
+- **Terminal session logs.** An SSH, Telnet or local terminal's output to a
+  plain-text file with the time on each line — no colors or control codes —
+  for a session always, or for any terminal tab when you choose.
 - **Tabs come back by themselves.** A connection dropped by sleep, Wi-Fi or
   a VPN reconnects on its own once there is a network again; `exit` stays
   closed.
@@ -174,7 +174,7 @@ against the project's signing key before it is installed.
   has the keyboard. Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
   Auto and Sharp preserve full color. No profile uses lossy JPEG.
-- Session logs are written only when you ask, to a folder you choose
+- Terminal session logs are written only when you ask, to a folder you choose
   (`~/Documents/Termstead Logs` at first), readable only by you.
 - Sessions and snippets are stored in `~/Library/Application Support/Termstead/`
   (`sessions.json`, `snippets.json`). Nothing is sent anywhere: no accounts,
