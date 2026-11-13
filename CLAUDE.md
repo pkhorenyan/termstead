@@ -303,7 +303,15 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   does not protect against a delayed native notification after focus settles.
   Apply that protection only when uploads are allowed: receive-only and
   view-only sessions must still receive the remote clipboard normally.
-  After an upload, allow the native agent's input handoff to settle (3 s),
+  File Paste always uses Command-V for the native Apple transport, even if
+  the session's general keyboard profile is Linux/Windows. The previous
+  profile-based Control-V branch was a confirmed bug (regression fails
+  before the fix). Keep the live file test on the default keyboard profile.
+  `FileCopy.done` means transport completion; `paste` separately records
+  waiting/sent/cancelled. A sent shortcut does not confirm a Finder insertion.
+  Unified-log category `VNCFiles` records stages, revision and focus only;
+  never log file paths or clipboard contents. After an upload, allow the
+  native agent's input handoff to settle (3 s),
   repeat the last pointer position/buttons, and pace the synthetic macOS
   Paste chord (100 ms between pointer, modifier, letter, and modifier release).
   The combination is needed: a delay alone or SetMode did not fix Finder
@@ -327,11 +335,15 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   `TestLab/macos/lab.py up --open` prepares a persistent, host-only VM under
   **`TestLab/.state/macos`**, never `/tmp`. `lab.py down` retains its disk and
   downloaded image. Do not delete or prune them without Pavel's instruction.
-  **Paused on 2026-11-13 at Pavel's request:** manual host-to-Mac file and
+  **Resumed on 2026-11-13:** manual host-to-Mac file and
   folder copying still fails despite the automated tests passing. Do not
   consider this feature fixed. Resume with the real Finder workflow and
   `test_rdp` reproduction. Preserve the VM disk and downloaded image across
   session exits; stop the VM without deleting its storage.
+  The follow-up fixed the wrong Paste modifier but manual GUI acceptance
+  and drag integration remain outstanding. Headless `screencapture` failed
+  and System Events timed out; do not claim the user's workflow is fixed
+  on the strength of the named-pasteboard tests alone.
   `TestLab/macos/test.py` runs native text and file transfers in both directions
   with generated test-run environment settings, plus clipboard/file regressions.
   Leave a gap between live connections so the native agent releases input and

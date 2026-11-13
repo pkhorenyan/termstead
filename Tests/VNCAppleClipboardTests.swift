@@ -308,10 +308,13 @@ struct VNCAppleClipboardTests {
         try await Task.sleep(for: .milliseconds(650))
         #expect(peer.receivedFilePackets.isEmpty && peer.requests == 0)
         #expect((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [file])
-        desktop.edit(0x76)
+        desktop.view.paste(nil)
         await wait { desktop.fileCopy?.done == true && peer.receivedKeys.contains(0x76) }
         #expect(desktop.fileCopy?.done == true && desktop.fileCopy?.error == nil)
         #expect(peer.receivedFileOffers.count == 1 && peer.receivedKeys.contains(0x76))
+        #expect(peer.receivedKeys.contains(0xffeb), "Native Mac file paste must use Command even with the default Linux keyboard profile")
+        #expect(!peer.receivedKeys.contains(0xffe3))
+        #expect(desktop.fileCopy?.paste == .sent)
     }
     @Test(arguments: [false, true])
     func remoteNotificationsDoNotReplaceLocalFinderFilesBeforePaste(_ fileOffer: Bool) async throws {
@@ -402,6 +405,7 @@ struct VNCAppleClipboardTests {
         try await Task.sleep(for: .milliseconds(200))
         #expect(peer.receivedKeyReleases.contains(0xffeb))
         #expect(!peer.receivedKeys.contains(0x76), "A stale or unfocused upload must not paste")
+        #expect(desktop.fileCopy?.paste == .cancelled)
     }
     @Test func cancelledUploadDoesNotPublishOrPasteAndTextClipboardRecovers() async throws {
         let root = URL.temporaryDirectory.appendingPathComponent("termstead-files-cancel-\(UUID())")

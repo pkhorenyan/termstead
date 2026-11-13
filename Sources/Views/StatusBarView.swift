@@ -168,7 +168,14 @@ struct VNCTransferStatusItem: View {
     }
     private func label(_ copy: VNCDesktop.FileCopy) -> String {
         if copy.error != nil { return "Copying files failed" }
-        if copy.done { return "Files ready to paste" }
+        if copy.done {
+            if !copy.sending { return "Files ready to paste" }
+            switch copy.paste {
+            case .waiting: return "Files uploaded · sending Paste…"
+            case .sent: return "Files uploaded · Paste sent"
+            case .cancelled, nil: return "Files uploaded · Paste cancelled"
+            }
+        }
         let bytes = ByteCountFormatter.string(fromByteCount: copy.copied, countStyle: .file)
         return "Copying files… \(bytes)"
     }

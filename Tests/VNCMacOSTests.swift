@@ -85,7 +85,9 @@ struct VNCMacOSTests {
         desktop.pasteboard = board; desktop.hasKeyboard = { focused }
         var session = Session(id: "native-mac-files", user: env["TERMSTEAD_MACOS_VNC_USER"] ?? "admin",
                               host: host, port: port, icon: .monitor, auth: .password)
-        session.kind = .vnc; session.vnc.autoReconnect = false; session.vnc.keyboard = .macOS
+        // Deliberately retain the default Linux keyboard profile: native
+        // file paste must still use Finder's Command-V, not Control-V.
+        session.kind = .vnc; session.vnc.autoReconnect = false
         desktop.start(VNCLaunch(session: session, password: env["TERMSTEAD_MACOS_VNC_PASSWORD"] ?? "admin")) {
             try await RDPSocket.connect(host: host, port: port)
         }

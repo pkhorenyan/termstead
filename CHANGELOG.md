@@ -7,6 +7,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Native macOS VNC file uploads now send Finder's Command-V even when the
+  session uses the default Linux keyboard profile. Upload completion and
+  the subsequent Paste request have separate status messages; sending Paste
+  does not claim that Finder inserted the files.
+
 ### Added
 
 - File and folder uploads to native macOS VNC servers, plus experimental

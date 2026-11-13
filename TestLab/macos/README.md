@@ -47,3 +47,21 @@ but Pavel reports that manual host-to-Mac file and folder copying still fails
 (2026-11-13). Investigation is paused at his request. Resume with the real
 Finder workflow and `test_rdp`; keep the VM disk and downloaded image across
 session exits.
+
+File-transfer diagnostics are available in macOS unified logging:
+
+```sh
+log stream --level info --predicate 'subsystem == "com.pavelkhorenyan.Termstead" AND category == "VNCFiles"'
+```
+
+Events distinguish Paste dispatch, upload requests, transport completion,
+scheduled/sent Paste and cancellation. They include only attempt/revision
+numbers and focus state, never file paths or clipboard contents. A sent Paste
+chord is not confirmation that Finder inserted the files. Native file Paste
+always uses Command-V, including with the default Linux keyboard profile.
+
+The 2026-11-13 follow-up reproduced and fixed the wrong-modifier bug with a
+failing-before/passing-after regression. The live test intentionally keeps
+the default profile. Manual GUI reproduction and native drag integration are
+still outstanding; headless automation must not be presented as manual
+acceptance. Preserve the existing VM and cache for the next interactive run.

@@ -1,6 +1,7 @@
 import AppKit
 import IOSurface
 import Observation
+import OSLog
 
 struct VNCLaunch: Equatable, Sendable {
     var host: String
@@ -33,12 +34,14 @@ final class VNCDesktop {
     private(set) var certificateQuestion: RDPDesktop.CertificateQuestion?
     private(set) var retryMessage: String?
     struct FileCopy: Equatable {
+        enum Paste: Equatable { case waiting, sent, cancelled }
         var revision: Int
         var sending: Bool
         var copied: Int64 = 0
         var total: Int64 = 0
         var done = false
         var error: String?
+        var paste: Paste?
     }
     private(set) var fileCopy: FileCopy?
     private(set) var supportsFiles = false
@@ -46,6 +49,10 @@ final class VNCDesktop {
     @ObservationIgnored private var lastPointer: (x: Int, y: Int, buttons: Int)?
     @ObservationIgnored private var filePasteTask: Task<Void, Never>?
     @ObservationIgnored private var filePasteModifier: UInt32?
+    @ObservationIgnored private let fileLogger = Logger(subsystem: "com.pavelkhorenyan.Termstead", category: "VNCFiles")
+    private func traceFiles(_ event: String) {
+        fileLogger.info("\(event, privacy: .public) attempt=\(self.attempt) revision=\(self.pasteboard.changeCount) focused=\(self.hasKeyboard())")
+    }
     @ObservationIgnored private var receivedFileURLs: [String] = []
     private(set) var supportsResize = false
     private(set) var resizeMessage: String?
@@ -227,6 +234,7 @@ final class VNCDesktop {
                 made.onFilesReady = { [weak self] urls, revision, sending, error in
                     guard let self, current == attempt, fileCopy?.revision == revision, fileCopy?.sending == sending else { return }
                     guard pasteboard.changeCount == revision else { dismissFileCopy(); return }
+                    traceFiles(error.isEmpty ? "transport-complete" : "transport-failed")
                     if !error.isEmpty { fileCopy?.error = error; pendingFilePaste = nil; return }
                     fileCopy?.done = true
                     if sending {
@@ -383,6 +391,7 @@ final class VNCDesktop {
     func sendWindowsKey() { press([0xffeb]) }
     var keyboard: VNCOptions.Keyboard { lastLaunch?.options.keyboard ?? .linux }
     func edit(_ letter: UInt32) {
+        if letter == 0x76 { traceFiles("paste-requested") }
         if letter == 0x63 || letter == 0x78 {
             cancelFilePaste(); pendingFilePaste = nil
             // Explicit remote Copy/Cut may replace a pending local file copy.
@@ -398,13 +407,20 @@ final class VNCDesktop {
         engine?.cancelFiles(); fileCopy = nil; pendingFilePaste = nil
     }
     private func cancelFilePaste() {
+        if fileCopy?.paste == .waiting {
+            fileCopy?.paste = .cancelled
+            traceFiles("paste-cancelled")
+        }
         filePasteTask?.cancel(); filePasteTask = nil
         if let modifier = filePasteModifier { send(modifier, down: false) }
         filePasteModifier = nil
     }
     private func pasteUploadedFiles(revision: Int) {
-        guard keyboard == .macOS else { press([0xffe3, 0x76]); return }
+        // File transport is currently native Apple only. Its destination is
+        // always Finder, regardless of the user's general keyboard profile.
         cancelFilePaste()
+        fileCopy?.paste = .waiting
+        traceFiles("paste-scheduled")
         let current = attempt
         filePasteTask = Task { [weak self] in
             // Allow the native agent's input/clipboard handoff to settle,
@@ -428,6 +444,8 @@ final class VNCDesktop {
             guard hasKeyboard(), pasteboard.changeCount == revision,
                   phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
             send(0x76, down: true); send(0x76, down: false)
+            fileCopy?.paste = .sent
+            traceFiles("paste-chord-sent")
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             guard !Task.isCancelled, current == attempt else { return }
             cancelFilePaste()
@@ -457,6 +475,7 @@ final class VNCDesktop {
         updateClipboardFocus()
     }
     func keyboardLeft() {
+        if fileCopy != nil { traceFiles("focus-lost") }
         cancelFilePaste()
         view.releaseInput()
         if let launch = lastLaunch, launch.options.clipboard {
@@ -509,11 +528,13 @@ final class VNCDesktop {
             // merely because the user focused a remote desktop.
             guard onPaste else { return false }
             guard supportsFiles else {
+                traceFiles("upload-unsupported")
                 fileCopy = FileCopy(revision: seenChange, sending: true,
                     error: "Termstead supports file uploads only with native macOS Screen Sharing. File transfer for this VNC server is not supported in Termstead. Use an SSH/SFTP connection to transfer these files.")
                 return true
             }
             if fileCopy?.revision != seenChange || fileCopy?.sending != true || fileCopy?.done != false || fileCopy?.error != nil {
+                traceFiles("upload-requested")
                 fileCopy = FileCopy(revision: seenChange, sending: true)
                 engine?.clipboardFocus(true, revision: seenChange, fetch: false)
                 engine?.uploadFiles(urls, revision: seenChange)
