@@ -167,18 +167,32 @@ static void apple_fetch(tsv_session *s) {
     const uint8_t fetch[8] = {0x0b};
     apple_write(s, fetch, sizeof(fetch));
 }
-void tsv_clipboard_focus(tsv_session *s, bool active, int64_t revision) {
+void tsv_clipboard_focus(tsv_session *s, bool active, int64_t revision, bool fetch) {
     bool changed = s->clipboard_revision != revision;
     bool arrived = active && !s->clipboard_focused;
     s->clipboard_focused = active;
     s->clipboard_revision = revision;
     if (!active || changed) s->fetch_stale = true;
-    if (arrived || (active && changed)) apple_fetch(s);
+    if (!fetch && (arrived || changed)) s->fetch_again = false;
+    if (fetch && (arrived || (active && changed))) apple_fetch(s);
 }
 static rfbBool read_apple_message(rfbClient *client, rfbServerToClientMsg *message) {
     tsv_session *s = owner(client);
     if (!s || !s->apple) return FALSE;
     uint8_t header[16] = {message->type};
+    if (message->type == 0x22) {
+        if (!ReadFromRFBServer(client, (char *)header + 1, 5)) return FALSE;
+        size_t length = apple_u32(header + 2);
+        if (length < 8 || length > 131072) return FALSE;
+        uint8_t *packet = malloc(length + 6);
+        if (!packet) return FALSE;
+        memcpy(packet, header, 6);
+        bool okay = ReadFromRFBServer(client, (char *)packet + 6, (unsigned int)length);
+        if (okay && s->callbacks.file_message)
+            s->callbacks.file_message(s->callbacks.context, packet, length + 6);
+        free(packet);
+        return okay;
+    }
     if (message->type == 0x14) {
         if (!ReadFromRFBServer(client, (char *)header + 1, 3)) return FALSE;
         unsigned int length = (unsigned int)header[2] << 8 | header[3];
@@ -196,25 +210,29 @@ static rfbBool read_apple_message(rfbClient *client, rfbServerToClientMsg *messa
     if (!data) return FALSE;
     bool okay = ReadFromRFBServer(client, (char *)data, (unsigned int)length);
     char *text = NULL;
+    char *files = NULL;
     int text_length = 0;
     if (okay && s->receive_clipboard && s->clipboard_focused)
-        okay = tsv_apple_clipboard_unpack(data, length, expanded, &text, &text_length);
+        okay = tsv_apple_clipboard_unpack(data, length, expanded, &text, &text_length, &files);
     free(data);
-    if (!okay) { free(text); return FALSE; }
+    if (!okay) { free(text); free(files); return FALSE; }
     int64_t revision = s->fetch_pending ? s->requested_revision : s->clipboard_revision;
-    if (text && !s->fetch_stale && header[2] == 0 && s->clipboard_focused)
+    if (files && !s->fetch_stale && header[2] == 0 && s->clipboard_focused && s->callbacks.files)
+        s->callbacks.files(s->callbacks.context, files, revision);
+    else if (text && !s->fetch_stale && header[2] == 0 && s->clipboard_focused)
         s->callbacks.clipboard(s->callbacks.context, text, text_length, true, revision);
     free(text);
+    free(files);
     s->fetch_pending = false;
     if (s->fetch_again) { s->fetch_again = false; apple_fetch(s); }
     return !s->apple_failed;
 }
 static rfbBool apple_message(rfbClient *client, rfbServerToClientMsg *message) {
     tsv_session *s = owner(client);
-    if (!s || !s->apple || (message->type != 0x14 && message->type != 0x1f)) return FALSE;
+    if (!s || !s->apple || (message->type != 0x14 && message->type != 0x1f && message->type != 0x22)) return FALSE;
     if (!read_apple_message(client, message)) {
         s->apple_failed = true;
-        snprintf(s->error, sizeof(s->error), "Invalid Apple VNC clipboard message.");
+        snprintf(s->error, sizeof(s->error), "Invalid Apple VNC message.");
     }
     /* This type was consumed, even when malformed. FALSE means unhandled to
        LibVNCClient, which would attempt another blocking diagnostic read. */
@@ -393,6 +411,22 @@ void tsv_clipboard(tsv_session *s, const char *utf8, int utf8_length, const char
     }
     if (!SendClientCutTextUTF8(s->client, (char *)utf8, utf8_length))
         SendClientCutText(s->client, (char *)latin1, latin1_length);
+}
+bool tsv_is_apple(tsv_session *s) { return s->apple; }
+bool tsv_file_message(tsv_session *s, const uint8_t *data, size_t length, bool sending) {
+    if (!s->apple || length < 18 || length > 131078 || data[0] != 0x22 ||
+        apple_u32(data + 2) != length - 6) return false;
+    if (sending ? (!s->clipboard || s->view_only) : !s->receive_clipboard) return false;
+    return apple_write(s, data, length);
+}
+void tsv_clipboard_files(tsv_session *s, const char *urls, size_t length) {
+    if (!s->apple || !s->clipboard || s->view_only) return;
+    uint8_t *packet;
+    size_t size;
+    if (!tsv_apple_clipboard_pack_files(urls, length, &packet, &size)) return;
+    if (s->fetch_pending) { s->fetch_stale = true; s->fetch_again = true; }
+    apple_write(s, packet, size);
+    free(packet);
 }
 const char *tsv_error(tsv_session *s) { return s->error; }
 int tsv_error_code(tsv_session *s) {

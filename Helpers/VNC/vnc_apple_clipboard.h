@@ -11,5 +11,6 @@
    ClientCutText's legacy TEXT flavor. Buffers returned here are owned. */
 bool tsv_apple_clipboard_pack(const char *text, size_t length, uint8_t **packet, size_t *size);
 bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t expanded,
-                                char **text, int *text_length);
+                                char **text, int *text_length, char **file_urls);
+bool tsv_apple_clipboard_pack_files(const char *urls, size_t length, uint8_t **packet, size_t *size);
 #endif

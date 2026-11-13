@@ -390,7 +390,8 @@ struct SessionSheet: View {
                     }.labelsHidden()
                 }
                 checkbox("View only", isOn: $vnc.viewOnly)
-                checkbox("Share text clipboard", isOn: $vnc.clipboard)
+                checkbox("Share clipboard", isOn: $vnc.clipboard)
+                    .help("Share text with VNC servers; also files and folders with macOS Screen Sharing.")
                 if vnc.clipboard {
                     checkbox("Mac → server", isOn: $vnc.sendClipboard)
                     checkbox("Server → Mac", isOn: $vnc.receiveClipboard)

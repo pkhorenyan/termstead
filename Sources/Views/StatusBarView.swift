@@ -63,6 +63,7 @@ struct StatusBarView: View {
 
                 TunnelStatusItem()
                 RDPTransferStatusItem()
+                VNCTransferStatusItem()
 
                 if themeStore.showServerLoad, let load = tab.serverLoad {
                     ServerLoadView(load: load, theme: theme)
@@ -141,6 +142,35 @@ struct StatusBarView: View {
         case .exited: "Disconnected"
         case .failed: "Could not connect"
         }
+    }
+}
+
+struct VNCTransferStatusItem: View {
+    @Environment(\.theme) private var theme
+    @Environment(ConnectionStore.self) private var connectionStore
+    var body: some View {
+        if let desktop = connectionStore.connections.compactMap(\.vnc).first(where: { $0.fileCopy != nil }),
+           let copy = desktop.fileCopy {
+            HStack(spacing: 6) {
+                Label(label(copy), systemImage: copy.error != nil ? "exclamationmark.triangle" :
+                      copy.done ? "checkmark" : copy.sending ? "arrow.up.doc" : "arrow.down.doc")
+                    .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
+                    .foregroundStyle(copy.error != nil ? theme.ansiRed.color : theme.accent.color)
+                    .help(copy.error ?? (copy.sending ? "Copying files to the remote Mac" : "Copying files to the Mac's clipboard"))
+                Button { desktop.dismissFileCopy() } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .help(copy.done || copy.error != nil ? "Dismiss" : "Stop copying")
+            }
+            .fixedSize().layoutPriority(2)
+        }
+    }
+    private func label(_ copy: VNCDesktop.FileCopy) -> String {
+        if copy.error != nil { return "Copying files failed" }
+        if copy.done { return "Files ready to paste" }
+        let bytes = ByteCountFormatter.string(fromByteCount: copy.copied, countStyle: .file)
+        return "Copying files… \(bytes)"
     }
 }
 

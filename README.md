@@ -79,11 +79,16 @@
   100%, zoom, a full screen tab, or an explicit server resolution request
   (when supported). Option-scroll pans the local viewport; ordinary scrolling
   reaches the remote app. macOS, Windows and Linux keyboard profiles, Auto /
-  Sharp / Fast picture profiles, directional text clipboard, view-only mode
+  Sharp / Fast picture profiles, directional clipboard, view-only mode
   and bounded automatic reconnect are available in session settings.
   Require TLS uses X.509 VeNCrypt with certificate and hostname verification;
   Standard VNC needs a trusted network or SSH jump hosts. Settings and saved
   passwords travel with session exports.
+  With native macOS Screen Sharing, copy and paste files and folders between
+  Macs as well as Unicode text. Local files upload on ⌘V; incoming files become
+  Finder-pasteable after downloading. The status bar shows progress and Cancel.
+  Symbolic links are not followed; each copy supports up to 64 selections,
+  10,000 items and 100 GB. Other VNC servers share text only.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -169,9 +174,12 @@ against the project's signing key before it is installed.
   protect it up to the last hop. Require TLS refuses plaintext and anonymous
   TLS: it needs an X.509 VeNCrypt server. macOS verifies the certificate for
   the destination host; an untrusted or changed certificate asks in the tab.
-  Approved fingerprints are saved separately from RDP. Text clipboard has
-  independent send and receive controls and only shares while the desktop
-  has the keyboard, including Unicode text with macOS Screen Sharing servers.
+  Approved fingerprints are saved separately from RDP. Clipboard has
+  independent send and receive controls. Text sync and file-copy initiation
+  require keyboard focus; an initiated file copy can finish in the background.
+  Native macOS Screen Sharing supports Unicode text and files; other servers
+  share text only. Files travel over the same VNC connection, including through
+  jump hosts, and completed downloads remain pasteable after closing the tab.
   Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
   Auto and Sharp preserve full color. No profile uses lossy JPEG.

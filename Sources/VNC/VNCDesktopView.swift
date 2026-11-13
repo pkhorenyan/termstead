@@ -217,7 +217,7 @@ final class VNCDesktopView: NSView {
     private func edit(_ letter: UInt32) { desktop?.edit(letter) }
     @objc func copy(_ sender: Any?) { edit(0x63) }
     @objc func cut(_ sender: Any?) { edit(0x78) }
-    @objc func paste(_ sender: Any?) { desktop?.offerClipboard(onPaste: true); edit(0x76) }
+    @objc func paste(_ sender: Any?) { edit(0x76) }
     @objc override func selectAll(_ sender: Any?) { edit(0x61) }
     @objc func undo(_ sender: Any?) { edit(0x7a) }
     @objc func redo(_ sender: Any?) { desktop?.redo() }

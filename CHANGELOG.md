@@ -9,6 +9,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- File and folder clipboard copying in both directions with native macOS VNC
+  servers, over the authenticated desktop connection and SSH jump hosts.
+  Streamed data and resource forks, Unicode names, modification dates,
+  progress and cancellation. Local file uploads begin only on explicit Paste.
 - VNC sessions in tabs and split panes, directly or through SSH jump hosts.
   VNC password and Apple Remote Desktop authentication, Keychain passwords,
   text clipboard sharing, view-only mode, and session import/export. The

@@ -281,6 +281,23 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   identical echoes must not rewrite the clipboard. Do not poll the server.
   Protocol reference: https://github.com/renegadelink/iShareScreen/blob/main/src/isharescreen/proxy/protocol/clipboard.py
   Verified on native macOS 26.6.2, including Unicode and focus transitions.
+  File URLs use the same archive; contents use Apple's RFB type 0x22, not
+  text, SSH/SFTP, a second socket, or a guest helper. `VNCFileMessage` describes
+  the wire and `VNCFileUpload`/`VNCFileDownloadStream` stream 64 KB blocks.
+  Kind 200 confirms uploads: its argument is **i16 status + u16 name length**,
+  followed by the UTF-8 destination name and NUL. Kind **5** stops/releases a
+  copy (kind 3 pauses). Do not publish remote staging URLs or send Paste before
+  a successful confirmation. Downloaded files stay in their private temp
+  directory after tab close; incomplete copies are removed. Local file URLs
+  suppress a focus-triggered clipboard fetch, which would otherwise replace
+  the Finder selection with the old remote text before an explicit Paste.
+  Server change notifications still fetch normally. Clipboard directions,
+  focus, local generations and view-only mode are checked on both sides of XPC.
+  `scripts/test-vnc-files-native.py` verifies both streams against temporary,
+  ad-hoc-signed copies of macOS's own file-copy helpers without changing
+  system files or enabling sharing. These helpers are never used by the app.
+  The probe covers nested folders, binary data, Unicode, empty files and
+  resource forks. Keep this native oracle alongside the socket-peer/XPC tests.
   `VNCMacOSTests` is opt-in: set `TERMSTEAD_MACOS_VNC_HOST` (optional `_PORT`,
   `_USER`, `_PASSWORD`, default 5900/admin/admin) and
   `TERMSTEAD_MACOS_VNC_SSH_CONFIG` in the test scheme's environment. The SSH

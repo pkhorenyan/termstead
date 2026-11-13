@@ -8,6 +8,28 @@ static const char utf8_type[] = "public.utf8-plain-text";
 static void put32(uint8_t *p, uint32_t value) {
     p[0] = value >> 24; p[1] = value >> 16; p[2] = value >> 8; p[3] = value;
 }
+static bool pack_archive(const uint8_t *raw, size_t raw_length, uint8_t **packet, size_t *size) {
+    *packet = NULL; *size = 0;
+    size_t capacity = compressBound(raw_length) + 16;
+    uint8_t *out = calloc(16 + capacity, 1);
+    z_stream stream = {0};
+    bool initialized = false, okay = false;
+    if (!out || deflateInit(&stream, Z_DEFAULT_COMPRESSION) != Z_OK) goto done;
+    initialized = true;
+    stream.next_in = (Bytef *)raw; stream.avail_in = (uInt)raw_length;
+    stream.next_out = out + 16; stream.avail_out = (uInt)capacity;
+    if (deflate(&stream, Z_SYNC_FLUSH) != Z_OK || stream.avail_in || !stream.avail_out) goto done;
+    out[0] = 0x1f;
+    put32(out + 8, (uint32_t)raw_length);
+    put32(out + 12, (uint32_t)stream.total_out);
+    *packet = out; *size = 16 + stream.total_out;
+    okay = true;
+done:
+    if (initialized) deflateEnd(&stream);
+    if (!okay) free(out);
+    return okay;
+}
+
 bool tsv_apple_clipboard_pack(const char *text, size_t length, uint8_t **packet, size_t *size) {
     *packet = NULL; *size = 0;
     if (length > TSV_CLIPBOARD_TEXT_LIMIT || (!text && length)) return false;
@@ -21,24 +43,37 @@ bool tsv_apple_clipboard_pack(const char *text, size_t length, uint8_t **packet,
     put32(raw + 12 + type_length, 0); /* No aliases. */
     put32(raw + 16 + type_length, (uint32_t)length);
     if (length) memcpy(raw + 20 + type_length, text, length);
-    size_t capacity = compressBound(raw_length) + 16;
-    uint8_t *out = calloc(16 + capacity, 1);
-    z_stream stream = {0};
-    bool initialized = false, okay = false;
-    if (!out || deflateInit(&stream, Z_DEFAULT_COMPRESSION) != Z_OK) goto done;
-    initialized = true;
-    stream.next_in = raw; stream.avail_in = (uInt)raw_length;
-    stream.next_out = out + 16; stream.avail_out = (uInt)capacity;
-    if (deflate(&stream, Z_SYNC_FLUSH) != Z_OK || stream.avail_in || !stream.avail_out) goto done;
-    out[0] = 0x1f;
-    put32(out + 8, (uint32_t)raw_length);
-    put32(out + 12, (uint32_t)stream.total_out);
-    *packet = out; *size = 16 + stream.total_out;
-    okay = true;
-done:
-    if (initialized) deflateEnd(&stream);
+    bool okay = pack_archive(raw, raw_length, packet, size);
     free(raw);
-    if (!okay) free(out);
+    return okay;
+}
+
+bool tsv_apple_clipboard_pack_files(const char *urls, size_t length, uint8_t **packet, size_t *size) {
+    *packet = NULL; *size = 0;
+    if (!urls || !length || length > TSV_CLIPBOARD_TEXT_LIMIT || memchr(urls, 0, length)) return false;
+    const char type[] = "public.file-url";
+    size_t count = 1;
+    for (size_t i = 0; i < length; ++i) if (urls[i] == '\n') ++count;
+    if (count > 64) return false;
+    size_t capacity = 4 + length + count * (16 + sizeof(type) - 1);
+    uint8_t *raw = malloc(capacity);
+    if (!raw) return false;
+    put32(raw, (uint32_t)count);
+    size_t start = 0, offset = 4;
+    for (size_t i = 0; i <= length; ++i) {
+        if (i < length && urls[i] != '\n') continue;
+        size_t n = i - start;
+        if (!n || n > 16384) { free(raw); return false; }
+        put32(raw + offset, sizeof(type) - 1); offset += 4;
+        memcpy(raw + offset, type, sizeof(type) - 1); offset += sizeof(type) - 1;
+        put32(raw + offset, 0); offset += 4;
+        put32(raw + offset, 0); offset += 4;
+        put32(raw + offset, (uint32_t)n); offset += 4;
+        memcpy(raw + offset, urls + start, n); offset += n;
+        start = i + 1;
+    }
+    bool okay = pack_archive(raw, offset, packet, size);
+    free(raw);
     return okay;
 }
 
@@ -77,13 +112,16 @@ static void decode_text(const uint8_t *bytes, size_t length, CFStringEncoding en
     CFRelease(value);
 }
 bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t expanded,
-                                char **text, int *text_length) {
+                                char **text, int *text_length, char **file_urls) {
+    *file_urls = NULL;
     *text = NULL; *text_length = 0;
     if (!length || length > TSV_APPLE_ARCHIVE_LIMIT || expanded > TSV_APPLE_ARCHIVE_LIMIT) return false;
     uint8_t *raw = malloc(expanded + 1);
     if (!raw) return false;
     z_stream stream = {0};
     bool okay = false;
+    char *files = NULL;
+    size_t files_length = 0;
     if (inflateInit(&stream) != Z_OK) { free(raw); return false; }
     stream.next_in = (Bytef *)compressed; stream.avail_in = (uInt)length;
     stream.next_out = raw; stream.avail_out = (uInt)expanded + 1;
@@ -124,14 +162,26 @@ bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t
         } else if (is_type(type, type_length, "com.apple.traditional-mac-plain-text")) {
             rank = 1; candidate = kCFStringEncodingMacRoman;
         }
+        if (is_type(type, type_length, "public.file-url")) {
+            if (!data_length || data_length > 16384 || memchr(data, 0, data_length) ||
+                memchr(data, '\n', data_length)) goto done;
+            char *grown = realloc(files, files_length + data_length + 2);
+            if (!grown) goto done;
+            files = grown;
+            if (files_length) files[files_length++] = '\n';
+            memcpy(files + files_length, data, data_length); files_length += data_length;
+            files[files_length] = 0;
+        }
         if (rank > priority) {
             best = data; best_length = data_length; priority = rank; encoding = candidate;
         }
     }
     if (r.remaining) goto done;
+    if (files) { *file_urls = files; files = NULL; }
     if (best) decode_text(best, best_length, encoding, text, text_length);
     okay = true;
 done:
+    free(files);
     free(raw);
     return okay;
 }
