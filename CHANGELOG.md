@@ -9,10 +9,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- File and folder clipboard copying in both directions with native macOS VNC
-  servers, over the authenticated desktop connection and SSH jump hosts.
+- File and folder uploads to native macOS VNC servers, plus experimental
+  download transport, over the authenticated desktop connection and SSH jump hosts.
   Streamed data and resource forks, Unicode names, modification dates,
   progress and cancellation. Local file uploads begin only on explicit Paste.
+  Receiving ordinary Finder selections still needs native drag integration.
 - VNC sessions in tabs and split panes, directly or through SSH jump hosts.
   VNC password and Apple Remote Desktop authentication, Keychain passwords,
   text clipboard sharing, view-only mode, and session import/export. The
@@ -39,6 +40,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Native macOS VNC file downloads recognize Finder's clipboard paths and
+  start the server's sender immediately instead of waiting indefinitely.
+  Show an in-tab explanation when pasting files into an unsupported VNC server.
 - Unicode text clipboard sharing with native macOS Screen Sharing servers,
   using Apple's pasteboard messages in both directions. Remote changes are
   received on notifications; stale replies cannot overwrite a newer local copy.

@@ -33,7 +33,10 @@ struct VNCFileMessage: Sendable {
         guard !path.isEmpty, path.count <= 1023, !path.contains(0) else { throw VNCFileError.invalid }
         var payload = Data(); payload.appendBE(UInt32(4)) // UTF-8 path; no data compression.
         payload.appendBE(UInt16(path.count)); payload.append(path)
-        return Self(kind: upload ? 2 : 1, session: session, payload: payload, selector: 2)
+        // Bit 0 starts the native sender immediately. Without it the server
+        // only creates a paused send session and waits for another command.
+        return Self(kind: upload ? 2 : 1, session: session, argument: upload ? 0 : 1,
+                    payload: payload, selector: 2)
     }
     static func item(session: UInt32, name: String, directory: Bool, level: Int,
                      size: UInt64, resource: UInt64 = 0, mode: UInt16 = 0o644,

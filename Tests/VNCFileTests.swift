@@ -3,6 +3,12 @@ import Testing
 @testable import Termstead
 
 struct VNCFileTests {
+    @Test func downloadRequestsStartTheNativeSenderImmediately() throws {
+        let download = try VNCFileMessage.start(session: 1, path: "/Users/test/file", upload: false)
+        let upload = try VNCFileMessage.start(session: 2, path: "/private/tmp", upload: true)
+        #expect(download.kind == 1 && download.argument == 1)
+        #expect(upload.kind == 2 && upload.argument == 0)
+    }
     private func temporary() throws -> URL {
         let url = URL.temporaryDirectory.appendingPathComponent("termstead-files-test-\(UUID())")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)

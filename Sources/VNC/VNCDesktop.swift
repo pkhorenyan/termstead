@@ -444,7 +444,8 @@ final class VNCDesktop {
             // merely because the user focused a remote desktop.
             guard onPaste else { return false }
             guard supportsFiles else {
-                fileCopy = FileCopy(revision: seenChange, sending: true, error: "This VNC server does not support macOS file copying.")
+                fileCopy = FileCopy(revision: seenChange, sending: true,
+                    error: "Termstead supports file uploads only with native macOS Screen Sharing. File transfer for this VNC server is not supported in Termstead. Use an SSH/SFTP connection to transfer these files.")
                 return true
             }
             if fileCopy?.revision != seenChange || fileCopy?.sending != true || fileCopy?.done != false || fileCopy?.error != nil {

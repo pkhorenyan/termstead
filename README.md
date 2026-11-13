@@ -84,11 +84,11 @@
   Require TLS uses X.509 VeNCrypt with certificate and hostname verification;
   Standard VNC needs a trusted network or SSH jump hosts. Settings and saved
   passwords travel with session exports.
-  With native macOS Screen Sharing, copy and paste files and folders between
-  Macs as well as Unicode text. Local files upload on ⌘V; incoming files become
-  Finder-pasteable after downloading. The status bar shows progress and Cancel.
+  Native macOS Screen Sharing supports Unicode text and pasting local files
+  and folders into the remote Finder with ⌘V. Receiving ordinary Finder file
+  selections is still under development. The status bar shows progress and Cancel.
   Symbolic links are not followed; each copy supports up to 64 selections,
-  10,000 items and 100 GB. Other VNC servers share text only.
+  10,000 items and 100 GB. With other VNC servers, Termstead currently shares text only.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -177,8 +177,9 @@ against the project's signing key before it is installed.
   Approved fingerprints are saved separately from RDP. Clipboard has
   independent send and receive controls. Text sync and file-copy initiation
   require keyboard focus; an initiated file copy can finish in the background.
-  Native macOS Screen Sharing supports Unicode text and files; other servers
-  share text only. Files travel over the same VNC connection, including through
+  Native macOS Screen Sharing supports Unicode text and local file uploads;
+  receiving ordinary Finder file selections is still under development. With other
+  servers, Termstead currently shares text only. Files travel over the same VNC connection, including through
   jump hosts, and completed downloads remain pasteable after closing the tab.
   Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;

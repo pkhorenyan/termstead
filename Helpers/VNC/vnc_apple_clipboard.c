@@ -162,15 +162,32 @@ bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t
         } else if (is_type(type, type_length, "com.apple.traditional-mac-plain-text")) {
             rank = 1; candidate = kCFStringEncodingMacRoman;
         }
-        if (is_type(type, type_length, "public.file-url")) {
+        bool finder_node = is_type(type, type_length, "com.apple.finder.node");
+        if (finder_node || is_type(type, type_length, "public.file-url")) {
             if (!data_length || data_length > 16384 || memchr(data, 0, data_length) ||
                 memchr(data, '\n', data_length)) goto done;
+            /* Apple's node flavor carries absolute POSIX paths. Convert
+               through CFURL so spaces, Unicode and '%' are escaped. */
+            char *converted = NULL;
+            if (finder_node) {
+                if (data[0] != '/') goto done;
+                CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, data, data_length, false);
+                if (!url) goto done;
+                CFStringRef string = CFURLGetString(url);
+                CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(string), kCFStringEncodingUTF8) + 1;
+                converted = malloc((size_t)capacity);
+                bool valid = converted && CFStringGetCString(string, converted, capacity, kCFStringEncodingUTF8);
+                CFRelease(url);
+                if (!valid) { free(converted); goto done; }
+                data = (const uint8_t *)converted; data_length = (uint32_t)strlen(converted);
+            }
             char *grown = realloc(files, files_length + data_length + 2);
-            if (!grown) goto done;
+            if (!grown) { free(converted); goto done; }
             files = grown;
             if (files_length) files[files_length++] = '\n';
             memcpy(files + files_length, data, data_length); files_length += data_length;
             files[files_length] = 0;
+            free(converted);
         }
         if (rank > priority) {
             best = data; best_length = data_length; priority = rank; encoding = candidate;

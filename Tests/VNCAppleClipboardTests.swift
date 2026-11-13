@@ -201,8 +201,8 @@ private final class AppleBoardPeer: @unchecked Sendable {
         lock.withLock { reply = AppleBoardWire.text(text) }
         try send([0x14, 0, 0, 4, 0, 1, 0, 2])
     }
-    func changeFiles(_ urls: [String]) throws {
-        lock.withLock { reply = AppleBoardWire.packet(AppleBoardWire.archive(urls.map { ("public.file-url", Array($0.utf8)) })) }
+    func changeFiles(_ urls: [String], type: String = "public.file-url") throws {
+        lock.withLock { reply = AppleBoardWire.packet(AppleBoardWire.archive(urls.map { (type, Array($0.utf8)) })) }
         try send([0x14, 0, 0, 4, 0, 1, 0, 2])
     }
     func sendFile(_ message: VNCFileMessage) throws { try send(Array(message.wire)) }
@@ -250,8 +250,8 @@ struct VNCAppleClipboardTests {
         #expect(packets.filter { $0.kind == 102 }.reduce(into: Data()) { $0.append($1.payload) } == data)
         #expect(peer.receivedFileOffers.first?.first?.hasPrefix("file:///private/tmp/Termstead-") == true)
     }
-    @Test(arguments: [false, true])
-    func macFilesBecomeFinderURLsAfterAllBytesArrive(_ viewOnly: Bool) async throws {
+    @Test(arguments: [false, true], ["public.file-url", "com.apple.finder.node"])
+    func macFilesBecomeFinderURLsAfterAllBytesArrive(_ viewOnly: Bool, _ type: String) async throws {
         // Independently specified native sender layout: empty file and a
         // Unicode-named binary file, inside a directory (levels 0 and 1).
         let body = Data([0, 1, 2, 255, 13, 10, 42])
@@ -269,7 +269,9 @@ struct VNCAppleClipboardTests {
         desktop.pasteboard = board; desktop.hasKeyboard = { true }
         desktop.start(launch(viewOnly: viewOnly)) { peer.socket }
         await wait { desktop.phase == .showing }
-        try peer.changeFiles(["file:///Users/test/folder"])
+        let path = "/Users/test/Папка с пробелами %25"
+        let offered = type == "public.file-url" ? URL(fileURLWithPath: path).absoluteString : path
+        try peer.changeFiles([offered], type: type)
         await wait { desktop.fileCopy?.done == true }
         try #require(desktop.fileCopy?.done == true && desktop.fileCopy?.error == nil)
         let files = try #require(board.readObjects(forClasses: [NSURL.self]) as? [URL])
@@ -280,6 +282,9 @@ struct VNCAppleClipboardTests {
         let count = peer.receivedFilePackets.count
         try await Task.sleep(for: .milliseconds(800))
         #expect(peer.receivedFilePackets.count == count, "file clipboard echoes must not download again")
+        let request = try #require(peer.receivedFilePackets.first.map { try VNCFileMessage(wire: $0) })
+        #expect(request.kind == 1)
+        #expect(String(decoding: request.payload.dropFirst(6), as: UTF8.self) == path)
     }
     @Test func localFinderFilesWaitForExplicitPasteAndSurviveFocusingTheDesktop() async throws {
         let root = URL.temporaryDirectory.appendingPathComponent("termstead-files-paste-\(UUID())")
@@ -493,7 +498,7 @@ struct VNCAppleClipboardTests {
         else { try await Task.sleep(for: .milliseconds(100)) }
         #expect(text == expected && !ended)
     }
-    @Test(arguments: [0, 1, 2, 3, 4, 5])
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8])
     func malformedArchivesAreRejected(_ variant: Int) async throws {
         let packet: [UInt8]
         switch variant {
@@ -502,6 +507,9 @@ struct VNCAppleClipboardTests {
         case 2: packet = AppleBoardWire.packet(AppleBoardWire.u32(65))
         case 3: packet = AppleBoardWire.packet(AppleBoardWire.u32(1) + AppleBoardWire.u32(9999))
         case 4: packet = AppleBoardWire.packet([UInt8](repeating: 0, count: 1_048_576), expanded: 0)
+        case 6, 7, 8:
+            let path = variant == 6 ? "relative/file" : variant == 7 ? "/tmp/a\0b" : "/tmp/a\nb"
+            packet = AppleBoardWire.packet(AppleBoardWire.archive([("com.apple.finder.node", Array(path.utf8))]))
         default:
             var truncated = Array(AppleBoardWire.text("truncated").dropLast(2))
             truncated.replaceSubrange(12..<16, with: AppleBoardWire.u32(truncated.count - 16))

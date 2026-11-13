@@ -127,6 +127,25 @@ struct VNCQuestionView: View {
                 .foregroundStyle(theme.text.color)
             }
             .onAppear { scale = String(desktop.zoom == 0 ? 100 : desktop.zoom) }
+        } else if let error = desktop.fileCopy?.error {
+            ZStack {
+                theme.terminal.color.opacity(0.7)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Files could not be copied")
+                        .font(SBFont.ui(15, .semibold))
+                    Text(error).font(SBFont.ui(13)).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button("OK") { desktop.dismissFileCopy() }
+                            .buttonStyle(PrimaryButtonStyle(theme: theme, height: 32, horizontalPadding: 16))
+                            .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .foregroundStyle(theme.text.color)
+                .padding(22).frame(width: 400)
+                .background(RoundedRectangle(cornerRadius: 12).fill(theme.chrome.color))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border.color, lineWidth: 1))
+            }
         }
     }
 }

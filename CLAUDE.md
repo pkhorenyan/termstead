@@ -281,13 +281,17 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   identical echoes must not rewrite the clipboard. Do not poll the server.
   Protocol reference: https://github.com/renegadelink/iShareScreen/blob/main/src/isharescreen/proxy/protocol/clipboard.py
   Verified on native macOS 26.6.2, including Unicode and focus transitions.
-  File URLs use the same archive; contents use Apple's RFB type 0x22, not
+  File URLs use the same archive. The `com.apple.finder.node` flavor carries
+  absolute POSIX paths; convert those with CFURL
+  so spaces, Unicode and percent characters survive. Contents use Apple's RFB type 0x22, not
   text, SSH/SFTP, a second socket, or a guest helper. `VNCFileMessage` describes
   the wire and `VNCFileUpload`/`VNCFileDownloadStream` stream 64 KB blocks.
   Kind 200 confirms uploads: its argument is **i16 status + u16 name length**,
   followed by the UTF-8 destination name and NUL. Kind **5** stops/releases a
   copy (kind 3 pauses). Do not publish remote staging URLs or send Paste before
-  a successful confirmation. Downloaded files stay in their private temp
+  a successful confirmation. Download start messages (kind 1) need argument
+  bit 0 set; otherwise Screen Sharing creates a paused sender and sends no
+  data. Downloaded files stay in their private temp
   directory after tab close; incomplete copies are removed. Local file URLs
   suppress a focus-triggered clipboard fetch, which would otherwise replace
   the Finder selection with the old remote text before an explicit Paste.
@@ -304,6 +308,18 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   config must have a `macos-vnc-vm` alias for the isolated guest. The test uses
   a named pasteboard and never reads the user's clipboard. Leave it disabled
   without an isolated VM. `VNCAppleClipboardTests` needs no external server.
+  `TestLab/macos/lab.py up --open` prepares a persistent, host-only VM under
+  **`TestLab/.state/macos`**, never `/tmp`. `lab.py down` retains its disk and
+  downloaded image. Do not delete or prune them without Pavel's instruction.
+  `TestLab/macos/test.py` runs native text and file transfers in both directions
+  with generated test-run environment settings, plus clipboard/file regressions.
+  See `TestLab/macos/README.md` for the pinned Tart tool and image.
+  **Native Finder Command-C is not yet integrated for downloads.** The
+  agent's ordinary clipboard RPC filters `public.file-url`; it exports only
+  text/icon flavors for a real Finder copy. Native file transfer uses its drag
+  channel separately. The live transport test injects an explicit node flavor
+  in the guest to verify contents and must not be reported as an end-to-end
+  Finder copy test. Keep this distinction until native drag reception is done.
 - Retry budgets are renewed after 30 seconds of **continuous** connection,
   measured with monotonic uptime when it ends. A long backoff must not count
   as stability. The SSH tunnel's budget follows the same rule, whichever
