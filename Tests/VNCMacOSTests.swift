@@ -72,13 +72,17 @@ struct VNCMacOSTests {
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["TERMSTEAD_MACOS_VNC_HOST"] != nil))
     func nativeFileTransportInBothDirections() async throws {
+        // The native agent tears down the previous viewer asynchronously.
+        // Let its input/clipboard ownership settle between live tests.
+        try await Task.sleep(for: .seconds(5))
         let env = ProcessInfo.processInfo.environment
         let host = try #require(env["TERMSTEAD_MACOS_VNC_HOST"])
         let port = Int(env["TERMSTEAD_MACOS_VNC_PORT"] ?? "5900") ?? 5900
         let board = NSPasteboard(name: .init("termstead-native-files-\(UUID())"))
         defer { board.releaseGlobally() }
         let desktop = VNCDesktop(); defer { desktop.stop() }
-        desktop.pasteboard = board; desktop.hasKeyboard = { true }
+        var focused = true
+        desktop.pasteboard = board; desktop.hasKeyboard = { focused }
         var session = Session(id: "native-mac-files", user: env["TERMSTEAD_MACOS_VNC_USER"] ?? "admin",
                               host: host, port: port, icon: .monitor, auth: .password)
         session.kind = .vnc; session.vnc.autoReconnect = false; session.vnc.keyboard = .macOS
@@ -93,15 +97,35 @@ struct VNCMacOSTests {
         try #require(desktop.phase == .showing && desktop.supportsFiles, "Native VNC phase: \(desktop.phase)")
         let root = URL.temporaryDirectory.appendingPathComponent("termstead-live-files-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("Local Папка 🙂")
+        let source = root.appendingPathComponent("test_rdp")
         try FileManager.default.createDirectory(at: source.appendingPathComponent("nested"), withIntermediateDirectories: true)
         let bytes = Data((0..<131_103).map { UInt8(truncatingIfNeeded: $0) })
         let text = "Termstead — привет 日本語 🙂\n"
         try bytes.write(to: source.appendingPathComponent("binary.bin"))
         try Data().write(to: source.appendingPathComponent("empty"))
         try Data(text.utf8).write(to: source.appendingPathComponent("nested/данные.txt"))
+        let quote = SFTPClient.shellQuote
+        let destination = "/Users/admin/Desktop/Termstead Paste Check \(UUID())"
+        _ = try guest("mkdir -p " + quote(destination) + "; open " + quote(destination))
+        defer { _ = try? guest("rm -rf " + quote(destination)) }
+        try await Task.sleep(for: .seconds(1))
+        // Activate Finder through the VNC viewer, as a user does before
+        // pasting. Opening a window over SSH alone does not hand it input.
+        desktop.pointer(x: 1000, y: 900, buttons: 1)
+        desktop.pointer(x: 1000, y: 900, buttons: 0)
+        // Let the native server's input handoff guard settle after opening
+        // and activating a window outside the viewer.
+        try await Task.sleep(for: .seconds(3))
+        focused = false; desktop.keyboardLeft()
         board.clearContents(); board.writeObjects([source as NSURL])
-        try #require(desktop.offerClipboard(onPaste: true))
+        focused = true; desktop.keyboardArrived()
+        try await Task.sleep(for: .milliseconds(350))
+        // An old remote selection arriving after focus settled must not
+        // replace the new local folder before the user's Command-V.
+        _ = try guest("/tmp/termstead-file-clipboard text 'Termstead Files'")
+        try await Task.sleep(for: .milliseconds(350))
+        try #require((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [source])
+        desktop.edit(0x76)
         await wait { desktop.fileCopy?.done == true || desktop.fileCopy?.error != nil }
         try #require(desktop.fileCopy?.done == true, "Upload: \(String(describing: desktop.fileCopy))")
         let paths = try JSONDecoder().decode([String].self, from: Data(try guest("/tmp/termstead-file-clipboard inspect").utf8))
@@ -109,17 +133,26 @@ struct VNCMacOSTests {
         try #require(paths.count == 1 && remote.hasPrefix("/private/tmp/Termstead-"))
         // The SSH channel only inspects guest results; all file contents were
         // transferred by the production VNC engine over its existing socket.
-        let quote = SFTPClient.shellQuote
         let uploaded = try guest("base64 -i " + quote(remote + "/binary.bin"))
         #expect(Data(base64Encoded: uploaded, options: .ignoreUnknownCharacters) == bytes)
         #expect(try guest("cat " + quote(remote + "/nested/данные.txt")) == text)
         #expect(try guest("wc -c < " + quote(remote + "/empty")).trimmingCharacters(in: .whitespacesAndNewlines) == "0")
+        var pasted = false
+        let pasteDeadline = Date().addingTimeInterval(12)
+        while !pasted, Date() < pasteDeadline {
+            pasted = try guest("test -f " + quote(destination + "/test_rdp/nested/данные.txt") + " && printf yes || true") == "yes"
+            if !pasted { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        try #require(pasted, "Finder must paste the new folder using its original test_rdp name")
+        let pastedBytes = try guest("base64 -i " + quote(destination + "/test_rdp/binary.bin"))
+        #expect(Data(base64Encoded: pastedBytes, options: .ignoreUnknownCharacters) == bytes)
 
         let incoming = "/Users/admin/Desktop/Termstead Files"
         let expected = try guest("shasum -a 256 " + quote(incoming + "/binary.bin")).split(separator: " ").first
         // Native clipboard fetches filter ordinary Finder public.file-url
         // entries. Exercise the file transport with an explicit node fixture;
         // this does not claim end-to-end Finder Command-C integration.
+        desktop.edit(0x63)
         _ = try guest("/tmp/termstead-file-clipboard transport-files " + quote(incoming))
         await wait { desktop.fileCopy?.sending == false && (desktop.fileCopy?.done == true || desktop.fileCopy?.error != nil) }
         try #require(desktop.fileCopy?.sending == false && desktop.fileCopy?.done == true,

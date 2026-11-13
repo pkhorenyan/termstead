@@ -76,6 +76,8 @@ private final class AppleBoardPeer: @unchecked Sendable {
     private var filePackets: [Data] = []
     private var pressedKeys: [UInt32] = []
     var receivedKeys: [UInt32] { lock.withLock { pressedKeys } }
+    private var releasedKeys: [UInt32] = []
+    var receivedKeyReleases: [UInt32] { lock.withLock { releasedKeys } }
     private var fileOffers: [[String]] = []
     var receivedFilePackets: [Data] { lock.withLock { filePackets } }
     var receivedFileOffers: [[String]] { lock.withLock { fileOffers } }
@@ -174,7 +176,11 @@ private final class AppleBoardPeer: @unchecked Sendable {
                         }
                     case 4:
                         let h = try read(7)
-                        if h[0] != 0 { lock.withLock { pressedKeys.append(h[3..<7].reduce(0) { $0 << 8 | UInt32($1) }) } }
+                        let key = h[3..<7].reduce(0) { $0 << 8 | UInt32($1) }
+                        lock.withLock {
+                            if h[0] != 0 { pressedKeys.append(key) }
+                            else { releasedKeys.append(key) }
+                        }
                     case 5: _ = try read(5)
                     case 6:
                         let h = try read(7); let n = h[3..<7].reduce(0) { $0 << 8 | Int($1) }
@@ -306,6 +312,96 @@ struct VNCAppleClipboardTests {
         await wait { desktop.fileCopy?.done == true && peer.receivedKeys.contains(0x76) }
         #expect(desktop.fileCopy?.done == true && desktop.fileCopy?.error == nil)
         #expect(peer.receivedFileOffers.count == 1 && peer.receivedKeys.contains(0x76))
+    }
+    @Test(arguments: [false, true])
+    func remoteNotificationsDoNotReplaceLocalFinderFilesBeforePaste(_ fileOffer: Bool) async throws {
+        let root = URL.temporaryDirectory.appendingPathComponent("termstead-focus-files-\(UUID())")
+        let folder = root.appendingPathComponent("test_rdp")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("new local folder".utf8).write(to: folder.appendingPathComponent("proof.txt"))
+        let peer = try AppleBoardPeer()
+        let board = NSPasteboard(name: .init("termstead-focus-files-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let desktop = VNCDesktop(); defer { desktop.stop() }
+        var focused = true
+        desktop.pasteboard = board; desktop.hasKeyboard = { focused }
+        desktop.start(launch()) { peer.socket }
+        await wait { board.string(forType: .string) == "remote initial" }
+        focused = false; desktop.keyboardLeft()
+        board.clearContents(); board.writeObjects([folder as NSURL])
+        focused = true; desktop.keyboardArrived()
+        try await Task.sleep(for: .milliseconds(300))
+        // A late native pasteboard notification may fetch the old remote
+        // selection after the newly copied local folder gained focus.
+        if fileOffer { try peer.changeFiles(["file:///Users/test/old-folder"]) }
+        else { try peer.change("Termstead Files") }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [folder])
+        desktop.edit(0x76)
+        await wait { desktop.fileCopy?.done == true && peer.receivedKeys.contains(0x76) }
+        try #require(desktop.fileCopy?.done == true)
+        let remote = try #require(peer.receivedFileOffers.last?.first.flatMap(URL.init(string:)))
+        #expect(remote.lastPathComponent == "test_rdp")
+        // Intentionally copying on the remote desktop must still work while
+        // the local clipboard contains the files that were just uploaded.
+        desktop.edit(0x63)
+        try peer.change("intentional remote copy")
+        await wait { board.string(forType: .string) == "intentional remote copy" }
+        #expect(board.string(forType: .string) == "intentional remote copy")
+        desktop.edit(0x63)
+        board.clearContents(); board.writeObjects([folder as NSURL])
+        desktop.offerClipboard()
+        try await Task.sleep(for: .milliseconds(300))
+        try peer.change("late reply to the previous remote copy")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [folder])
+    }
+    @Test(arguments: [false, true])
+    func localFilesDoNotBlockReceiveOnlyOrViewOnlyClipboard(_ viewOnly: Bool) async throws {
+        let peer = try AppleBoardPeer()
+        let folder = URL.temporaryDirectory.appendingPathComponent("termstead-receive-files-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let board = NSPasteboard(name: .init("termstead-receive-files-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let desktop = VNCDesktop(); defer { desktop.stop() }
+        desktop.pasteboard = board; desktop.hasKeyboard = { true }
+        desktop.start(launch(send: viewOnly, viewOnly: viewOnly)) { peer.socket }
+        await wait { board.string(forType: .string) == "remote initial" }
+        desktop.keyboardLeft()
+        board.clearContents(); board.writeObjects([folder as NSURL])
+        desktop.keyboardArrived()
+        try await Task.sleep(for: .milliseconds(300))
+        try peer.change("remote incoming")
+        await wait { board.string(forType: .string) == "remote incoming" }
+        #expect(board.string(forType: .string) == "remote incoming")
+        #expect(peer.received.isEmpty && peer.receivedFilePackets.isEmpty)
+    }
+    @Test(arguments: [false, true])
+    func delayedMacPasteCancelsAndReleasesCommand(_ loseFocus: Bool) async throws {
+        let folder = URL.temporaryDirectory.appendingPathComponent("termstead-cancel-paste-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let peer = try AppleBoardPeer()
+        let board = NSPasteboard(name: .init("termstead-cancel-paste-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let desktop = VNCDesktop(); defer { desktop.stop() }
+        var focused = true
+        desktop.pasteboard = board; desktop.hasKeyboard = { focused }
+        var options = launch(); options.options.keyboard = .macOS
+        desktop.start(options) { peer.socket }
+        await wait { board.string(forType: .string) == "remote initial" }
+        board.clearContents(); board.writeObjects([folder as NSURL])
+        desktop.edit(0x76)
+        await wait { peer.receivedKeys.contains(0xffeb) }
+        try #require(peer.receivedKeys.contains(0xffeb))
+        if loseFocus { focused = false; desktop.keyboardLeft() }
+        else { board.clearContents(); board.setString("new local copy", forType: .string) }
+        await wait { peer.receivedKeyReleases.contains(0xffeb) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(peer.receivedKeyReleases.contains(0xffeb))
+        #expect(!peer.receivedKeys.contains(0x76), "A stale or unfocused upload must not paste")
     }
     @Test func cancelledUploadDoesNotPublishOrPasteAndTextClipboardRecovers() async throws {
         let root = URL.temporaryDirectory.appendingPathComponent("termstead-files-cancel-\(UUID())")

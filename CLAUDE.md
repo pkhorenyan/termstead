@@ -295,8 +295,24 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   directory after tab close; incomplete copies are removed. Local file URLs
   suppress a focus-triggered clipboard fetch, which would otherwise replace
   the Finder selection with the old remote text before an explicit Paste.
-  Server change notifications still fetch normally. Clipboard directions,
-  focus, local generations and view-only mode are checked on both sides of XPC.
+  Server change notifications still fetch normally, but must not replace
+  local file URLs waiting for Paste. `VNCDesktop` accepts that replacement only
+  after explicit remote Copy/Cut at the current local pasteboard revision;
+  a subsequent local copy revokes it. Guard both incoming files/text and any
+  pending text consumed on focus. Suppressing the focus-triggered fetch alone
+  does not protect against a delayed native notification after focus settles.
+  Apply that protection only when uploads are allowed: receive-only and
+  view-only sessions must still receive the remote clipboard normally.
+  After an upload, allow the native agent's input handoff to settle (3 s),
+  repeat the last pointer position/buttons, and pace the synthetic macOS
+  Paste chord (100 ms between pointer, modifier, letter, and modifier release).
+  The combination is needed: a delay alone or SetMode did not fix Finder
+  ignoring the first paste. Cancel on lost focus, new clipboard contents,
+  or explicit remote Copy/Cut, and always release Command. Never synthesize
+  a click. The native test must verify the actual destination
+  folder and contents, not only the remote staging URLs.
+  Clipboard directions, focus, local generations and view-only mode are
+  checked on both sides of XPC.
   `scripts/test-vnc-files-native.py` verifies both streams against temporary,
   ad-hoc-signed copies of macOS's own file-copy helpers without changing
   system files or enabling sharing. These helpers are never used by the app.
@@ -313,6 +329,8 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   downloaded image. Do not delete or prune them without Pavel's instruction.
   `TestLab/macos/test.py` runs native text and file transfers in both directions
   with generated test-run environment settings, plus clipboard/file regressions.
+  Leave a gap between live connections so the native agent releases input and
+  clipboard ownership from the previous viewer before the next test starts.
   See `TestLab/macos/README.md` for the pinned Tart tool and image.
   **Native Finder Command-C is not yet integrated for downloads.** The
   agent's ordinary clipboard RPC filters `public.file-url`; it exports only

@@ -43,6 +43,9 @@ final class VNCDesktop {
     private(set) var fileCopy: FileCopy?
     private(set) var supportsFiles = false
     @ObservationIgnored private var pendingFilePaste: Int?
+    @ObservationIgnored private var lastPointer: (x: Int, y: Int, buttons: Int)?
+    @ObservationIgnored private var filePasteTask: Task<Void, Never>?
+    @ObservationIgnored private var filePasteModifier: UInt32?
     @ObservationIgnored private var receivedFileURLs: [String] = []
     private(set) var supportsResize = false
     private(set) var resizeMessage: String?
@@ -64,6 +67,7 @@ final class VNCDesktop {
     @ObservationIgnored private var clipboardFocusState: (Bool, Int)?
     @ObservationIgnored private var seenChange = -1
     @ObservationIgnored private var pendingClipboard: String?
+    @ObservationIgnored private var remoteCopyRevision: Int?
     @ObservationIgnored private var openSocket: (@MainActor () async throws -> FileHandle)?
     @ObservationIgnored private(set) var lastLaunch: VNCLaunch?
     @ObservationIgnored private var certificateAnswer: ((Bool) -> Void)?
@@ -116,6 +120,7 @@ final class VNCDesktop {
         }
     }
     func stop() {
+        cancelFilePaste()
         attempt += 1
         reconnectTask?.cancel(); reconnectTask = nil
         resizeTask?.cancel(); resizeTask = nil
@@ -133,6 +138,8 @@ final class VNCDesktop {
         loginQuestion = nil
         openSocket = nil
         pendingClipboard = nil
+        remoteCopyRevision = nil
+        lastPointer = nil
         view.releaseInput()
         view.show(nil)
         size = nil
@@ -159,12 +166,15 @@ final class VNCDesktop {
     }
     private func connect() {
         guard let launch = lastLaunch, let open = openSocket else { return }
+        cancelFilePaste()
         attempt += 1
         let current = attempt
         phase = .connecting
         retryMessage = nil
         fileCopy = nil; supportsFiles = false; pendingFilePaste = nil
         pendingClipboard = nil
+        remoteCopyRevision = nil
+        lastPointer = nil
         clipboardFocusState = nil
         engine?.close(); engine = nil
         log?("Connecting to \(launch.host):\(launch.port) over VNC…")
@@ -195,6 +205,7 @@ final class VNCDesktop {
                 }
                 made.onServerFiles = { [weak self] urls, revision in
                     guard let self, current == attempt, hasKeyboard(), pasteboard.changeCount == revision,
+                          !localFilesAwaitPaste,
                           launch.options.clipboard, launch.options.receiveClipboard,
                           fileCopy?.sending != true || fileCopy?.done == true || fileCopy?.error != nil else { return }
                     if receivedFileURLs == urls, fileCopy?.done == false, fileCopy?.error == nil { return }
@@ -221,7 +232,7 @@ final class VNCDesktop {
                     if sending {
                         if pendingFilePaste == revision, hasKeyboard() {
                             pendingFilePaste = nil
-                            press([keyboard == .macOS ? 0xffeb : 0xffe3, 0x76])
+                            pasteUploadedFiles(revision: revision)
                         }
                     } else {
                         let local = urls.compactMap(URL.init(string:))
@@ -254,6 +265,7 @@ final class VNCDesktop {
                 }
                 made.onClipboard = { [weak self] text, revision in
                     guard let self, current == attempt, launch.options.clipboard, launch.options.receiveClipboard,
+                          !localFilesAwaitPaste,
                           fileCopy?.sending != true || fileCopy?.done == true || fileCopy?.error != nil else { return }
                     if revision >= 0, !hasKeyboard() { return }
                     // A fetched Apple archive may arrive after the user copied
@@ -360,6 +372,7 @@ final class VNCDesktop {
     }
     func pointer(x: Int, y: Int, buttons: Int) {
         guard phase == .showing, !viewOnly else { return }
+        lastPointer = (x, y, buttons)
         engine?.pointer(x: x, y: y, buttons: buttons)
     }
     func press(_ symbols: [UInt32]) {
@@ -370,11 +383,55 @@ final class VNCDesktop {
     func sendWindowsKey() { press([0xffeb]) }
     var keyboard: VNCOptions.Keyboard { lastLaunch?.options.keyboard ?? .linux }
     func edit(_ letter: UInt32) {
+        if letter == 0x63 || letter == 0x78 {
+            cancelFilePaste(); pendingFilePaste = nil
+            // Explicit remote Copy/Cut may replace a pending local file copy.
+            // Focus changes and unsolicited clipboard notifications may not.
+            remoteCopyRevision = pasteboard.changeCount
+            pendingClipboard = nil
+        }
         if letter == 0x76, offerClipboard(onPaste: true) { return }
         press([keyboard == .macOS ? 0xffeb : 0xffe3, letter])
     }
     func dismissFileCopy() {
+        cancelFilePaste()
         engine?.cancelFiles(); fileCopy = nil; pendingFilePaste = nil
+    }
+    private func cancelFilePaste() {
+        filePasteTask?.cancel(); filePasteTask = nil
+        if let modifier = filePasteModifier { send(modifier, down: false) }
+        filePasteModifier = nil
+    }
+    private func pasteUploadedFiles(revision: Int) {
+        guard keyboard == .macOS else { press([0xffe3, 0x76]); return }
+        cancelFilePaste()
+        let current = attempt
+        filePasteTask = Task { [weak self] in
+            // Allow the native agent's input/clipboard handoff to settle,
+            // then refresh pointer state and pace the shortcut.
+            // No synthetic mouse click is needed.
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            guard let self, !Task.isCancelled, current == attempt else { return }
+            guard hasKeyboard(), pasteboard.changeCount == revision,
+                  phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
+            if let pointer = lastPointer {
+                engine?.pointer(x: pointer.x, y: pointer.y, buttons: pointer.buttons)
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard !Task.isCancelled, current == attempt else { return }
+            guard hasKeyboard(), pasteboard.changeCount == revision,
+                  phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
+            filePasteModifier = 0xffeb
+            send(0xffeb, down: true)
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard !Task.isCancelled, current == attempt else { return }
+            guard hasKeyboard(), pasteboard.changeCount == revision,
+                  phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
+            send(0x76, down: true); send(0x76, down: false)
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard !Task.isCancelled, current == attempt else { return }
+            cancelFilePaste()
+        }
     }
     func redo() {
         if keyboard == .macOS { press([0xffeb, 0xffe1, 0x7a]) }
@@ -400,6 +457,7 @@ final class VNCDesktop {
         updateClipboardFocus()
     }
     func keyboardLeft() {
+        cancelFilePaste()
         view.releaseInput()
         if let launch = lastLaunch, launch.options.clipboard {
             let revision = pasteboard.changeCount
@@ -422,6 +480,8 @@ final class VNCDesktop {
         guard lastLaunch?.options.clipboard == true, lastLaunch?.options.receiveClipboard == true,
               let text = pendingClipboard else { return }
         pendingClipboard = nil
+        guard !localFilesAwaitPaste else { return }
+        remoteCopyRevision = nil
         // Apple notifications can include an echo of a local copy. Do not
         // rewrite identical text or turn it into a clipboard change loop.
         if pasteboard.string(forType: .string) != text {
@@ -430,6 +490,11 @@ final class VNCDesktop {
         }
         seenChange = pasteboard.changeCount
         updateClipboardFocus()
+    }
+    private var localFilesAwaitPaste: Bool {
+        lastLaunch?.options.sendClipboard == true && !viewOnly &&
+        remoteCopyRevision != pasteboard.changeCount &&
+        pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
     @discardableResult
     func offerClipboard(onPaste: Bool = false) -> Bool {

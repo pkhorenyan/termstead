@@ -40,6 +40,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Keep locally copied files intact when a late VNC clipboard notification
+  arrives after returning from Finder, so Paste uploads the selected folder
+  instead of inserting the remote desktop's old clipboard contents.
+- Allow the native macOS clipboard handoff to settle before automatically
+  pasting uploaded files, with a pointer refresh and paced keyboard input.
 - Native macOS VNC file downloads recognize Finder's clipboard paths and
   start the server's sender immediately instead of waiting indefinitely.
   Show an in-tab explanation when pasting files into an unsupported VNC server.
