@@ -8,6 +8,60 @@ import Testing
 /// SSH enabled. Uses a named pasteboard; never reads the user's clipboard.
 @MainActor @Suite(.serialized)
 struct VNCMacOSTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["TERMSTEAD_MACOS_VNC_HOST"] != nil), arguments: [false, true])
+    func nativeMultipleSelectionsPasteIntoFinder(_ receive: Bool) async throws {
+        try await Task.sleep(for: .seconds(5))
+        let env = ProcessInfo.processInfo.environment
+        let host = try #require(env["TERMSTEAD_MACOS_VNC_HOST"])
+        let port = Int(env["TERMSTEAD_MACOS_VNC_PORT"] ?? "5900") ?? 5900
+        let root = URL.temporaryDirectory.appendingPathComponent("termstead-native-multiple-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("test_rdp")
+        let empty = root.appendingPathComponent("Пустая папка 🙂")
+        let file = root.appendingPathComponent("данные %.bin")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: false)
+        let bytes = Data((0..<131_103).map { UInt8(truncatingIfNeeded: $0) })
+        try bytes.write(to: file)
+        try Data("nested proof".utf8).write(to: folder.appendingPathComponent("proof.txt"))
+        let destination = "/Users/admin/Desktop/Termstead Multiple Check \(UUID())"
+        let quote = SFTPClient.shellQuote
+        _ = try guest("mkdir -p " + quote(destination) + "; open " + quote(destination))
+        defer { _ = try? guest("rm -rf " + quote(destination)) }
+        let board = NSPasteboard(name: .init("termstead-native-multiple-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let desktop = VNCDesktop(); defer { desktop.stop() }
+        desktop.pasteboard = board; desktop.hasKeyboard = { true }
+        var session = Session(id: "native-multiple", user: env["TERMSTEAD_MACOS_VNC_USER"] ?? "admin",
+                              host: host, port: port, icon: .monitor, auth: .password)
+        session.kind = .vnc; session.vnc.autoReconnect = false
+        session.vnc.receiveClipboard = receive
+        desktop.start(VNCLaunch(session: session, password: env["TERMSTEAD_MACOS_VNC_PASSWORD"] ?? "admin")) {
+            try await RDPSocket.connect(host: host, port: port)
+        }
+        let connectedDeadline = Date().addingTimeInterval(15)
+        while desktop.phase != .showing, Date() < connectedDeadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(desktop.phase == .showing)
+        desktop.pointer(x: 1000, y: 800, buttons: 1)
+        desktop.pointer(x: 1000, y: 800, buttons: 0)
+        try await Task.sleep(for: .seconds(3))
+        board.clearContents(); board.writeObjects([folder, empty, file] as [NSURL])
+        desktop.view.paste(nil)
+        var pasted = false
+        let deadline = Date().addingTimeInterval(25)
+        while !pasted, Date() < deadline {
+            pasted = try guest("test -f " + quote(destination + "/test_rdp/proof.txt") +
+                " && test -d " + quote(destination + "/Пустая папка 🙂") +
+                " && test -f " + quote(destination + "/данные %.bin") + " && printf yes || true") == "yes"
+            if !pasted { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        try #require(pasted, "Actual Finder multi-selection Paste, receive=\(receive): \(String(describing: desktop.fileCopy))")
+        let actual = try guest("base64 -i " + quote(destination + "/данные %.bin"))
+        #expect(Data(base64Encoded: actual, options: .ignoreUnknownCharacters) == bytes)
+        #expect(try guest("cat " + quote(destination + "/test_rdp/proof.txt")) == "nested proof")
+    }
+
     private func guest(_ command: String) throws -> String {
         let config = try #require(ProcessInfo.processInfo.environment["TERMSTEAD_MACOS_VNC_SSH_CONFIG"])
         let process = Process()

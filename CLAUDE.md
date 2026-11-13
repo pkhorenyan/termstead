@@ -335,6 +335,9 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   `TestLab/macos/lab.py up --open` prepares a persistent, host-only VM under
   **`TestLab/.state/macos`**, never `/tmp`. `lab.py down` retains its disk and
   downloaded image. Do not delete or prune them without Pavel's instruction.
+  Pavel explicitly requested keeping the VM running while this investigation
+  is active. Do not automatically shut it down after a test run or at the
+  end of a turn; only stop it when requested or when testing is finished.
   **Resumed on 2026-11-13:** manual host-to-Mac file and
   folder copying still fails despite the automated tests passing. Do not
   consider this feature fixed. Resume with the real Finder workflow and
@@ -344,6 +347,17 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   and drag integration remain outstanding. Headless `screencapture` failed
   and System Events timed out; do not claim the user's workflow is fixed
   on the strength of the named-pasteboard tests alone.
+  Follow-up diagnostics can capture the guest framebuffer through VNC even
+  when host screencapture fails. Apple client message 0x20 launches SSDragHelper
+  with the packed file archive; a later pointer release makes it return a
+  destination via the drag channel. Standard RFB pointer events do not mark
+  the viewer as the drag owner (native daemon reports it cannot find the
+  viewer that started the drag). Native input uses encrypted Apple events;
+  the clear V2 diagnostic was rejected by the guest with a decryption error.
+  Diagnostic changes are isolated under `.state/macos/tool`, not shipped.
+  Auto-review rejected a diagnostic LibVNCClient build that retained the
+  test ARD session key in process. Explicit approval was requested; do not
+  retry that action or work around the rejection without a reply.
   `TestLab/macos/test.py` runs native text and file transfers in both directions
   with generated test-run environment settings, plus clipboard/file regressions.
   Leave a gap between live connections so the native agent releases input and
@@ -355,6 +369,15 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   channel separately. The live transport test injects an explicit node flavor
   in the guest to verify contents and must not be reported as an end-to-end
   Finder copy test. Keep this distinction until native drag reception is done.
+  **Apple clipboard archive item boundaries:** the wire repeats a flavor
+  count and its flavor records for EACH pasteboard item, until the archive
+  ends. There is no leading total item count. Multiple selected files need
+  multiple single-flavor groups; writing N repeated `public.file-url`
+  flavors under a single count N makes Finder keep only the last URL.
+  The native three-object Paste regression failed for both clipboard
+  directions before this fix and passed after it. Parse all groups on input,
+  bounded to 64 items and 64 flavors per item. Text-only single-item fixtures
+  cannot detect this mistake. The native tests must cover multiple objects.
 - Retry budgets are renewed after 30 seconds of **continuous** connection,
   measured with monotonic uptime when it ends. A long backoff must not count
   as stability. The SSH tunnel's budget follows the same rule, whichever

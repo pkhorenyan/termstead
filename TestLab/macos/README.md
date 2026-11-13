@@ -65,3 +65,13 @@ failing-before/passing-after regression. The live test intentionally keeps
 the default profile. Manual GUI reproduction and native drag integration are
 still outstanding; headless automation must not be presented as manual
 acceptance. Preserve the existing VM and cache for the next interactive run.
+
+The subsequent multi-selection test found an archive-format bug: each
+pasteboard item has its own flavor count, rather than one global count for
+all selected files. The fixed codec supports separate items in both
+directions. `nativeMultipleSelectionsPasteIntoFinder` checks a folder,
+an empty Unicode folder and a binary file together, with clipboard receiving
+enabled and disabled. It verifies actual Finder output and file bytes.
+Keep other test viewers disconnected during automated Finder input tests;
+open the isolated Release viewer again afterward. Keep the VM running while
+the investigation is active, as Pavel requested.

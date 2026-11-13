@@ -55,15 +55,18 @@ bool tsv_apple_clipboard_pack_files(const char *urls, size_t length, uint8_t **p
     size_t count = 1;
     for (size_t i = 0; i < length; ++i) if (urls[i] == '\n') ++count;
     if (count > 64) return false;
-    size_t capacity = 4 + length + count * (16 + sizeof(type) - 1);
+    size_t capacity = length + count * (20 + sizeof(type) - 1);
     uint8_t *raw = malloc(capacity);
     if (!raw) return false;
-    put32(raw, (uint32_t)count);
-    size_t start = 0, offset = 4;
+    size_t start = 0, offset = 0;
     for (size_t i = 0; i <= length; ++i) {
         if (i < length && urls[i] != '\n') continue;
         size_t n = i - start;
         if (!n || n > 16384) { free(raw); return false; }
+        /* Each pasteboard item starts with its own flavor count. Repeating
+           public.file-url as flavors of one item makes Finder keep only
+           the last URL instead of a multiple-file selection. */
+        put32(raw + offset, 1); offset += 4;
         put32(raw + offset, sizeof(type) - 1); offset += 4;
         memcpy(raw + offset, type, sizeof(type) - 1); offset += sizeof(type) - 1;
         put32(raw + offset, 0); offset += 4;
@@ -133,64 +136,67 @@ bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t
     if (!complete || !exact) goto done;
     if (!expanded) { okay = true; goto done; } /* Empty clipboard. */
     reader r = {raw, expanded};
-    uint32_t items;
-    if (!take32(&r, &items) || items > 64) goto done;
     const uint8_t *best = NULL;
     uint32_t best_length = 0;
     int priority = 0;
     CFStringEncoding encoding = kCFStringEncodingUTF8;
-    for (uint32_t i = 0; i < items; ++i) {
-        const uint8_t *type, *data, *ignored;
-        uint32_t type_length, data_length, reserved, aliases, ignored_length;
-        if (!blob(&r, &type, &type_length) || !take32(&r, &reserved) ||
-            !take32(&r, &aliases) || aliases > 32) goto done;
-        for (uint32_t alias = 0; alias < aliases; ++alias) {
-            if (!blob(&r, &ignored, &ignored_length) || !blob(&r, &ignored, &ignored_length)) goto done;
-        }
-        if (!blob(&r, &data, &data_length)) goto done;
-        int rank = 0;
-        CFStringEncoding candidate = kCFStringEncodingUTF8;
-        if (is_type(type, type_length, utf8_type)) rank = 3;
-        else if (is_type(type, type_length, "public.utf16-plain-text") ||
-                 is_type(type, type_length, "public.utf16-external-plain-text")) {
-            rank = 2;
-            candidate = data_length >= 2 && data[0] == 0xff && data[1] == 0xfe
-                ? kCFStringEncodingUTF16LE : kCFStringEncodingUTF16BE;
-            if (data_length >= 2 && ((data[0] == 0xff && data[1] == 0xfe) || (data[0] == 0xfe && data[1] == 0xff))) {
-                data += 2; data_length -= 2;
+    uint32_t groups = 0;
+    while (r.remaining) {
+        uint32_t items;
+        if (++groups > 64 || !take32(&r, &items) || items > 64) goto done;
+        for (uint32_t i = 0; i < items; ++i) {
+            const uint8_t *type, *data, *ignored;
+            uint32_t type_length, data_length, reserved, aliases, ignored_length;
+            if (!blob(&r, &type, &type_length) || !take32(&r, &reserved) ||
+                !take32(&r, &aliases) || aliases > 32) goto done;
+            for (uint32_t alias = 0; alias < aliases; ++alias) {
+                if (!blob(&r, &ignored, &ignored_length) || !blob(&r, &ignored, &ignored_length)) goto done;
             }
-        } else if (is_type(type, type_length, "com.apple.traditional-mac-plain-text")) {
-            rank = 1; candidate = kCFStringEncodingMacRoman;
-        }
-        bool finder_node = is_type(type, type_length, "com.apple.finder.node");
-        if (finder_node || is_type(type, type_length, "public.file-url")) {
-            if (!data_length || data_length > 16384 || memchr(data, 0, data_length) ||
-                memchr(data, '\n', data_length)) goto done;
-            /* Apple's node flavor carries absolute POSIX paths. Convert
-               through CFURL so spaces, Unicode and '%' are escaped. */
-            char *converted = NULL;
-            if (finder_node) {
-                if (data[0] != '/') goto done;
-                CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, data, data_length, false);
-                if (!url) goto done;
-                CFStringRef string = CFURLGetString(url);
-                CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(string), kCFStringEncodingUTF8) + 1;
-                converted = malloc((size_t)capacity);
-                bool valid = converted && CFStringGetCString(string, converted, capacity, kCFStringEncodingUTF8);
-                CFRelease(url);
-                if (!valid) { free(converted); goto done; }
-                data = (const uint8_t *)converted; data_length = (uint32_t)strlen(converted);
+            if (!blob(&r, &data, &data_length)) goto done;
+            int rank = 0;
+            CFStringEncoding candidate = kCFStringEncodingUTF8;
+            if (is_type(type, type_length, utf8_type)) rank = 3;
+            else if (is_type(type, type_length, "public.utf16-plain-text") ||
+                     is_type(type, type_length, "public.utf16-external-plain-text")) {
+                rank = 2;
+                candidate = data_length >= 2 && data[0] == 0xff && data[1] == 0xfe
+                    ? kCFStringEncodingUTF16LE : kCFStringEncodingUTF16BE;
+                if (data_length >= 2 && ((data[0] == 0xff && data[1] == 0xfe) || (data[0] == 0xfe && data[1] == 0xff))) {
+                    data += 2; data_length -= 2;
+                }
+            } else if (is_type(type, type_length, "com.apple.traditional-mac-plain-text")) {
+                rank = 1; candidate = kCFStringEncodingMacRoman;
             }
-            char *grown = realloc(files, files_length + data_length + 2);
-            if (!grown) { free(converted); goto done; }
-            files = grown;
-            if (files_length) files[files_length++] = '\n';
-            memcpy(files + files_length, data, data_length); files_length += data_length;
-            files[files_length] = 0;
-            free(converted);
-        }
-        if (rank > priority) {
-            best = data; best_length = data_length; priority = rank; encoding = candidate;
+            bool finder_node = is_type(type, type_length, "com.apple.finder.node");
+            if (finder_node || is_type(type, type_length, "public.file-url")) {
+                if (!data_length || data_length > 16384 || memchr(data, 0, data_length) ||
+                    memchr(data, '\n', data_length)) goto done;
+                /* Apple's node flavor carries absolute POSIX paths. Convert
+                   through CFURL so spaces, Unicode and '%' are escaped. */
+                char *converted = NULL;
+                if (finder_node) {
+                    if (data[0] != '/') goto done;
+                    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, data, data_length, false);
+                    if (!url) goto done;
+                    CFStringRef string = CFURLGetString(url);
+                    CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(string), kCFStringEncodingUTF8) + 1;
+                    converted = malloc((size_t)capacity);
+                    bool valid = converted && CFStringGetCString(string, converted, capacity, kCFStringEncodingUTF8);
+                    CFRelease(url);
+                    if (!valid) { free(converted); goto done; }
+                    data = (const uint8_t *)converted; data_length = (uint32_t)strlen(converted);
+                }
+                char *grown = realloc(files, files_length + data_length + 2);
+                if (!grown) { free(converted); goto done; }
+                files = grown;
+                if (files_length) files[files_length++] = '\n';
+                memcpy(files + files_length, data, data_length); files_length += data_length;
+                files[files_length] = 0;
+                free(converted);
+            }
+            if (rank > priority) {
+                best = data; best_length = data_length; priority = rank; encoding = candidate;
+            }
         }
     }
     if (r.remaining) goto done;

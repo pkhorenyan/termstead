@@ -48,13 +48,15 @@ private enum AppleBoardWire {
             defer { offset += length }
             return Array(raw[offset..<offset + length])
         }
-        let items = try number()
-        guard items <= 64 else { throw CocoaError(.fileReadCorruptFile) }
         var result: [(String, [UInt8])] = []
-        for _ in 0..<items {
-            let type = String(decoding: try bytes(), as: UTF8.self)
-            guard try number() == 0, try number() == 0 else { throw CocoaError(.fileReadCorruptFile) }
-            result.append((type, try bytes()))
+        while offset < count {
+            let flavors = try number()
+            guard flavors <= 64 else { throw CocoaError(.fileReadCorruptFile) }
+            for _ in 0..<flavors {
+                let type = String(decoding: try bytes(), as: UTF8.self)
+                guard try number() == 0, try number() == 0 else { throw CocoaError(.fileReadCorruptFile) }
+                result.append((type, try bytes()))
+            }
         }
         return result
     }
@@ -220,6 +222,22 @@ private final class AppleBoardPeer: @unchecked Sendable {
 
 @MainActor @Suite(.serialized)
 struct VNCAppleClipboardTests {
+    @Test func nativeArchiveKeepsSeparateFileItems() async throws {
+        let urls = ["file:///Users/test/first", "file:///Users/test/second%20folder"]
+        let raw = urls.flatMap { AppleBoardWire.archive([("public.file-url", Array($0.utf8))]) }
+        let peer = try AppleBoardPeer(reply: AppleBoardWire.packet(raw))
+        let engine = VNCEngineConnection(); defer { engine.close() }
+        var received: [String]?
+        engine.onConnected = { engine.clipboardFocus(true, revision: 99) }
+        engine.onServerFiles = { values, revision in
+            #expect(revision == 99)
+            received = values
+        }
+        engine.connect(launch(), socket: peer.socket)
+        await wait { received != nil || peer.isClosed }
+        #expect(received == urls)
+    }
+
     private func launch(send: Bool = true, receive: Bool = true, viewOnly: Bool = false) -> VNCLaunch {
         var session = Session(id: "apple-test", user: "", host: "fake", port: 5900, icon: .monitor, auth: .password)
         session.kind = .vnc

@@ -9,6 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Native macOS VNC file clipboard archives now keep each selected file or
+  folder in a separate pasteboard item. Previously multiple selections were
+  encoded as repeated flavors of one item, losing all but the final URL.
 - Native macOS VNC file uploads now send Finder's Command-V even when the
   session uses the default Linux keyboard profile. Upload completion and
   the subsequent Paste request have separate status messages; sending Paste
