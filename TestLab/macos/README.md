@@ -42,4 +42,8 @@ The incoming transport test explicitly injects `com.apple.finder.node` in
 the guest. This verifies the native sender/receiver but does **not** test an
 ordinary Finder Command-C: macOS filters `public.file-url` from its clipboard
 RPC. Receiving a real Finder selection still needs native drag-channel
-integration. Local file upload and remote Finder Paste have been verified.
+integration. Automated local file upload and remote Finder Paste tests pass,
+but Pavel reports that manual host-to-Mac file and folder copying still fails
+(2026-11-13). Investigation is paused at his request. Resume with the real
+Finder workflow and `test_rdp`; keep the VM disk and downloaded image across
+session exits.

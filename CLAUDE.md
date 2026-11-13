@@ -327,6 +327,11 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   `TestLab/macos/lab.py up --open` prepares a persistent, host-only VM under
   **`TestLab/.state/macos`**, never `/tmp`. `lab.py down` retains its disk and
   downloaded image. Do not delete or prune them without Pavel's instruction.
+  **Paused on 2026-11-13 at Pavel's request:** manual host-to-Mac file and
+  folder copying still fails despite the automated tests passing. Do not
+  consider this feature fixed. Resume with the real Finder workflow and
+  `test_rdp` reproduction. Preserve the VM disk and downloaded image across
+  session exits; stop the VM without deleting its storage.
   `TestLab/macos/test.py` runs native text and file transfers in both directions
   with generated test-run environment settings, plus clipboard/file regressions.
   Leave a gap between live connections so the native agent releases input and
