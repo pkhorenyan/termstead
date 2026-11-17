@@ -34,6 +34,29 @@ final class FileBrowser {
         didSet { visibleFiles = Self.sortedForDisplay(files, showHidden: showHidden) }
     }
     var selection: String?
+    var selectedPaths: Set<String> = []
+    @ObservationIgnored private var selectionAnchor: String?
+
+    func select(_ file: RemoteFile, modifiers: NSEvent.ModifierFlags = []) {
+        let path = file.path
+        if modifiers.contains(.shift), let anchor = selectionAnchor,
+           let first = visibleFiles.firstIndex(where: { $0.path == anchor }),
+           let last = visibleFiles.firstIndex(where: { $0.path == path }) {
+            selectedPaths = Set(visibleFiles[min(first, last)...max(first, last)].map(\.path))
+        } else if modifiers.contains(.command) {
+            if selectedPaths.contains(path) { selectedPaths.remove(path) }
+            else { selectedPaths.insert(path) }
+            selectionAnchor = selectedPaths.contains(path) ? path : selectedPaths.first
+        } else {
+            selectedPaths = [path]
+            selectionAnchor = path
+        }
+        selection = selectedPaths.contains(path) ? path : selectedPaths.first
+    }
+
+    func selectForContextMenu(_ file: RemoteFile) {
+        if !selectedPaths.contains(file.path) { select(file) }
+    }
 
     /// What the list shows. Stored, not computed: sorting a big folder with
     /// `localizedStandardCompare` on every read cost two full sorts per
@@ -59,6 +82,13 @@ final class FileBrowser {
     @ObservationIgnored private var edits: [String: RemoteEdit] = [:]
     @ObservationIgnored private var loadRequest = UUID()
     @ObservationIgnored private var stopped = false
+    @ObservationIgnored private var copyRequest = UUID()
+    @ObservationIgnored private var reservedUploads: Set<String> = []
+    /// Tests use a private pasteboard; the app uses the normal Finder clipboard.
+    @ObservationIgnored var pasteboard: NSPasteboard = .general
+    /// Clipboard files must outlive a tab: Finder may paste after it closes.
+    static let clipboardDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("termstead-file-clipboard-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
     @ObservationIgnored private var pendingSaves: [String: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private lazy var editDirectory: URL = {
         FileManager.default.temporaryDirectory
@@ -103,6 +133,22 @@ final class FileBrowser {
         } else {
             Task { await followTerminal() }
         }
+    }
+
+    /// A VNC tab may switch to another saved SSH account while it stays open.
+    /// Its old remote path must not be reused on the new host.
+    func resetForNewSource() {
+        retry?.cancel()
+        follow?.cancel()
+        loadRequest = UUID()
+        isLoading = false
+        path = nil
+        files = []
+        selection = nil
+        selectedPaths = []
+        selectionAnchor = nil
+        problem = nil
+        if isShown { start() }
     }
 
     private func loadFirstFolder() async {
@@ -188,6 +234,8 @@ final class FileBrowser {
             problem = nil
             retryDelay = .seconds(1)
             if let selection, !files.contains(where: { $0.path == selection }) { self.selection = nil }
+            selectedPaths.formIntersection(Set(files.map(\.path)))
+            if let selectionAnchor, !selectedPaths.contains(selectionAnchor) { self.selectionAnchor = nil }
         } catch SFTPError.notReady {
             guard isCurrent(request) else { return }
             // The terminal is still logging in — a password prompt, say.
@@ -273,6 +321,78 @@ final class FileBrowser {
 
     // MARK: - Transfers
 
+    var selectedFile: RemoteFile? {
+        guard let selection else { return nil }
+        return files.first { $0.path == selection }
+    }
+
+    var selectedFiles: [RemoteFile] {
+        let paths = selectedPaths.isEmpty ? Set(selection.map { [$0] } ?? []) : selectedPaths
+        return visibleFiles.filter { paths.contains($0.path) }
+    }
+
+    func copySelected() {
+        let files = selectedFiles
+        guard !files.isEmpty else { return }
+        Task { await copyToClipboard(files) }
+    }
+
+    func copyToClipboard(_ file: RemoteFile) async {
+        await copyToClipboard([file])
+    }
+
+    func copyToClipboard(_ files: [RemoteFile]) async {
+        guard !files.isEmpty else { return }
+        guard let client, !stopped else { return }
+        copyRequest = UUID()
+        let request = copyRequest
+        let change = pasteboard.changeCount
+        if client.isLocal {
+            pasteboard.clearContents()
+            pasteboard.writeObjects(files.map { URL(fileURLWithPath: $0.path) as NSURL })
+            return
+        }
+        guard files.allSatisfy({ Self.validName($0.name) == $0.name && $0.kind != .symlink }) else {
+            activities.append(Activity(title: "Copy", state: .failed("Symbolic links and invalid file names cannot be copied to Finder.")))
+            return
+        }
+        let folder = Self.clipboardDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+        } catch {
+            activities.append(Activity(title: "Copy", state: .failed(error.localizedDescription)))
+            return
+        }
+        for file in files {
+            let ready = await perform("Copy “\(file.name)”", expectedSize: file.kind == .file ? file.size : nil,
+                                      growing: folder.appendingPathComponent(file.name)) {
+                try await client.download(file.path, recursive: file.kind == .directory, to: folder, as: file.name)
+            }
+            guard ready, !stopped, request == copyRequest else { return }
+        }
+        guard pasteboard.changeCount == change else {
+            activities.append(Activity(title: "Copy", state: .failed("Clipboard changed before download finished. Copy again.")))
+            return
+        }
+        pasteboard.clearContents()
+        pasteboard.writeObjects(files.map { folder.appendingPathComponent($0.name) as NSURL })
+    }
+
+    func paste(into directory: String? = nil) {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard !urls.isEmpty else {
+            activities.append(Activity(title: "Paste", state: .failed("Copy files in Finder first.")))
+            return
+        }
+        upload(urls, into: directory)
+    }
+
+    static func cleanClipboardFiles() {
+        try? FileManager.default.removeItem(at: clipboardDirectory)
+    }
+
     /// Into ~/Downloads, under a name that does not overwrite anything there.
     func download(_ file: RemoteFile) {
         guard let client else { return }
@@ -292,10 +412,28 @@ final class FileBrowser {
     func upload(_ urls: [URL], into directory: String? = nil) {
         guard let client, let destination = directory ?? path else { return }
         Task {
+            let names: [String]
+            do {
+                names = try await client.list(destination).files.map(\.name)
+            } catch {
+                activities.append(Activity(title: "Upload", state: .failed(error.localizedDescription)))
+                return
+            }
+            var occupied = Set(names)
             for url in urls {
-                await perform("Upload “\(url.lastPathComponent)”") {
-                    try await client.upload(url, to: destination)
+                let name = url.lastPathComponent
+                let reservation = destination + "\0" + name
+                guard !occupied.contains(name), !reservedUploads.contains(reservation) else {
+                    activities.append(Activity(title: "Upload “\(name)”",
+                                               state: .failed("“\(name)” already exists in the destination. Rename it before pasting.")))
+                    continue
                 }
+                reservedUploads.insert(reservation)
+                let uploaded = await perform("Upload “\(name)”", {
+                    try await client.upload(url, to: destination)
+                })
+                reservedUploads.remove(reservation)
+                if uploaded { occupied.insert(name) }
             }
             if destination == path { await load(path) }
         }

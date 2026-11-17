@@ -14,7 +14,12 @@ struct VNCPane: NSViewRepresentable {
         container.onFocus = onFocus
         let gainsFocus = takesFocus && !container.takesFocus
         container.takesFocus = takesFocus
-        if let ssh = desktop.filesSSH, !ssh.isLoggedIn, ssh.state.isRunning {
+        if let ssh = connection.fileAccess, !ssh.isLoggedIn, ssh.state.isRunning {
+            // Show SSH authentication in this VNC pane until SFTP is ready.
+            TerminalStyle.apply(theme: theme, font: font, to: ssh.terminalView)
+            container.inset = NSEdgeInsets(top: 8, left: 12, bottom: 4, right: 4)
+            container.mount(ssh.terminalView)
+        } else if let ssh = desktop.filesSSH, !ssh.isLoggedIn, ssh.state.isRunning {
             // Host-key and password questions use the usual SSH terminal in
             // this pane, then return to the desktop. No extra tab is created.
             TerminalStyle.apply(theme: theme, font: font, to: ssh.terminalView)

@@ -45,6 +45,91 @@ struct VNCLinuxFilesTests {
                                                     auth: .automatic, passwordAccount: nil),
                              config: try String(contentsOfFile: settings.configPath, encoding: .utf8))
     }
+
+    @Test func vncFilesPanelCopiesBetweenFinderAndSFTPWithoutAnSSHTab() async throws {
+        let access = Connection(sessionID: nil, title: "VNC files", address: "127.0.0.1:5901",
+                                keyDescription: "VNC", kind: .vnc)
+        defer { access.close() }
+        var reportedFileLogin = false
+        access.onLogin = { reportedFileLogin = true }
+        access.configureFileAccess(try plan(), title: "lab-vnc-ssh")
+        let launch = VNCLaunch(session: try #require(SessionStore.sample().session("lab-vnc")), password: "lab")
+        access.start(launch)
+        await wait { access.vnc?.phase == .showing }
+        try #require(access.vnc?.phase == .showing)
+        await wait { reportedFileLogin }
+        #expect(reportedFileLogin)
+
+        let browser = access.fileBrowser
+        let board = NSPasteboard(name: .init("vnc-sftp-files-\(UUID())"))
+        browser.pasteboard = board
+        defer { board.releaseGlobally() }
+        browser.isShown = true
+        let remote = "/home/lab/termstead-sftp-\(UUID())"
+        try await client().makeDirectory(remote)
+        defer { _ = TestLabVNC.command(["rm", "-rf", "--", remote]) }
+        await browser.load(remote)
+        await wait { browser.path == remote && browser.problem == nil }
+        try #require(browser.path == remote)
+
+        let local = URL.temporaryDirectory.appendingPathComponent("vnc-sftp-copy-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: local, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: local) }
+        let file = local.appendingPathComponent("test_rdp.bin")
+        let contents = Data([0, 255, 42, 0, 10, 13])
+        try contents.write(to: file)
+        board.clearContents()
+        #expect(board.writeObjects([file as NSURL]))
+        browser.paste()
+        await wait { browser.files.contains(where: { $0.name == file.lastPathComponent }) }
+        let entry = try #require(browser.files.first { $0.name == file.lastPathComponent })
+
+        // A second Paste must not silently overwrite an existing remote file.
+        browser.paste()
+        await wait { browser.activities.contains { activity in
+            if case .failed(let message) = activity.state { return message.contains("already exists") }
+            return false
+        } }
+        #expect(browser.activities.contains { activity in
+            if case .failed(let message) = activity.state { return message.contains("already exists") }
+            return false
+        })
+
+        board.clearContents()
+        await browser.copyToClipboard(entry)
+        let copied = try #require((board.readObjects(forClasses: [NSURL.self],
+                            options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first)
+        #expect(copied.lastPathComponent == "test_rdp.bin")
+        #expect(try Data(contentsOf: copied) == contents)
+
+        let localFolder = local.appendingPathComponent("test_rdp", isDirectory: true)
+        try FileManager.default.createDirectory(at: localFolder, withIntermediateDirectories: false)
+        try contents.write(to: localFolder.appendingPathComponent("nested.bin"))
+        board.clearContents()
+        #expect(board.writeObjects([localFolder as NSURL]))
+        browser.paste()
+        await wait { browser.files.contains(where: { $0.name == "test_rdp" }) }
+        let folderEntry = try #require(browser.files.first { $0.name == "test_rdp" })
+        board.clearContents()
+        await browser.copyToClipboard(folderEntry)
+        let copiedFolder = try #require((board.readObjects(forClasses: [NSURL.self],
+                                    options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first)
+        #expect(copiedFolder.lastPathComponent == "test_rdp")
+        #expect(try Data(contentsOf: copiedFolder.appendingPathComponent("nested.bin")) == contents)
+
+        board.clearContents()
+        await browser.copyToClipboard([entry, folderEntry])
+        let selection = try #require(board.readObjects(forClasses: [NSURL.self],
+                                        options: [.urlReadingFileURLsOnly: true]) as? [URL])
+        #expect(Set(selection.map(\.lastPathComponent)) == ["test_rdp.bin", "test_rdp"])
+        let selectedFile = try #require(selection.first { $0.lastPathComponent == "test_rdp.bin" })
+        #expect(try Data(contentsOf: selectedFile) == contents)
+
+        let previousSSH = access.fileAccess?.id
+        access.reconnectFileAccess()
+        await wait { access.fileAccess?.id != previousSSH && access.fileAccess?.isLoggedIn == true }
+        #expect(access.fileAccess?.isLoggedIn == true)
+    }
     private func open(_ desktop: VNCDesktop, fileClient: SFTPClient? = nil, background: Bool = false, receive: Bool = true) async throws {
         // TigerVNC desktop and the selected SSH connection are the same user
         // and machine. Named pasteboards never touch Pavel's clipboard.

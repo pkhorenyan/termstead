@@ -28,9 +28,9 @@ private actor ControlledFiles: FileSource {
         try await withCheckedThrowingContinuation { listings[path] = $0 }
     }
     func hasListing(_ path: String) -> Bool { listings[path] != nil }
-    func finishListing(_ path: String, error: SFTPError? = nil) {
+    func finishListing(_ path: String, error: SFTPError? = nil, files: [RemoteFile] = []) {
         let reply = listings.removeValue(forKey: path)
-        if let error { reply?.resume(throwing: error) } else { reply?.resume(returning: (path, [])) }
+        if let error { reply?.resume(throwing: error) } else { reply?.resume(returning: (path, files)) }
     }
 
     func replace(_ remote: String, with local: URL) async throws {
@@ -73,6 +73,27 @@ struct FileBrowserOrderingTests {
         let browser = FileBrowser(connection: nil)
         browser.clientOverride = client
         return (browser, client)
+    }
+
+    @Test func commandAndShiftClicksSelectSeveralFilesForOneCopy() async throws {
+        let (browser, client) = browser()
+        defer { browser.stop() }
+        let names = ["alpha", "bravo", "charlie", "delta"]
+        let files = names.map { name in
+            RemoteFile(name: name, path: "/folder/\(name)", kind: .file, size: 1,
+                       modified: nil, permissions: "-rw-r--r--", owner: "lab", group: "lab")
+        }
+        let load = Task { await browser.load("/folder") }
+        try await wait { await client.hasListing("/folder") }
+        await client.finishListing("/folder", files: files)
+        await load.value
+        browser.select(files[0])
+        browser.select(files[2], modifiers: .command)
+        #expect(Set(browser.selectedFiles.map(\.name)) == ["alpha", "charlie"])
+        browser.select(files[3], modifiers: .shift)
+        #expect(Set(browser.selectedFiles.map(\.name)) == ["charlie", "delta"])
+        browser.select(files[2], modifiers: .command)
+        #expect(browser.selectedFiles.map(\.name) == ["delta"])
     }
 
     @Test func anOldListingCannotReplaceTheNewDirectory() async throws {

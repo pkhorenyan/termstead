@@ -418,6 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// declare sudden or automatic termination: with them the app was ended
     /// straight after `applicationShouldTerminate`, and this never ran.
     func applicationWillTerminate(_ notification: Notification) {
+        FileBrowser.cleanClipboardFiles()
         guard remembersTabs, let connectionStore, let themeStore else { return }
         if themeStore.reopenTabsAtLaunch {
             TabMemory(connectionStore).save(to: .standard)

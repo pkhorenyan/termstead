@@ -16,13 +16,6 @@ struct TabBarView: View {
     @State private var widths: [UUID: CGFloat] = [:]
     /// Where the pointer last was during a drag, for a drop on another pane.
     @State private var dragPoint: CGPoint?
-    @State private var linuxFilePicker: LinuxFilePickerRequest?
-
-    private struct LinuxFilePickerRequest: Identifiable {
-        let id = UUID()
-        let desktop: VNCDesktop
-        let host: String
-    }
 
     private var tabs: [Connection] { connectionStore.tabs(in: pane) }
     /// Several panes, this one not focused: its tab in front is drawn quieter,
@@ -125,9 +118,6 @@ struct TabBarView: View {
         // chrome. The strip above the tabs is painted by this view's own
         // background, applied in `MainView`, which still bleeds and is meant to.
         .clipped()
-        .sheet(item: $linuxFilePicker) { request in
-            LinuxFileSSHPicker(desktop: request.desktop, vncHost: request.host)
-        }
     }
 
     /// Leaves this pane out of broadcast input, or brings it back.
@@ -187,31 +177,8 @@ struct TabBarView: View {
         if let desktop = tab.vnc, desktop.phase == .showing {
             Button("Send Ctrl+Alt+Del") { desktop.sendControlAltDelete() }.disabled(desktop.viewOnly)
             Button("Send Windows Key") { desktop.sendWindowsKey() }.disabled(desktop.viewOnly)
-            if !desktop.supportsFiles, desktop.keyboard == .linux {
-                Menu("Linux File Clipboard") {
-                    if let title = desktop.linuxFileConnection {
-                        Text("\(title) — \(desktop.linuxFilesReady ? "connected" : "connecting…")")
-                        Button("Disconnect File Clipboard") { desktop.disconnectLinuxFiles() }
-                        Divider()
-                    } else if saved?.vnc.fileSSHSessionID != nil {
-                        Text("File clipboard disconnected")
-                        Button("Reconnect File Clipboard") {
-                            if let id = tab.sessionID {
-                                connectionStore.refreshVNCFileClipboard(sessionID: id, in: sessionStore)
-                            }
-                        }
-                        Divider()
-                    }
-                    if let saved {
-                        Button("File Clipboard Settings…") { appState.route = .sessionSettings(id: saved.id) }
-                    } else {
-                        Button("Connect File Clipboard…") {
-                            linuxFilePicker = LinuxFilePickerRequest(desktop: desktop,
-                                host: desktop.lastLaunch?.host ?? "")
-                        }
-                    }
-                }
-                .disabled(desktop.viewOnly || desktop.lastLaunch?.options.clipboard != true)
+            if let saved {
+                Button("File Access Settings…") { appState.route = .sessionSettings(id: saved.id) }
             }
             Divider()
         }

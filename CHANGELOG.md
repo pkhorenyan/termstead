@@ -9,11 +9,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A Linux VNC session remembers which saved SSH connection reaches its desktop
-  user. File clipboard SSH starts automatically with that VNC session.
+- VNC sessions can use a saved SSH connection for the SFTP sidebar, on Linux
+  or macOS, without an extra terminal tab or a remote clipboard helper.
   Exporting a VNC folder includes its linked SSH settings.
-- The saved VNC tab menu now shows file clipboard status and reconnect. Change
-  its SSH route in VNC session settings; temporary tabs can pick a route once.
+- The file browser accepts Finder file Paste and copies remote files to Finder
+  after downloading them. An existing destination name is reported instead
+  of silently overwritten.
 
 ### Fixed
 

@@ -89,14 +89,13 @@
   selections is still under development. The status bar shows progress and Cancel.
   Symbolic links are not followed; each copy supports up to 64 selections,
   10,000 items and 100 GB.
-  **Linux file clipboard (X11):** right-click the VNC tab → **Linux File
-  Clipboard** works through SSH/SFTP for the same desktop user. Select that
-  saved SSH connection once in the VNC session settings; later VNC tabs start
-  the file clipboard automatically in the background. No SSH tab is required.
-  Copy and paste files/folders normally; contents use SFTP and the Linux
-  clipboard supplies file links. The remote file manager's right-click Paste
-  menu is supported too. Requires Python 3, PyGObject and GTK 3 on
-  Linux. [Setup and limits](TestLab/vnc/README.md). Other servers share text only.
+  For file transfer on any VNC server with SSH access, choose an SSH session
+  under **File access** in the VNC session settings. The SFTP sidebar then
+  browses that computer's files without opening an SSH terminal tab. Copy
+  files from Finder and paste them into the sidebar, or copy a sidebar file
+  and paste it into Finder. Drag and drop and Upload/Download also work.
+  VNC and SSH authenticate separately; the remote desktop's own clipboard
+  continues to handle text.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -104,11 +103,12 @@
   network of the Linux server in front, read over the connection already open.
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh
   asks — and only for the host they were saved for.
-- **SFTP beside the terminal.** The SFTP tab browses the server over the
-  connection that is already open, so it never asks for a password again, and
-  the sidebar turns to it as soon as you are logged in. It
+- **SFTP beside the terminal and VNC desktop.** The SFTP tab reuses an SSH
+  terminal's connection. A VNC tab opens its saved SSH file connection in the
+  background, with separate credentials. When enabled, the sidebar opens on
+  files after SSH login. It
   can follow the terminal's current folder; drag files in to upload and out to
-  download; open a remote file in its Mac app and it is uploaded again each
+  download; copy and paste files with Finder; open a remote file in its Mac app and it is uploaded again each
   time you save. In a local terminal it shows this Mac's files, following
   the shell's folder the same way.
 - **Import from `~/.ssh/config`** — your existing hosts become sessions in one
@@ -192,6 +192,9 @@ against the project's signing key before it is installed.
   separate SSH tab or listening port is needed. Apple file contents use the
   VNC connection, including through jump hosts. Completed downloads remain
   pasteable after closing the tab. Remaining servers share text only.
+  Optional SSH/SFTP file access lets a VNC tab browse and transfer files in
+  the sidebar without a remote desktop clipboard helper. SSH credentials are
+  separate from VNC credentials; file copies stage locally until the app quits.
   Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
   Auto and Sharp preserve full color. No profile uses lossy JPEG.

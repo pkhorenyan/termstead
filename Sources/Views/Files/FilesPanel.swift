@@ -7,11 +7,28 @@ import UniformTypeIdentifiers
 struct FilesPanel: View {
     @Environment(\.theme) private var theme
     @Environment(ConnectionStore.self) private var connectionStore
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         if let connection = connectionStore.active {
             if connection.kind == .vnc {
-                placeholder("VNC desktop", "VNC has no SFTP connection. Open an SSH session to browse this server's files.")
+                if let title = connection.fileAccessTitle, connection.fileAccessProblem == nil {
+                    FileBrowserView(browser: connection.fileBrowser, title: title)
+                        .id(connection.id)
+                } else {
+                    VStack(spacing: 10) {
+                        placeholder("VNC files", connection.fileAccessProblem ??
+                                    "Choose SSH access in this VNC session's settings to browse and transfer files.")
+                        if connection.fileAccessTitle != nil, connection.fileAccessProblem != nil {
+                            Button("Reconnect File Access") { connection.reconnectFileAccess() }
+                                .buttonStyle(PrimaryButtonStyle(theme: theme, height: 28, horizontalPadding: 12))
+                        }
+                        if let id = connection.sessionID {
+                            Button("File Access Settings…") { appState.route = .sessionSettings(id: id) }
+                                .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26, fontSize: 12))
+                        }
+                    }
+                }
             } else if connection.kind == .rdp {
                 placeholder("Remote desktop",
                             "Files are browsed over SFTP, which an RDP session does not have.")
@@ -62,6 +79,7 @@ private struct FileBrowserView: View {
     @State private var creatingFolder = false
     @State private var deleting: RemoteFile?
     @State private var dropTargeted = false
+    @FocusState private var listFocused: Bool
 
     var body: some View {
         VStack(spacing: 8) {
@@ -187,6 +205,21 @@ private struct FileBrowserView: View {
             .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
         .frame(maxHeight: .infinity)
+        .focusable()
+        .focused($listFocused)
+        .onKeyPress(phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            switch press.key {
+            case "c":
+                guard !browser.selectedFiles.isEmpty else { return .ignored }
+                browser.copySelected()
+                return .handled
+            case "v":
+                browser.paste()
+                return .handled
+            default: return .ignored
+            }
+        }
         .overlay { listOverlay }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -204,6 +237,7 @@ private struct FileBrowserView: View {
         .contextMenu {
             Button("New Folder…") { newName = ""; creatingFolder = true }
             Button("Upload…") { chooseUploads() }
+            Button("Paste") { browser.paste() }
             Divider()
             Button("Refresh") { browser.refresh() }
         }
@@ -233,13 +267,16 @@ private struct FileBrowserView: View {
     }
 
     private func row(_ file: RemoteFile) -> some View {
-        FileRow(file: file, isSelected: browser.selection == file.path, theme: theme)
+        FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
             // The row the menu is for is highlighted before the menu opens.
-            .overlay(ContextClickDetector { browser.selection = file.path })
+            .overlay(ContextClickDetector { browser.selectForContextMenu(file); listFocused = true })
             // Both taps, simultaneously: selection must not wait out the
             // double-click interval (see CLAUDE.md, the 357 ms lesson).
             .onTapGesture(count: 2) { browser.open(file) }
-            .simultaneousGesture(TapGesture().onEnded { browser.selection = file.path })
+            .simultaneousGesture(TapGesture().onEnded {
+                browser.select(file, modifiers: NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags)
+                listFocused = true
+            })
             .onDrag { Self.provider(for: file, client: browser.client) }
             .dropDestination(for: URL.self) { urls, _ in
                 guard file.kind == .directory else { return false }
@@ -249,6 +286,11 @@ private struct FileBrowserView: View {
             .contextMenu {
                 Button(file.kind == .directory ? "Open" : "Open in Mac App") { browser.open(file) }
                 Button("Download to Downloads") { browser.download(file) }
+                Button("Copy") { browser.copySelected() }
+                    .disabled(file.kind == .symlink)
+                if file.kind == .directory {
+                    Button("Paste Into Folder") { browser.paste(into: file.path) }
+                }
                 Divider()
                 Button("Rename…") {
                     newName = file.name

@@ -271,7 +271,7 @@ final class ConnectionStore {
                 let tunnel = session.jumps.isEmpty ? nil : try Self.tunnelPlan(for: session, in: store)
                 if session.kind == .vnc {
                     connection.start(VNCLaunch(session: session, password: password), tunnel: tunnel)
-                    configureVNCFileClipboard(connection, session: session, in: store)
+                    configureVNCFileAccess(connection, session: session, in: store)
                 } else {
                     connection.start(RDPLaunch(session: session, password: password), tunnel: tunnel)
                 }
@@ -287,32 +287,29 @@ final class ConnectionStore {
         }
     }
 
-    /// One saved SSH account belongs to the VNC session, not to a particular
-    /// terminal tab. The plan waits until the desktop is ready before opening.
-    private func configureVNCFileClipboard(_ connection: Connection, session: Session, in store: SessionStore) {
-        guard let desktop = connection.vnc else { return }
+    /// The saved SSH account supplies SFTP beside the VNC desktop, without an
+    /// extra terminal tab or a remote clipboard helper.
+    private func configureVNCFileAccess(_ connection: Connection, session: Session, in store: SessionStore) {
         guard let id = session.vnc.fileSSHSessionID else {
-            desktop.disconnectLinuxFiles()
+            connection.configureFileAccess(nil)
             return
         }
         guard let ssh = store.sessions.values.first(where: { $0.persistentID == id && $0.kind == .ssh }) else {
-            desktop.disconnectLinuxFiles()
-            desktop.reportLinuxFilesError("The SSH settings saved for this VNC file clipboard are missing. Choose them again in Session Settings.")
+            connection.configureFileAccess(nil, problem: "The SSH session saved for file access is missing. Choose one in VNC Session Settings.")
             return
         }
         do {
             let plan = try Self.launchPlan(for: ssh, in: store)
-            desktop.connectLinuxFiles(plan: plan, title: ssh.id)
+            connection.configureFileAccess(plan, title: ssh.id)
         } catch {
-            desktop.disconnectLinuxFiles()
-            desktop.reportLinuxFilesError("Could not start the VNC file clipboard: \(error)")
+            connection.configureFileAccess(nil, problem: "Could not start SSH file access: \(error)")
         }
     }
 
-    func refreshVNCFileClipboard(sessionID: String, in store: SessionStore) {
+    func refreshVNCFileAccess(sessionID: String, in store: SessionStore) {
         guard let session = store.session(sessionID), session.kind == .vnc else { return }
         for connection in connections where connection.sessionID == sessionID && connection.state.isRunning {
-            configureVNCFileClipboard(connection, session: session, in: store)
+            configureVNCFileAccess(connection, session: session, in: store)
         }
     }
 

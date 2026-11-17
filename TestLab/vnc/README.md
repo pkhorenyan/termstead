@@ -1,52 +1,28 @@
-# Linux VNC file clipboard
+# VNC file access over SFTP
 
-Termstead can copy files and folders between Finder and an **X11 Linux VNC
-desktop** using SSH/SFTP alongside VNC. Tested with TigerVNC and Xfce/Thunar.
-VNC itself continues to carry the screen, keyboard and pointer.
+Termstead's VNC tab can browse and transfer files over a separate SSH/SFTP
+connection. This works with macOS and Linux hosts that offer SSH access; no
+helper is installed on the remote desktop. VNC still carries the screen and
+text clipboard.
 
-1. Enable SSH/SFTP on the Linux machine. Log in as the user running the VNC desktop.
-2. Install Python 3, PyGObject and GTK 3 on Linux. On Debian/Ubuntu:
-   `sudo apt install python3 python3-gi gir1.2-gtk-3.0`.
-3. Save SSH connection settings for that desktop user in Termstead. In the VNC
-   session settings, choose that SSH connection under **Linux file clipboard**.
-   Use the Linux keyboard profile and enable clipboard sharing.
-4. Open the VNC session. Termstead starts file clipboard SSH in the background;
-   no SSH tab needs to be open. The tab menu shows its state and can reconnect
-   it. To change the SSH account, edit the VNC session settings.
-5. In Finder, copy files with ⌘C. Focus the remote file manager and press ⌘V.
-   The remote file manager's right-click **Paste** works too. When the Mac
-   clipboard contains files, Termstead prepares them before opening that menu;
-   large selections can take time to upload. Cancel is in the status bar.
-   In the remote file manager, ⌘C copies selected files back to the Mac;
-   switch to Finder and press ⌘V after “Files ready to paste” appears.
+1. Enable SSH/SFTP on the VNC computer and save an SSH session in Termstead.
+2. In the VNC session settings, choose that SSH session under **File access**.
+   The VNC and SSH passwords or keys are independent.
+3. Open the VNC tab and select **SFTP** in the sidebar. The SSH file connection
+   opens in the background without an extra terminal tab.
+4. Copy files in Finder, select the destination folder in the sidebar, then
+   choose **Paste** or press ⌘V with the file list focused. For the other
+   direction, select a sidebar file, choose **Copy** or press ⌘C, wait for
+   its download to finish, then paste into Finder. Drag and drop and
+   Upload/Download are also available.
 
-The SSH association belongs to the saved VNC session. New tabs and automatic
-VNC reconnects restore the background connection. The saved SSH
-settings supply authentication, host-key checks and jump hosts. If SSH needs
-a password or host-key confirmation, its normal terminal appears temporarily
-inside the VNC pane, then returns to the desktop. The background connection
-and clipboard helper stop when the VNC tab closes or file clipboard is disabled.
-No separate terminal tab or installed service is needed, and no extra network
-port is opened.
+The saved SSH settings supply authentication, host-key checks and jump hosts.
+The background connection ends with the VNC tab. SSH login questions appear
+inside its terminal pane. File transfer depends on SSH/SFTP availability and
+does not use the VNC desktop's own file-manager clipboard.
 
-The SSH account must be able to open the VNC desktop's X display. The helper
-uses `DISPLAY`/`XAUTHORITY` from the SSH environment; if DISPLAY is absent,
-it uses the sole local X display. With multiple displays, configure the
-correct DISPLAY for the SSH account. Wayland is currently unsupported.
-
-Transfers preserve names, file contents and nested/empty directories. Uploads
-start on explicit Paste or when preparing the remote context menu. Simply
-focusing the desktop sends no files. The remote file manager handles name conflicts and
-asks whether to replace existing files. Copies never move/delete originals.
-Clipboard directions and view-only mode are respected. Text still works.
-The limit is 64 selected roots, 10,000 total entries and 100 GB per copy.
-Symbolic links, special files and names containing CR/LF are rejected.
-
-Uploads use private `.termstead-vnc-*` staging folders in the Linux user's
-home, so later Paste can still read them. Incomplete uploads are removed on
-cancel. Completed caches older than seven days are removed on the next helper
-start; only marked, private folders belonging to that user qualify. Downloads
-use private temporary folders on the Mac and remain usable after tab close.
+The earlier experimental X11 clipboard bridge remains in the test harness
+below, but is no longer the app's default file transfer path.
 
 ## Docker verification
 

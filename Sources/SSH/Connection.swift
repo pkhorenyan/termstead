@@ -80,6 +80,12 @@ final class Connection: Identifiable {
     /// The remote desktop, for an RDP tab.
     let desktop: RDPDesktop?
     let vnc: VNCDesktop?
+    /// File access for a VNC desktop is a separate SSH connection. It has no
+    /// terminal tab and does not share the VNC server's credentials.
+    private(set) var fileAccess: Connection?
+    @ObservationIgnored private var fileAccessPlan: SSHLaunchPlan?
+    private(set) var fileAccessTitle: String?
+    private(set) var fileAccessProblem: String?
     @ObservationIgnored private var vncLaunch: VNCLaunch?
     /// What the RDP tab connected with, to reconnect with on Return.
     @ObservationIgnored private var desktopLaunch: RDPLaunch?
@@ -158,6 +164,7 @@ final class Connection: Identifiable {
         vnc?.log = { [weak self] line in self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n") }
         vnc?.onEnded = { [weak self] reason in self?.desktopEnded(reason) }
         vnc?.onStableDisconnect = { [weak self] in self?.reconnectAttempts = 0 }
+        vnc?.onConnected = { [weak self] in self?.startFileAccess() }
         desktop?.availableSize = { [weak self] in
             // The pane holding the terminal, while the desktop is not up.
             guard let pane = self?.terminalView.superview ?? self?.desktop?.view.superview,
@@ -262,6 +269,7 @@ final class Connection: Identifiable {
 
     private func desktopEnded(_ reason: String) {
         guard state.isRunning else { return }
+        if kind == .vnc { stopFileAccess() }
         if desktopTunnel != nil, terminalView.process.running {
             // The tunnel's exit finishes the job, with this as its reason.
             desktopEndReason = reason
@@ -340,11 +348,59 @@ final class Connection: Identifiable {
     /// What the Files panel browses: the server over SFTP, or this Mac for
     /// a local terminal.
     var files: (any FileSource)? {
+        if kind == .vnc { return fileAccess?.sftp }
         if isLocalShell {
             guard state.isRunning else { return nil }
             return LocalFiles(shellPID: terminalView.process.shellPid, terminalFD: terminalView.process.childfd)
         }
         return sftp
+    }
+
+    func configureFileAccess(_ plan: SSHLaunchPlan?, title: String? = nil, problem: String? = nil) {
+        fileAccess?.close()
+        fileAccess = nil
+        fileAccessPlan = plan
+        fileAccessTitle = title
+        fileAccessProblem = problem
+        if vnc?.phase == .showing { startFileAccess() }
+        browser?.resetForNewSource()
+    }
+
+    private func startFileAccess() {
+        guard kind == .vnc, vnc?.phase == .showing, let plan = fileAccessPlan,
+              fileAccess?.state.isRunning != true else { return }
+        fileAccess?.close()
+        let title = fileAccessTitle ?? self.title
+        let access = Connection(sessionID: nil, title: title, address: plan.target.host,
+                                keyDescription: "SFTP", isTunnelOnly: true)
+        fileAccess = access
+        fileAccessProblem = nil
+        access.onLogin = { [weak self, weak access] in
+            guard let self, self.fileAccess === access else { return }
+            if self.browser?.isShown == true { self.browser?.refresh() }
+            self.onLogin?()
+        }
+        access.onEnded = { [weak self, weak access] in
+            guard let self, self.fileAccess === access else { return }
+            self.fileAccessProblem = "SSH file access disconnected. Reconnect file access to try again."
+            if self.browser?.isShown == true { self.browser?.refresh() }
+        }
+        access.start(plan)
+        if case .failed(let message) = access.state { fileAccessProblem = message }
+    }
+
+    private func stopFileAccess() {
+        fileAccess?.onEnded = nil
+        fileAccess?.close()
+        fileAccess = nil
+        if browser?.isShown == true { browser?.refresh() }
+    }
+
+    func reconnectFileAccess() {
+        guard vnc?.phase == .showing, fileAccessPlan != nil else { return }
+        stopFileAccess()
+        startFileAccess()
+        browser?.resetForNewSource()
     }
 
     /// The tab's file browser, made the first time the Files panel shows it.
@@ -453,6 +509,8 @@ final class Connection: Identifiable {
         if vncLaunch?.passwordAccount == oldAccount { vncLaunch?.passwordAccount = newAccount }
         vnc?.renameAccount(from: oldAccount, to: newAccount)
         vnc?.renameFilesSSHAccount(from: oldID, to: newID)
+        fileAccessPlan?.renameSessionAccount(from: oldID, to: newID)
+        fileAccess?.renameSessionAccount(from: oldID, to: newID)
         if var target = telnetTarget {
             target.tunnel?.renameSessionAccount(from: oldID, to: newID)
             telnetTarget = target
@@ -466,6 +524,7 @@ final class Connection: Identifiable {
         stopLog()
         stopLoadWatch()
         browser?.stop()
+        stopFileAccess()
         // SwiftTerm stops watching the process the moment `terminate` signals
         // it, and the tab's own watch goes here: without this nobody called
         // `waitpid`, and each closed tab left a zombie until Termstead quit.
@@ -623,6 +682,7 @@ final class Connection: Identifiable {
         exitWatch?.cancel()
         exitWatch = nil
         state = .exited(code: exitCode)
+        if kind == .vnc { stopFileAccess() }
         isLoggedIn = false
         onEnded?()
         stopLoadWatch()

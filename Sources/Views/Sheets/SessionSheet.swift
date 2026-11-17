@@ -396,10 +396,9 @@ struct SessionSheet: View {
                     checkbox("Mac → server", isOn: $vnc.sendClipboard)
                     checkbox("Server → Mac", isOn: $vnc.receiveClipboard)
                 }
-                if vnc.keyboard == .linux && vnc.clipboard && !vnc.viewOnly {
-                    FormField(label: "Linux file clipboard") {
+                FormField(label: "File access") {
                         Picker("SSH settings", selection: $vnc.fileSSHSessionID) {
-                            Text("None (text only)").tag(nil as UUID?)
+                            Text("None").tag(nil as UUID?)
                             ForEach(sessionStore.sessions.values.filter { $0.kind == .ssh }
                                 .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }, id: \.id) { ssh in
                                 Text("\(ssh.id) (\(ssh.address))").tag(ssh.persistentID as UUID?)
@@ -410,9 +409,8 @@ struct SessionSheet: View {
                             }
                         }
                         .labelsHidden()
-                    }
-                    InsetNote(text: "Choose SSH access to the same Linux desktop user once. File copy and paste then connects in the background whenever this VNC session opens.")
                 }
+                InsetNote(text: "Optional SSH access to this computer's files. The SFTP panel opens beside VNC without another terminal tab. VNC and SSH sign in separately.")
                 checkbox("Reconnect after connection loss", isOn: $vnc.autoReconnect)
                 FormField(label: "Transport") {
                     SegmentedPicker(options: VNCOptions.Security.allCases, selection: $vnc.security,
@@ -992,7 +990,7 @@ struct SessionSheet: View {
             savedID = created
         }
         if let savedID, kind == .vnc, !thenConnect {
-            connectionStore.refreshVNCFileClipboard(sessionID: savedID, in: sessionStore)
+            connectionStore.refreshVNCFileAccess(sessionID: savedID, in: sessionStore)
         }
         close()
 

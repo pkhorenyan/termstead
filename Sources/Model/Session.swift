@@ -183,8 +183,8 @@ struct VNCOptions: Hashable, Codable, Sendable {
     var autoReconnect = true
     /// Explicit opt-in: never silently downgrade to an anonymous desktop.
     var allowNoAuth = false
-    /// Saved SSH settings for file copy/paste on an X11 Linux desktop. Kept by
-    /// permanent identity so renaming a session cannot redirect the clipboard.
+    /// Saved SSH settings for the VNC tab's SFTP file browser. Kept by
+    /// permanent identity so renaming a session cannot redirect file access.
     var fileSSHSessionID: UUID? = nil
 
     init() {}
