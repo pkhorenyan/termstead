@@ -7,12 +7,12 @@ VNC itself continues to carry the screen, keyboard and pointer.
 1. Enable SSH/SFTP on the Linux machine. Log in as the user running the VNC desktop.
 2. Install Python 3, PyGObject and GTK 3 on Linux. On Debian/Ubuntu:
    `sudo apt install python3 python3-gi gir1.2-gtk-3.0`.
-3. Save SSH connection settings for that desktop user in Termstead. Open the
-   VNC session with the Linux keyboard profile and clipboard sharing enabled.
-4. Right-click the VNC tab → **Linux File Clipboard** → **Choose SSH Session…**.
-   Connections to the same host appear first; search by name or address if SSH
-   uses another host name or a jump route. Select the settings for the desktop
-   user. Termstead connects in the background; no SSH tab needs to be open.
+3. Save SSH connection settings for that desktop user in Termstead. In the VNC
+   session settings, choose that SSH connection under **Linux file clipboard**.
+   Use the Linux keyboard profile and enable clipboard sharing.
+4. Open the VNC session. Termstead starts file clipboard SSH in the background;
+   no SSH tab needs to be open. An existing VNC tab can be configured through
+   its **Linux File Clipboard → Set Up File Clipboard…** menu once.
 5. In Finder, copy files with ⌘C. Focus the remote file manager and press ⌘V.
    The remote file manager's right-click **Paste** works too. When the Mac
    clipboard contains files, Termstead prepares them before opening that menu;

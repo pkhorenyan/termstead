@@ -11,6 +11,7 @@ struct LinuxFileSSHPicker: View {
 
     let desktop: VNCDesktop
     let vncHost: String
+    let vncSessionID: String?
 
     private var choices: [Session] {
         let ssh = sessionStore.sessions.values.filter { $0.kind == .ssh }
@@ -30,7 +31,7 @@ struct LinuxFileSSHPicker: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Linux File Clipboard")
                 .font(.title2.weight(.semibold))
-            Text("Choose SSH access to this Linux desktop, using the desktop user. It runs in the background without opening another tab.")
+            Text("Set up SSH access to this Linux desktop once, using the desktop user. Future VNC tabs connect the file clipboard automatically.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("Search SSH sessions by name or address", text: $query)
@@ -46,6 +47,9 @@ struct LinuxFileSSHPicker: View {
                         Button {
                             do {
                                 let plan = try ConnectionStore.launchPlan(for: ssh, in: sessionStore)
+                                if let vncSessionID {
+                                    sessionStore.setVNCFileSSHSession(vncSessionID, sshID: ssh.persistentID)
+                                }
                                 desktop.connectLinuxFiles(plan: plan, title: ssh.id)
                                 dismiss()
                             } catch {

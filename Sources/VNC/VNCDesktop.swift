@@ -127,7 +127,7 @@ final class VNCDesktop {
         hasKeyboard = { view.hasKeyboard }
     }
     func start(_ launch: VNCLaunch, socket: @escaping @MainActor () async throws -> FileHandle) {
-        stop()
+        stop(keepLinuxFilesConfiguration: true)
         lastLaunch = launch
         retries = 0; didConnect = false
         viewport.zoom = zoom
@@ -139,8 +139,8 @@ final class VNCDesktop {
             connect()
         }
     }
-    func stop() {
-        disconnectLinuxFiles()
+    func stop(keepLinuxFilesConfiguration: Bool = false) {
+        disconnectLinuxFiles(keepConfiguration: keepLinuxFilesConfiguration)
         cancelFilePaste()
         attempt += 1
         reconnectTask?.cancel(); reconnectTask = nil
@@ -562,7 +562,7 @@ final class VNCDesktop {
             guard supportsFiles else {
                 traceFiles("upload-unsupported")
                 fileCopy = FileCopy(revision: seenChange, sending: true,
-                    error: "This VNC server does not provide file clipboard transfer. For a Linux X11 desktop, choose saved SSH settings for its desktop user in this tab’s Linux File Clipboard menu. The SSH connection runs in the background.")
+                    error: "This VNC server does not provide file clipboard transfer. For a Linux X11 desktop, set SSH access for its desktop user in the VNC session settings. The file clipboard then connects in the background.")
                 return true
             }
             if fileCopy?.revision != seenChange || fileCopy?.sending != true || fileCopy?.done != false || fileCopy?.error != nil {

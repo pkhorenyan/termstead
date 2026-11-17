@@ -78,6 +78,10 @@ enum SessionTransfer {
         // different folder. Cycles terminate in the set and remain explicit.
         var pending = Array(names)
         while let name = pending.popLast() {
+            if let id = byName[name]?.vnc.fileSSHSessionID,
+               let target = byID[id], names.insert(target.id).inserted {
+                pending.append(target.id)
+            }
             for hop in byName[name]?.jumps ?? [] {
                 let target = hop.sessionIdentity.flatMap { byID[$0] }
                     ?? (hop.sessionIdentity == nil ? byName[hop.host.trimmingCharacters(in: .whitespaces)] : nil)
@@ -175,7 +179,10 @@ enum SessionTransfer {
             while changed {
                 changed = false
                 for session in incoming where !skipped.contains(session.persistentID!) {
-                    if session.jumps.contains(where: { hop in
+                    let missingFileSSH = session.vnc.fileSSHSessionID.map {
+                        skipped.contains($0) && reusedJumps[$0] == nil
+                    } ?? false
+                    if missingFileSSH || session.jumps.contains(where: { hop in
                         let target = hop.sessionIdentity ?? sourceByName[hop.host]?.persistentID
                         return target.map { skipped.contains($0) && reusedJumps[$0] == nil } ?? false
                     }) { changed = skipped.insert(session.persistentID!).inserted || changed }
@@ -235,6 +242,11 @@ enum SessionTransfer {
                     throw SessionArchive.Problem.invalid("The literal jump host “\(hop.host)” matches an existing session name. Rename that session before importing.")
                 }
                 return copy
+            }
+            if let target = copy.vnc.fileSSHSessionID {
+                let mapped = identities[target] ?? missingIDs[target] ?? UUID()
+                missingIDs[target] = mapped
+                copy.vnc.fileSSHSessionID = mapped
             }
             copies[identity] = copy
         }

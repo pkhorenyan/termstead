@@ -10,9 +10,11 @@ import Testing
         #expect(options.sendClipboard && options.receiveClipboard)
         #expect(options.security == .standard && options.keyboard == .linux)
         #expect(options.zoom == 0 && options.autoReconnect)
+        #expect(options.fileSSHSessionID == nil)
         var changed = options
         changed.security = .tls; changed.keyboard = .macOS; changed.quality = .fast
         changed.zoom = 175; changed.receiveClipboard = false; changed.autoReconnect = false
+        changed.fileSSHSessionID = UUID()
         #expect(try JSONDecoder().decode(VNCOptions.self, from: JSONEncoder().encode(changed)) == changed)
     }
     @Test func fixedScaleCanScrollOneAxisWithoutStretchingTheOther() throws {
@@ -29,5 +31,12 @@ import Testing
         desktop.setZoom(50)
         desktop.view.setFrameSize(viewport)
         #expect(desktop.view.shownRect.size == CGSize(width: 960, height: 540))
+    }
+
+    @Test func sampleVNCUsesItsOwnDesktopSSH() throws {
+        let store = SessionStore.sample()
+        let sshID = try #require(store.session("lab-vnc-ssh")?.persistentID)
+        #expect(store.session("lab-vnc")?.vnc.fileSSHSessionID == sshID)
+        #expect(store.session("lab-vnc-via-bastion")?.vnc.fileSSHSessionID == sshID)
     }
 }

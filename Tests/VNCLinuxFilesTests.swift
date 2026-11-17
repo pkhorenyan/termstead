@@ -276,6 +276,27 @@ struct VNCLinuxFilesTests {
         #expect(kill(pid, 0) != 0 && errno == ESRCH)
         #expect(desktop.filesSSH == nil && !desktop.linuxFilesReady)
     }
+    @Test func configuredSSHStartsWithVNCAndSurvivesDesktopRestart() async throws {
+        let board = NSPasteboard(name: .init("linux-configured-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let desktop = VNCDesktop(); desktop.pasteboard = board
+        defer { desktop.stop() }
+        desktop.hasKeyboard = { true }
+        desktop.connectLinuxFiles(plan: try plan(), title: "Saved file SSH",
+                                  keychain: KeychainStore(service: "linux-configured-\(UUID())"))
+        let launch = VNCLaunch(session: SessionStore.sample().session("lab-vnc")!, password: "lab")
+        func start() {
+            desktop.start(launch) { try await RDPSocket.connect(host: "127.0.0.1", port: 5901) }
+        }
+        start()
+        await wait { desktop.linuxFilesReady || desktop.fileCopy?.error != nil }
+        try #require(desktop.linuxFilesReady, "\(desktop.fileCopy?.error ?? "clipboard did not start")")
+        #expect(desktop.linuxFileConnection == "Saved file SSH")
+        start()
+        await wait { desktop.linuxFilesReady || desktop.fileCopy?.error != nil }
+        #expect(desktop.linuxFilesReady, "\(desktop.fileCopy?.error ?? "clipboard did not restart")")
+        #expect(desktop.phase == .showing)
+    }
     @Test(arguments: [false, true])
     func rightClickPublishesFilesAndThunarsPasteMenuCopiesThem(_ receive: Bool) async throws {
         let remote = try prepare()

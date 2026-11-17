@@ -396,6 +396,23 @@ struct SessionSheet: View {
                     checkbox("Mac → server", isOn: $vnc.sendClipboard)
                     checkbox("Server → Mac", isOn: $vnc.receiveClipboard)
                 }
+                if vnc.keyboard == .linux && vnc.clipboard && !vnc.viewOnly {
+                    FormField(label: "Linux file clipboard") {
+                        Picker("SSH settings", selection: $vnc.fileSSHSessionID) {
+                            Text("None (text only)").tag(nil as UUID?)
+                            ForEach(sessionStore.sessions.values.filter { $0.kind == .ssh }
+                                .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }, id: \.id) { ssh in
+                                Text("\(ssh.id) (\(ssh.address))").tag(ssh.persistentID as UUID?)
+                            }
+                            if let id = vnc.fileSSHSessionID,
+                               !sessionStore.sessions.values.contains(where: { $0.persistentID == id && $0.kind == .ssh }) {
+                                Text("Missing SSH session").tag(id as UUID?)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+                    InsetNote(text: "Choose SSH access to the same Linux desktop user once. File copy and paste then connects in the background whenever this VNC session opens.")
+                }
                 checkbox("Reconnect after connection loss", isOn: $vnc.autoReconnect)
                 FormField(label: "Transport") {
                     SegmentedPicker(options: VNCOptions.Security.allCases, selection: $vnc.security,
@@ -973,6 +990,9 @@ struct SessionSheet: View {
             applyPin(to: created)
             sessionStore.selectedID = created
             savedID = created
+        }
+        if let savedID, kind == .vnc, !thenConnect {
+            connectionStore.refreshVNCFileClipboard(sessionID: savedID, in: sessionStore)
         }
         close()
 

@@ -7,6 +7,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- A Linux VNC session remembers which saved SSH connection reaches its desktop
+  user. File clipboard SSH starts automatically with that VNC session; selecting
+  a connection in the tab menu is only needed for initial setup or changes.
+  Exporting a VNC folder includes its linked SSH settings.
+
 ### Fixed
 
 - Ignore expired file selections during automatic Linux clipboard inspection,

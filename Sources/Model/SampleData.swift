@@ -56,6 +56,12 @@ extension SessionStore {
             pinnedIDs: ["prod-web-01", "db-primary"]
         )
         store.collapsedGroupIDs = ["lab"]
+        // The sample VNC desktop and this SSH account reach the same Docker
+        // container, though their ports differ. Configure it as a saved pair.
+        if let sshID = store.session("lab-vnc-ssh")?.persistentID {
+            store.setVNCFileSSHSession("lab-vnc", sshID: sshID)
+            store.setVNCFileSSHSession("lab-vnc-via-bastion", sshID: sshID)
+        }
         return store
     }
 

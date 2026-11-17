@@ -128,6 +128,26 @@ struct SessionTransferTests {
         #expect(launch.hops.first?.port == 2222)
     }
 
+    @Test func vncFileClipboardKeepsItsSSHIdentityAcrossExportAndImport() throws {
+        let source = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        let desktops = source.createGroup(name: "Desktops", parentID: nil, colorID: nil)
+        let servers = source.createGroup(name: "Servers", parentID: nil, colorID: nil)
+        source.createSession(Session(id: "file-access", user: "lab", host: "server.internal", port: 2222,
+                                     icon: .server), parentID: servers)
+        var vnc = Session(id: "desktop", user: "", host: "server.internal", port: 5900, icon: .monitor)
+        vnc.kind = .vnc
+        vnc.vnc.fileSSHSessionID = source.session("file-access")?.persistentID
+        source.createSession(vnc, parentID: desktops)
+
+        let exported = SessionTransfer.exportSnapshot(source.snapshot, groupID: desktops)
+        #expect(Set(exported.sessions.map(\.id)) == ["desktop", "file-access"])
+        let imported = try SessionTransfer.plan(contents(exported), into: source.snapshot, conflict: .keepBoth)
+        let importedSSH = try #require(imported.added.first { $0.kind == .ssh })
+        let importedVNC = try #require(imported.added.first { $0.kind == .vnc })
+        #expect(importedVNC.vnc.fileSSHSessionID == importedSSH.persistentID)
+        #expect(importedSSH.persistentID != source.session("file-access")?.persistentID)
+    }
+
     @Test func keepingBothRenamesTheWholeImportedChainAndRemapsSecrets() throws {
         let original = chain()
         let source = try #require(original.sessions.first { $0.id == "app" })

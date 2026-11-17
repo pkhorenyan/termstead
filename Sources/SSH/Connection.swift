@@ -631,7 +631,7 @@ final class Connection: Identifiable {
         // A desktop's tunnel gone takes the desktop with it.
         if vnc?.hasStableConnection == true { reconnectAttempts = 0 }
         desktop?.stop()
-        vnc?.stop()
+        vnc?.stop(keepLinuxFilesConfiguration: true)
         let detail = exitCode.map { " (exit code \($0))" } ?? ""
         log?.note((isLocalShell ? "The shell exited" : "Connection closed") + detail)
         if kind == .vnc, vncLaunch?.options.autoReconnect == true, desktopEndReason == nil,
