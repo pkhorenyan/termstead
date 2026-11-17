@@ -89,10 +89,12 @@
   selections is still under development. The status bar shows progress and Cancel.
   Symbolic links are not followed; each copy supports up to 64 selections,
   10,000 items and 100 GB.
-  **Linux file clipboard (X11):** open SSH to the same desktop user, then
-  right-click the VNC tab → **Linux File Clipboard** and select that SSH tab.
+  **Linux file clipboard (X11):** right-click the VNC tab → **Linux File
+  Clipboard** and choose saved SSH settings for that desktop user. SSH runs
+  in the background for the VNC tab; no separate terminal tab is required.
   Copy and paste files/folders normally; contents use SFTP and the Linux
-  clipboard supplies file links. Requires Python 3, PyGObject and GTK 3 on
+  clipboard supplies file links. The remote file manager's right-click Paste
+  menu is supported too. Requires Python 3, PyGObject and GTK 3 on
   Linux. [Setup and limits](TestLab/vnc/README.md). Other servers share text only.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
@@ -183,12 +185,12 @@ against the project's signing key before it is installed.
   independent send and receive controls. Text sync and file-copy initiation
   require keyboard focus; an initiated file copy can finish in the background.
   Native macOS Screen Sharing supports Unicode text and local file uploads;
-  receiving ordinary Finder file selections is still under development. With other
-  servers, Linux X11 supports an explicitly selected SSH/SFTP connection for
-  file clipboard (see setup above); remaining servers share text only. Apple
-  files use the VNC connection, including through jump hosts. Completed
-  downloads remain pasteable after closing the tab. Linux clipboard helpers
-  run only in the selected SSH channel and open no listening port.
+  receiving ordinary Finder file selections is still under development.
+  Linux X11 file clipboard uses saved SSH settings to open a background
+  connection owned by the VNC tab. Authentication appears in its pane; no
+  separate SSH tab or listening port is needed. Apple file contents use the
+  VNC connection, including through jump hosts. Completed downloads remain
+  pasteable after closing the tab. Remaining servers share text only.
   Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
   Auto and Sharp preserve full color. No profile uses lossy JPEG.

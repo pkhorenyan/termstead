@@ -452,6 +452,7 @@ final class Connection: Identifiable {
         let newAccount = SSHLaunch.sessionPasswordAccount(newID)
         if vncLaunch?.passwordAccount == oldAccount { vncLaunch?.passwordAccount = newAccount }
         vnc?.renameAccount(from: oldAccount, to: newAccount)
+        vnc?.renameFilesSSHAccount(from: oldID, to: newID)
         if var target = telnetTarget {
             target.tunnel?.renameSessionAccount(from: oldID, to: newID)
             telnetTarget = target

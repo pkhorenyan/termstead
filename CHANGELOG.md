@@ -9,6 +9,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Enable file Paste in Linux's remote context menu on its first opening.
+  Prepare the clipboard without sending Ctrl+V, and acknowledge GTK's format
+  replies before opening the menu. Honor send-only mode and avoid redundant
+  uploads while the published selection is still current.
+
 - Closing an SSH tab linked to a Linux VNC file clipboard no longer terminates
   Termstead with SIGPIPE. Broken pipe writes are recoverable, pending I/O closes
   in order, and file clipboard disconnects while the VNC desktop stays open.
@@ -50,6 +55,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   falls back to plaintext or anonymous TLS. The Docker lab also offers TLS.
 
 ### Changed
+
+- Linux VNC file clipboard now selects saved SSH settings and opens its own
+  background connection. No separate SSH tab is required; authentication stays
+  in the VNC pane, reconnects restore the connection, and closing VNC stops it.
 
 - Toggle the sidebar with Command-B instead of Control-Command-S. Update
   menu shortcuts, tooltips and the welcome screen hints to match.

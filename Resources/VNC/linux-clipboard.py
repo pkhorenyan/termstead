@@ -120,6 +120,30 @@ def main():
     state = {'active': False, 'serial': 0, 'uris': [], 'owned': False}
     stages = {}
     prune_cache(Path.home(), time.time())
+    publication = {'serial': 0, 'pending': None}
+
+    def publication_ready(serial):
+        pending = publication['pending']
+        if pending is None or pending[0] != serial:
+            return False
+        publication['pending'] = None
+        # GTK has replied to TARGETS before this idle callback. Flush that
+        # reply before acknowledging publication over SSH, so a file manager
+        # updates its Paste sensitivity before the viewer's right click.
+        Gdk.Display.get_default().flush()
+        if Gdk.selection_owner_get(Gdk.SELECTION_CLIPBOARD) == widget.get_window():
+            emit(**pending[1])
+        else:
+            emit(id=pending[1]['id'], error='The Linux clipboard changed before the files were ready.')
+        return False
+
+    def selection_requested(_widget, event):
+        pending = publication['pending']
+        if pending is not None and event.target == Gdk.Atom.intern('TARGETS', False):
+            GLib.idle_add(publication_ready, pending[0])
+        return False  # let GTK send the normal selection response
+
+    widget.connect('selection-request-event', selection_requested)
 
     def get_selection(_widget, selection, info, _timestamp):
         uris = state['uris']
@@ -161,6 +185,7 @@ def main():
         state['serial'] += 1
         state['owned'] = Gdk.selection_owner_get(Gdk.SELECTION_CLIPBOARD) == widget.get_window()
         if not state['owned']:
+            emit(event='changed')  # metadata only, even in send-only mode
             GLib.idle_add(inspect)
 
     clipboard.connect('owner-change', changed)
@@ -211,6 +236,15 @@ def main():
                 # clipboard manager can still paste them. No arbitrary paths
                 # supplied by the client are ever removed.
                 result = {'files': paths}
+                if publication['pending'] is not None:
+                    publication_ready(publication['pending'][0])
+                publication['serial'] += 1
+                serial = publication['serial']
+                publication['pending'] = (serial, {'id': request, **result})
+                # Some desktops do not watch TARGETS until opening their menu.
+                # Bound the acknowledgement wait without permanent polling.
+                GLib.timeout_add(1000, publication_ready, serial)
+                return
             elif operation == 'discard':
                 stage = stages.pop(message.get('token'), None)
                 if stage:

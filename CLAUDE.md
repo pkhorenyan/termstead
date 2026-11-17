@@ -396,17 +396,30 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   the clipboard can link to SSH again. Keep this check in the Linux lab suite.
 - **Linux file clipboard uses an explicit SSH/SFTP connection.** TigerVNC's
   X11 clipboard exports text, not file-manager URI selections. The VNC tab's
-  Linux File Clipboard menu selects an already logged-in SSH tab for the same
-  desktop user. `VNCLinuxFiles` runs Resources/VNC/linux-clipboard.py in an SSH
-  channel through that tab's master. Python 3 + PyGObject + GTK 3 are required;
-  support is X11 only. No remote installation, listening port, automatic host
-  matching or separate credentials. Closing the SSH/VNC connection stops it;
-  reconnecting requires choosing the SSH tab again.
+  Linux File Clipboard menu selects saved SSH settings for the desktop user.
+  VNCDesktop owns a background, tunnel-only Connection outside ConnectionStore:
+  no extra tab or automatic port forwards. Its login terminal is mounted in
+  VNCPane only while authenticating. Once logged in, VNCLinuxFiles runs
+  Resources/VNC/linux-clipboard.py through that master; SFTP shares it.
+  VNC close/disconnect stops helper then SSH. Automatic VNC reconnects keep the
+  runtime SSH plan and start it again. Credentials stay in the saved session's
+  Keychain accounts; renames update both running and retry plans. Python 3 +
+  PyGObject + GTK 3 are required; X11 only. No remote service, listening port
+  or automatic host matching. A new VNC tab needs its SSH settings selected.
   GTK serves text/uri-list, x-special/gnome-copied-files and KDE's copy marker.
   Check the returned selection's actual type: xclip answers unsupported URI
   requests with UTF8_STRING, which must remain text, even if it looks like a URL.
-  Publication is acknowledged only after GTK owns the clipboard, then send one
-  Ctrl+V. SFTP writes unique private staging directories, never the visible
+  Publication waits for GTK ownership and a TARGETS response/flush before its
+  SSH acknowledgement, with a bounded fallback for desktops without watchers.
+  Right clicks with local files prepare publication before forwarding the
+  mouse down/up pair, without Ctrl+V; uploads can delay the menu. Never cache
+  GTK's ownership acknowledgement alone: Thunar's can-paste is set on TARGETS
+  replies, and otherwise the first menu remains grey. Context preparation must
+  preserve concealed-clipboard protections. Cache the published revision, and
+  invalidate on metadata-only owner-change events even in send-only mode.
+  A synchronized local revision can be replaced by a remote file-manager Copy
+  without requiring a local key event; a newly copied local selection is kept.
+  SFTP writes unique private staging directories, never the visible
   destination; Thunar/Nautilus resolve collisions through their normal Paste UI.
   Roots retain their names. Reject links, special files and newlines (SFTP's
   batch protocol); cap roots/items/bytes. Completed uploads remain pasteable

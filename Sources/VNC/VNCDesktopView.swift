@@ -15,6 +15,7 @@ final class VNCDesktopView: NSView {
     private var horizontalWheelUnits = 0
     private var cursorShape: RDPPointer.Shape?
     private var cursorIsHidden = false
+    private var contextClick: (id: UUID, event: NSEvent, released: Bool)?
     private var madeCursor: NSCursor?
     /// In Fit mode the whole pane is the drawing area; at a fixed zoom the
     /// document can be larger in just one direction, leaving centered margins.
@@ -139,6 +140,7 @@ final class VNCDesktopView: NSView {
     @objc private func resigned() { desktop?.keyboardLeft() }
     @objc private func arrived() { if hasKeyboard { desktop?.keyboardArrived() } }
     func releaseInput() {
+        contextClick = nil
         pressed.values.forEach { desktop?.send($0, down: false) }
         pressed.removeAll()
         if buttons != 0 { desktop?.pointer(x: lastPointer.x, y: lastPointer.y, buttons: 0) }
@@ -146,6 +148,7 @@ final class VNCDesktopView: NSView {
         wheelUnits = 0; horizontalWheelUnits = 0
     }
     override func keyDown(with event: NSEvent) {
+        contextClick = nil
         guard !event.modifierFlags.contains(.command) else { return }
         let chars = event.modifierFlags.intersection([.control, .option]).isEmpty
             ? event.characters : event.charactersIgnoringModifiers
@@ -186,12 +189,28 @@ final class VNCDesktopView: NSView {
         move(event)
     }
     override func mouseDragged(with event: NSEvent) { move(event) }
-    override func rightMouseDragged(with event: NSEvent) { move(event) }
+    override func rightMouseDragged(with event: NSEvent) { if contextClick == nil { move(event) } }
     override func otherMouseDragged(with event: NSEvent) { move(event) }
-    override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self); move(event, button: 1, down: true) }
+    override func mouseDown(with event: NSEvent) { contextClick = nil; window?.makeFirstResponder(self); move(event, button: 1, down: true) }
     override func mouseUp(with event: NSEvent) { move(event, button: 1) }
-    override func rightMouseDown(with event: NSEvent) { move(event, button: 4, down: true) }
-    override func rightMouseUp(with event: NSEvent) { move(event, button: 4) }
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        guard shownRect.contains(convert(event.locationInWindow, from: nil)), let desktop else { return }
+        let id = UUID()
+        contextClick = (id, event, false)
+        let waiting = desktop.prepareContextMenu { [weak self] ready in
+            guard let self, let click = contextClick, click.id == id else { return }
+            contextClick = nil
+            guard ready else { return }
+            move(click.event, button: 4, down: true)
+            if click.released { move(click.event, button: 4) }
+        }
+        if !waiting { contextClick = nil; move(event, button: 4, down: true) }
+    }
+    override func rightMouseUp(with event: NSEvent) {
+        if contextClick != nil { contextClick?.released = true }
+        else { move(event, button: 4) }
+    }
     override func otherMouseDown(with event: NSEvent) { if event.buttonNumber == 2 { move(event, button: 2, down: true) } }
     override func otherMouseUp(with event: NSEvent) { if event.buttonNumber == 2 { move(event, button: 2) } }
     override func scrollWheel(with event: NSEvent) {
@@ -214,7 +233,7 @@ final class VNCDesktopView: NSView {
         }
     }
     override func menu(for event: NSEvent) -> NSMenu? { nil }
-    private func edit(_ letter: UInt32) { desktop?.edit(letter) }
+    private func edit(_ letter: UInt32) { contextClick = nil; desktop?.edit(letter) }
     @objc func copy(_ sender: Any?) { edit(0x63) }
     @objc func cut(_ sender: Any?) { edit(0x78) }
     @objc func paste(_ sender: Any?) { edit(0x76) }

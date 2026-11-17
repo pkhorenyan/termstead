@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Darwin
+import IOSurface
 import Testing
 @testable import Termstead
 
@@ -38,17 +39,27 @@ struct VNCLinuxFilesTests {
         return SFTPClient(configPath: try #require(env["TERMSTEAD_LINUX_SSH_CONFIG"]),
                           controlPath: try #require(env["TERMSTEAD_LINUX_SSH_CONTROL"]), alias: "linux-vnc-test")
     }
-    private func open(_ desktop: VNCDesktop, fileClient: SFTPClient? = nil) async throws {
+    private func plan() throws -> SSHLaunchPlan {
+        let settings = try client()
+        return SSHLaunchPlan(hops: [], target: .init(alias: "linux-vnc-test", host: "127.0.0.1", user: "lab", port: 2203,
+                                                    auth: .automatic, passwordAccount: nil),
+                             config: try String(contentsOfFile: settings.configPath, encoding: .utf8))
+    }
+    private func open(_ desktop: VNCDesktop, fileClient: SFTPClient? = nil, background: Bool = false, receive: Bool = true) async throws {
         // TigerVNC desktop and the selected SSH connection are the same user
         // and machine. Named pasteboards never touch Pavel's clipboard.
         desktop.hasKeyboard = { true }
-        desktop.start(VNCLaunch(session: SessionStore.sample().session("lab-vnc")!, password: "lab")) {
+        var launch = VNCLaunch(session: SessionStore.sample().session("lab-vnc")!, password: "lab")
+        launch.options.receiveClipboard = receive
+        desktop.start(launch) {
             try await RDPSocket.connect(host: "127.0.0.1", port: 5901)
         }
         await wait { desktop.phase != .connecting }
         try #require(desktop.phase == .showing)
         #expect(!desktop.supportsFiles) // no Apple file-transfer extension
-        desktop.connectLinuxFiles(client: try fileClient ?? client(), title: "Linux test SSH")
+        if background {
+            desktop.connectLinuxFiles(plan: try plan(), title: "Linux test SSH", keychain: KeychainStore(service: "linux-background-\(UUID())"))
+        } else { desktop.connectLinuxFiles(client: try fileClient ?? client(), title: "Linux test SSH") }
         await wait { desktop.linuxFilesReady || desktop.fileCopy?.error != nil }
         try #require(desktop.linuxFilesReady, "\(desktop.fileCopy?.error ?? "helper did not start")")
     }
@@ -222,7 +233,8 @@ struct VNCLinuxFilesTests {
         defer { board.releaseGlobally() }
         let desktop = VNCDesktop(); desktop.pasteboard = board
         defer { desktop.stop() }
-        try await open(desktop, fileClient: #require(ssh.sftp))
+        let linked = try #require(ssh.sftp)
+        try await open(desktop, fileClient: linked)
         for _ in 0..<500 {
             desktop.hasKeyboard = { false }; desktop.keyboardLeft()
             desktop.hasKeyboard = { true }; desktop.keyboardArrived()
@@ -242,5 +254,117 @@ struct VNCLinuxFilesTests {
         #expect(desktop.linuxFilesReady)
         #expect(desktop.phase == .showing)
         desktop.stop(); desktop.stop() // repeated teardown is harmless
+    }
+    @Test func backgroundSSHNeedsNoTabAndStopsWithTheVNCConnection() async throws {
+        let tabs = ConnectionStore()
+        let vnc = Connection(sessionID: nil, title: "VNC with background files", address: "lab", keyDescription: "test", kind: .vnc)
+        tabs.add(vnc)
+        defer { tabs.closeAll() }
+        let desktop = try #require(vnc.vnc)
+        let board = NSPasteboard(name: .init("linux-background-\(UUID())"))
+        desktop.pasteboard = board
+        defer { board.releaseGlobally() }
+        try await open(desktop, background: true)
+        #expect(tabs.connections.count == 1 && tabs.connections[0] === vnc)
+        let ssh = try #require(desktop.filesSSH)
+        #expect(ssh.isLoggedIn)
+        let pid = ssh.terminalView.process.shellPid
+        try #require(pid > 0)
+        #expect(desktop.linuxFilesReady)
+        tabs.close(vnc.id)
+        await wait { kill(pid, 0) != 0 && errno == ESRCH }
+        #expect(kill(pid, 0) != 0 && errno == ESRCH)
+        #expect(desktop.filesSSH == nil && !desktop.linuxFilesReady)
+    }
+    @Test(arguments: [false, true])
+    func rightClickPublishesFilesAndThunarsPasteMenuCopiesThem(_ receive: Bool) async throws {
+        let remote = try prepare()
+        defer { _ = TestLabVNC.command(["rm", "-rf", "--", remote]) }
+        let root = URL.temporaryDirectory.appendingPathComponent("linux-menu-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("menu-proof.txt")
+        let payload = Data("Pasted through the remote context menu — ✓".utf8)
+        try payload.write(to: file)
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        let board = NSPasteboard(name: .init("linux-menu-\(UUID())"))
+        desktop.pasteboard = board
+        defer { board.releaseGlobally() }
+        try await open(desktop, background: true, receive: receive)
+        try await show(remote)
+        _ = TestLabVNC.command(["sh", "-c", "w=$(xdotool getactivewindow); xdotool windowmove \"$w\" 0 30 windowsize \"$w\" 1280 740"])
+        let window = NSWindow(contentRect: NSRect(x: 20, y: 40, width: 1280, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = desktop.viewport
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        window.contentView?.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+        board.clearContents(); board.writeObjects([file] as [NSURL])
+        let rect = desktop.view.shownRect
+        let point = desktop.view.convert(NSPoint(x: rect.minX + rect.width * 1000 / 1280,
+                                                 y: rect.minY + rect.height * 600 / 800), to: nil)
+        func mouse(_ type: NSEvent.EventType) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        desktop.view.rightMouseDown(with: try mouse(.rightMouseDown))
+        desktop.view.rightMouseUp(with: try mouse(.rightMouseUp))
+        await wait { desktop.fileCopy?.done == true || desktop.fileCopy?.error != nil }
+        try #require(desktop.fileCopy?.paste == .ready, "\(desktop.fileCopy?.error ?? "Context clipboard was not prepared")")
+        // Preparing a menu must never paste on its own.
+        #expect(TestLabVNC.command(["test", "-e", remote + "/menu-proof.txt"]).status != 0)
+        try await Task.sleep(for: .milliseconds(300))
+        captureMenu(desktop, name: "before")
+        let targets = TestLabVNC.command(["timeout", "2", "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"]).output
+        #expect(targets.contains("x-special/gnome-copied-files"), "Remote clipboard targets: \(targets)")
+        // Click the actual Paste row in this fixed English Thunar fixture.
+        // No keyboard shortcut and no reopening the menu can mask a grey row.
+        desktop.pointer(x: 1040, y: 429, buttons: 1)
+        desktop.pointer(x: 1040, y: 429, buttons: 0)
+        var present = false
+        for _ in 0..<100 where !present {
+            present = TestLabVNC.command(["test", "-f", remote + "/menu-proof.txt"]).status == 0
+            if !present { try await Task.sleep(for: .milliseconds(50)) }
+        }
+        if !present { captureMenu(desktop, name: "after") }
+        try #require(present, "Paste must be enabled and work in the actual Thunar menu")
+        try await client().download(remote + "/menu-proof.txt", recursive: false, to: root, as: "verify")
+        #expect(try Data(contentsOf: root.appendingPathComponent("verify")) == payload)
+        // A second menu can use the existing publication without reuploading.
+        #expect(!desktop.prepareContextMenu(ready: { _ in Issue.record("Already-published files should open the menu immediately") }))
+        if receive {
+            // A remote file copy made with the mouse has no local Copy key
+            // event. Its real URI clipboard must still replace files already
+            // shared from the Mac, rather than being mistaken for an echo.
+            _ = TestLabVNC.command(["sh", "-c", "printf '%s' 'file://\(remote)/menu-proof.txt' | xclip -selection clipboard -t text/uri-list >/dev/null 2>&1"])
+            await wait { desktop.fileCopy?.sending == false && desktop.fileCopy?.done == true }
+            let received = try #require((board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first)
+            #expect(received != file)
+            #expect(try Data(contentsOf: received) == payload)
+            if received != file { try? FileManager.default.removeItem(at: received.deletingLastPathComponent().deletingLastPathComponent()) }
+        } else {
+            let revision = board.changeCount
+            _ = TestLabVNC.command(["sh", "-c", "printf 'remote clipboard changed' | xclip -selection clipboard >/dev/null 2>&1"])
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(board.changeCount == revision)
+            var ready: Bool?
+            #expect(desktop.prepareContextMenu { ready = $0 })
+            await wait { ready != nil }
+            #expect(ready == true) // send-only still invalidates stale metadata
+        }
+    }
+    private func captureMenu(_ desktop: VNCDesktop, name: String) {
+        guard let surface = desktop.view.layer?.sublayers?.first?.contents as? IOSurface else { return }
+        IOSurfaceLock(surface, .readOnly, nil)
+        defer { IOSurfaceUnlock(surface, .readOnly, nil) }
+        guard let context = CGContext(data: IOSurfaceGetBaseAddress(surface), width: surface.width, height: surface.height,
+                                      bitsPerComponent: 8, bytesPerRow: IOSurfaceGetBytesPerRow(surface), space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue),
+              let image = context.makeImage() else { return }
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: "/private/tmp/termstead-linux-menu-\(name).png"))
     }
 }

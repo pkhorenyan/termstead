@@ -184,14 +184,17 @@ struct TabBarView: View {
                         Button("Disconnect File Clipboard") { desktop.disconnectLinuxFiles() }
                         Divider()
                     }
-                    let sshTabs = connectionStore.connections.filter { $0.kind == .ssh && !$0.isLocalShell && $0.isLoggedIn && $0.sftp != nil }
-                    Text("Choose SSH to this Linux desktop:")
-                    ForEach(sshTabs) { ssh in
-                        Button("\(ssh.title) (\(ssh.address))") {
-                            if let client = ssh.sftp { desktop.connectLinuxFiles(client: client, title: ssh.title) }
+                    let savedSSH = sessionStore.sessions.values.filter { $0.kind == .ssh }.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+                    Text("SSH settings for this Linux desktop:")
+                    ForEach(savedSSH, id: \.id) { ssh in
+                        Button("\(ssh.id) (\(ssh.address))") {
+                            do {
+                                let plan = try ConnectionStore.launchPlan(for: ssh, in: sessionStore)
+                                desktop.connectLinuxFiles(plan: plan, title: ssh.id)
+                            } catch { desktop.reportLinuxFilesError(String(describing: error)) }
                         }
                     }
-                    if sshTabs.isEmpty { Text("Open an SSH session as the desktop’s user first.") }
+                    if savedSSH.isEmpty { Text("Save SSH settings for the desktop’s user first.") }
                 }
                 .disabled(desktop.viewOnly || desktop.lastLaunch?.options.clipboard != true)
             }

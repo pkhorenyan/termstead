@@ -34,7 +34,7 @@ final class VNCDesktop {
     private(set) var certificateQuestion: RDPDesktop.CertificateQuestion?
     private(set) var retryMessage: String?
     struct FileCopy: Equatable {
-        enum Paste: Equatable { case waiting, sent, cancelled }
+        enum Paste: Equatable { case waiting, sent, cancelled, ready }
         var revision: Int
         var sending: Bool
         var copied: Int64 = 0
@@ -47,12 +47,17 @@ final class VNCDesktop {
     private(set) var supportsFiles = false
     private(set) var linuxFileConnection: String?
     private(set) var linuxFilesReady = false
+    private(set) var filesSSH: Connection?
+    @ObservationIgnored private var filesSSHLaunch: (plan: SSHLaunchPlan, title: String, keychain: KeychainStore)?
     @ObservationIgnored private var linuxFiles: VNCLinuxFiles?
     @ObservationIgnored private var linuxTransfer: Task<Void, Never>?
     @ObservationIgnored private var linuxTransferID = 0
     @ObservationIgnored private var linuxSelectionSerial: Int?
     @ObservationIgnored private var linuxCaptureRevision: Int?
     @ObservationIgnored private var linuxCaptureID = 0
+    @ObservationIgnored private var linuxPublishedRevision: Int?
+    @ObservationIgnored private var linuxSynchronizedRevision: Int?
+    @ObservationIgnored private var linuxContextReady: ((Bool) -> Void)?
     @ObservationIgnored private var pendingFilePaste: Int?
     @ObservationIgnored private var lastPointer: (x: Int, y: Int, buttons: Int)?
     @ObservationIgnored private var filePasteTask: Task<Void, Never>?
@@ -182,7 +187,7 @@ final class VNCDesktop {
     }
     private func connect() {
         guard let launch = lastLaunch, let open = openSocket else { return }
-        disconnectLinuxFiles()
+        disconnectLinuxFiles(keepConfiguration: true)
         cancelFilePaste()
         attempt += 1
         let current = attempt
@@ -270,6 +275,7 @@ final class VNCDesktop {
                     didConnect = true; connectedAt = uptime()
                     onConnected?()
                     startClipboard()
+                    startFilesSSH()
                 }
                 made.onResizeSupport = { [weak self] supported in
                     guard let self, current == attempt else { return }
@@ -299,7 +305,7 @@ final class VNCDesktop {
                 }
                 made.onDisconnected = { [weak self] reason, code in
                     guard let self, current == attempt else { return }
-                    disconnectLinuxFiles()
+                    disconnectLinuxFiles(keepConfiguration: true)
                     if hasStableConnection { retries = 0; onStableDisconnect?() }
                     connectedAt = nil
                     clipboardWatch?.cancel(); clipboardWatch = nil
@@ -419,6 +425,7 @@ final class VNCDesktop {
         press([keyboard == .macOS ? 0xffeb : 0xffe3, letter])
     }
     func dismissFileCopy() {
+        finishLinuxContext(false)
         linuxTransferID += 1
         linuxTransfer?.cancel(); linuxTransfer = nil
         cancelFilePaste()
@@ -532,6 +539,7 @@ final class VNCDesktop {
     }
     private var localFilesAwaitPaste: Bool {
         lastLaunch?.options.sendClipboard == true && !viewOnly &&
+        (linuxFiles == nil || linuxSynchronizedRevision != pasteboard.changeCount) &&
         remoteCopyRevision != pasteboard.changeCount &&
         pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
@@ -554,7 +562,7 @@ final class VNCDesktop {
             guard supportsFiles else {
                 traceFiles("upload-unsupported")
                 fileCopy = FileCopy(revision: seenChange, sending: true,
-                    error: "This VNC server does not provide file clipboard transfer. For a Linux X11 desktop, open an SSH session as its desktop user, then select it in this tab’s Linux File Clipboard menu.")
+                    error: "This VNC server does not provide file clipboard transfer. For a Linux X11 desktop, choose saved SSH settings for its desktop user in this tab’s Linux File Clipboard menu. The SSH connection runs in the background.")
                 return true
             }
             if fileCopy?.revision != seenChange || fileCopy?.sending != true || fileCopy?.done != false || fileCopy?.error != nil {
@@ -574,6 +582,42 @@ final class VNCDesktop {
 
     func connectLinuxFiles(client: SFTPClient, title: String) {
         disconnectLinuxFiles()
+        attachLinuxFiles(client: client, title: title)
+    }
+    func connectLinuxFiles(plan: SSHLaunchPlan, title: String, keychain: KeychainStore = .shared) {
+        disconnectLinuxFiles()
+        filesSSHLaunch = (plan, title, keychain)
+        startFilesSSH()
+    }
+    func reportLinuxFilesError(_ message: String) {
+        fileCopy = FileCopy(revision: pasteboard.changeCount, sending: false, error: message)
+    }
+    func renameFilesSSHAccount(from oldID: String, to newID: String) {
+        filesSSHLaunch?.plan.renameSessionAccount(from: oldID, to: newID)
+        filesSSH?.renameSessionAccount(from: oldID, to: newID)
+    }
+    private func startFilesSSH() {
+        guard phase == .showing, !supportsFiles, keyboard == .linux, !viewOnly,
+              lastLaunch?.options.clipboard == true, filesSSH == nil, let launch = filesSSHLaunch else { return }
+        fileCopy = nil
+        linuxFileConnection = launch.title
+        let ssh = Connection(sessionID: nil, title: launch.title, address: launch.plan.target.host,
+                             keyDescription: "File clipboard", keychain: launch.keychain, isTunnelOnly: true)
+        filesSSH = ssh
+        ssh.terminalView.feed(text: "Connecting the file clipboard over SSH…\r\n")
+        ssh.onLogin = { [weak self, weak ssh] in
+            guard let self, let ssh, filesSSH === ssh, let client = ssh.sftp else { return }
+            attachLinuxFiles(client: client, title: launch.title)
+        }
+        ssh.onEnded = { [weak self, weak ssh] in
+            guard let self, let ssh, filesSSH === ssh else { return }
+            disconnectLinuxFiles(keepConfiguration: true)
+            fileCopy = FileCopy(revision: pasteboard.changeCount, sending: false,
+                error: "The background SSH connection for the file clipboard ended. Choose the SSH settings again to reconnect. The VNC desktop is still connected.")
+        }
+        ssh.start(launch.plan)
+    }
+    private func attachLinuxFiles(client: SFTPClient, title: String) {
         guard phase == .showing, !supportsFiles, keyboard == .linux,
               !viewOnly, lastLaunch?.options.clipboard == true else { return }
         fileCopy = nil
@@ -585,8 +629,13 @@ final class VNCDesktop {
             linuxFilesReady = true
             bridge.setActive(hasKeyboard() && lastLaunch?.options.receiveClipboard == true)
         }
+        bridge.onChange = { [weak self, weak bridge] in
+            guard let self, let bridge, current == attempt, linuxFiles === bridge else { return }
+            linuxPublishedRevision = nil
+        }
         bridge.onError = { [weak self, weak bridge] message in
             guard let self, let bridge, current == attempt, linuxFiles === bridge else { return }
+            finishLinuxContext(false)
             linuxFilesReady = bridge.isReady
             linuxTransferID += 1
             linuxTransfer?.cancel(); linuxTransfer = nil
@@ -594,7 +643,9 @@ final class VNCDesktop {
             fileCopy = FileCopy(revision: pasteboard.changeCount, sending: false, error: message)
         }
         bridge.onSelection = { [weak self, weak bridge] selection in
-            guard let self, let bridge, current == attempt, linuxFiles === bridge,
+            guard let self, let bridge, current == attempt, linuxFiles === bridge else { return }
+            linuxPublishedRevision = nil
+            guard
                   hasKeyboard() || linuxCaptureRevision == pasteboard.changeCount,
                   !viewOnly, lastLaunch?.options.receiveClipboard == true,
                   !localFilesAwaitPaste, linuxSelectionSerial != selection.serial,
@@ -605,7 +656,9 @@ final class VNCDesktop {
             downloadLinuxFiles(selection, using: bridge)
         }
         bridge.onText = { [weak self, weak bridge] text in
-            guard let self, let bridge, current == attempt, linuxFiles === bridge,
+            guard let self, let bridge, current == attempt, linuxFiles === bridge else { return }
+            linuxPublishedRevision = nil
+            guard
                   hasKeyboard() || linuxCaptureRevision == pasteboard.changeCount,
                   lastLaunch?.options.receiveClipboard == true,
                   !localFilesAwaitPaste, linuxTransfer == nil else { return }
@@ -618,12 +671,18 @@ final class VNCDesktop {
             fileCopy = FileCopy(revision: pasteboard.changeCount, sending: false, error: error.localizedDescription)
         }
     }
-    func disconnectLinuxFiles() {
-        guard linuxFiles != nil else { return }
+    func disconnectLinuxFiles(keepConfiguration: Bool = false) {
+        if !keepConfiguration { filesSSHLaunch = nil }
+        guard linuxFiles != nil || filesSSH != nil else { return }
+        finishLinuxContext(false)
         linuxTransferID += 1
         linuxTransfer?.cancel(); linuxTransfer = nil
         linuxFiles?.close(); linuxFiles = nil
+        let ssh = filesSSH; filesSSH = nil
+        ssh?.onLogin = nil; ssh?.onEnded = nil; ssh?.close()
         linuxFileConnection = nil; linuxFilesReady = false; linuxSelectionSerial = nil
+        linuxPublishedRevision = nil
+        linuxSynchronizedRevision = nil
         linuxCaptureRevision = nil; linuxCaptureID += 1
         fileCopy = nil
     }
@@ -652,15 +711,45 @@ final class VNCDesktop {
         linuxFiles?.setActive((hasKeyboard() || linuxCaptureRevision != nil) && !viewOnly &&
                              lastLaunch?.options.receiveClipboard == true)
     }
-    private func uploadLinuxFiles(_ urls: [URL], using bridge: VNCLinuxFiles, revision: Int) {
+    private func finishLinuxContext(_ ready: Bool) {
+        let completion = linuxContextReady
+        linuxContextReady = nil
+        completion?(ready)
+    }
+    /// A remote menu asks GTK whether files are available before Paste can be
+    /// selected. Publish them before forwarding the right click, without
+    /// sending Ctrl+V. Focusing the desktop alone still sends no files.
+    @discardableResult
+    func prepareContextMenu(ready: @escaping (Bool) -> Void) -> Bool {
+        guard phase == .showing, hasKeyboard(), !viewOnly,
+              lastLaunch?.options.clipboard == true, lastLaunch?.options.sendClipboard == true,
+              let bridge = linuxFiles, bridge.isReady,
+              linuxPublishedRevision != pasteboard.changeCount,
+              RDPDesktop.mayShare(pasteboard.types ?? [], onPaste: false),
+              let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return false }
+        if linuxTransfer != nil, fileCopy?.revision != pasteboard.changeCount || fileCopy?.sending != true {
+            dismissFileCopy()
+        }
+        finishLinuxContext(false)
+        linuxContextReady = ready
+        seenChange = pasteboard.changeCount
+        uploadLinuxFiles(urls, using: bridge, revision: seenChange, paste: false)
+        return true
+    }
+    private func uploadLinuxFiles(_ urls: [URL], using bridge: VNCLinuxFiles, revision: Int, paste: Bool = true) {
         if linuxTransfer != nil {
-            if fileCopy?.revision == revision, fileCopy?.sending == true { return }
+            if fileCopy?.revision == revision, fileCopy?.sending == true {
+                fileCopy?.paste = paste ? .waiting : nil
+                if paste { finishLinuxContext(false) }
+                return
+            }
             dismissFileCopy()
         }
         let current = attempt
         linuxTransferID += 1
         let transfer = linuxTransferID
-        fileCopy = FileCopy(revision: revision, sending: true, paste: .waiting)
+        fileCopy = FileCopy(revision: revision, sending: true, paste: paste ? .waiting : nil)
         linuxTransfer = Task { [weak self, weak bridge] in
             guard let self, let bridge else { return }
             defer { if transfer == linuxTransferID { linuxTransfer = nil } }
@@ -669,13 +758,19 @@ final class VNCDesktop {
                 guard !Task.isCancelled, current == attempt, linuxFiles === bridge,
                       pasteboard.changeCount == revision else { return }
                 fileCopy?.done = true
+                linuxPublishedRevision = revision
+                linuxSynchronizedRevision = revision
                 if hasKeyboard(), fileCopy?.paste == .waiting {
                     press([0xffe3, 0x76])
                     fileCopy?.paste = .sent
+                } else if linuxContextReady != nil {
+                    fileCopy?.paste = .ready
+                    finishLinuxContext(hasKeyboard())
                 }
             } catch {
                 if !Task.isCancelled, current == attempt, linuxFiles === bridge {
                     fileCopy?.error = error.localizedDescription
+                    finishLinuxContext(false)
                 }
             }
         }
@@ -704,6 +799,7 @@ final class VNCDesktop {
                 }
                 pasteboard.clearContents(); pasteboard.writeObjects(urls as [NSURL])
                 seenChange = pasteboard.changeCount
+                linuxSynchronizedRevision = seenChange
                 fileCopy?.copied = selection.total; fileCopy?.done = true
             } catch {
                 if !Task.isCancelled, current == attempt, linuxFiles === bridge {

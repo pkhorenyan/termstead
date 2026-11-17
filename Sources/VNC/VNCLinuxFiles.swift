@@ -20,6 +20,7 @@ final class VNCLinuxFiles {
     let client: SFTPClient
     var onSelection: ((Selection) -> Void)?
     var onText: ((String) -> Void)?
+    var onChange: (() -> Void)?
     var onError: ((String) -> Void)?
     var onReady: (() -> Void)?
     private(set) var isReady = false
@@ -160,6 +161,7 @@ final class VNCLinuxFiles {
                     }
                 case "text":
                     if active, let text = value["text"] as? String, text.utf8.count <= 1_048_576 { onText?(text) }
+                case "changed": onChange?()
                 case "copy-error": onError?(value["message"] as? String ?? "The Linux file selection cannot be copied.")
                 case "error": fail(value["message"] as? String ?? "The Linux file clipboard failed.")
                 default: break

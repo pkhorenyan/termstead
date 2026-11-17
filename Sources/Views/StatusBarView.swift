@@ -171,6 +171,7 @@ struct VNCTransferStatusItem: View {
         if copy.done {
             if !copy.sending { return "Files ready to paste" }
             switch copy.paste {
+            case .ready: return "Files ready to paste"
             case .waiting: return "Files uploaded · sending Paste…"
             case .sent: return "Files uploaded · Paste sent"
             case .cancelled, nil: return "Files uploaded · Paste cancelled"
