@@ -22,7 +22,6 @@ struct TabBarView: View {
         let id = UUID()
         let desktop: VNCDesktop
         let host: String
-        let vncSessionID: String?
     }
 
     private var tabs: [Connection] { connectionStore.tabs(in: pane) }
@@ -127,8 +126,7 @@ struct TabBarView: View {
         // background, applied in `MainView`, which still bleeds and is meant to.
         .clipped()
         .sheet(item: $linuxFilePicker) { request in
-            LinuxFileSSHPicker(desktop: request.desktop, vncHost: request.host,
-                               vncSessionID: request.vncSessionID)
+            LinuxFileSSHPicker(desktop: request.desktop, vncHost: request.host)
         }
     }
 
@@ -195,10 +193,22 @@ struct TabBarView: View {
                         Text("\(title) — \(desktop.linuxFilesReady ? "connected" : "connecting…")")
                         Button("Disconnect File Clipboard") { desktop.disconnectLinuxFiles() }
                         Divider()
+                    } else if saved?.vnc.fileSSHSessionID != nil {
+                        Text("File clipboard disconnected")
+                        Button("Reconnect File Clipboard") {
+                            if let id = tab.sessionID {
+                                connectionStore.refreshVNCFileClipboard(sessionID: id, in: sessionStore)
+                            }
+                        }
+                        Divider()
                     }
-                    Button(saved?.vnc.fileSSHSessionID == nil ? "Set Up File Clipboard…" : "Change File Clipboard SSH…") {
-                        linuxFilePicker = LinuxFilePickerRequest(desktop: desktop,
-                            host: desktop.lastLaunch?.host ?? "", vncSessionID: tab.sessionID)
+                    if let saved {
+                        Button("File Clipboard Settings…") { appState.route = .sessionSettings(id: saved.id) }
+                    } else {
+                        Button("Connect File Clipboard…") {
+                            linuxFilePicker = LinuxFilePickerRequest(desktop: desktop,
+                                host: desktop.lastLaunch?.host ?? "")
+                        }
                     }
                 }
                 .disabled(desktop.viewOnly || desktop.lastLaunch?.options.clipboard != true)

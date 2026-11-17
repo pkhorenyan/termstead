@@ -11,8 +11,8 @@ VNC itself continues to carry the screen, keyboard and pointer.
    session settings, choose that SSH connection under **Linux file clipboard**.
    Use the Linux keyboard profile and enable clipboard sharing.
 4. Open the VNC session. Termstead starts file clipboard SSH in the background;
-   no SSH tab needs to be open. An existing VNC tab can be configured through
-   its **Linux File Clipboard → Set Up File Clipboard…** menu once.
+   no SSH tab needs to be open. The tab menu shows its state and can reconnect
+   it. To change the SSH account, edit the VNC session settings.
 5. In Finder, copy files with ⌘C. Focus the remote file manager and press ⌘V.
    The remote file manager's right-click **Paste** works too. When the Mac
    clipboard contains files, Termstead prepares them before opening that menu;
@@ -20,8 +20,8 @@ VNC itself continues to carry the screen, keyboard and pointer.
    In the remote file manager, ⌘C copies selected files back to the Mac;
    switch to Finder and press ⌘V after “Files ready to paste” appears.
 
-The choice belongs to the current VNC tab. Choose it again in a new tab;
-automatic VNC reconnects restore the background connection. The saved SSH
+The SSH association belongs to the saved VNC session. New tabs and automatic
+VNC reconnects restore the background connection. The saved SSH
 settings supply authentication, host-key checks and jump hosts. If SSH needs
 a password or host-key confirmation, its normal terminal appears temporarily
 inside the VNC pane, then returns to the desktop. The background connection

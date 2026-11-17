@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The file clipboard needs SSH access to the same Linux desktop, but a VNC
 /// port and an SSH port need not share an address (tunnels and jump hosts).
-/// Suggest exact host matches; keep every saved SSH setting reachable by search.
+/// Temporary VNC tabs cannot save an SSH association; suggest exact host
+/// matches and keep every saved SSH setting reachable by search.
 struct LinuxFileSSHPicker: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SessionStore.self) private var sessionStore
@@ -11,7 +12,6 @@ struct LinuxFileSSHPicker: View {
 
     let desktop: VNCDesktop
     let vncHost: String
-    let vncSessionID: String?
 
     private var choices: [Session] {
         let ssh = sessionStore.sessions.values.filter { $0.kind == .ssh }
@@ -31,7 +31,7 @@ struct LinuxFileSSHPicker: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Linux File Clipboard")
                 .font(.title2.weight(.semibold))
-            Text("Set up SSH access to this Linux desktop once, using the desktop user. Future VNC tabs connect the file clipboard automatically.")
+            Text("Choose SSH access for this temporary VNC tab, using the desktop user. Save a VNC session to keep this setting for later tabs.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("Search SSH sessions by name or address", text: $query)
@@ -47,9 +47,6 @@ struct LinuxFileSSHPicker: View {
                         Button {
                             do {
                                 let plan = try ConnectionStore.launchPlan(for: ssh, in: sessionStore)
-                                if let vncSessionID {
-                                    sessionStore.setVNCFileSSHSession(vncSessionID, sshID: ssh.persistentID)
-                                }
                                 desktop.connectLinuxFiles(plan: plan, title: ssh.id)
                                 dismiss()
                             } catch {

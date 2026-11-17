@@ -33,7 +33,7 @@ final class VNCLinuxFiles {
     private let writer = DispatchQueue(label: "com.pavelkhorenyan.Termstead.linux-clipboard")
     private var active = false
     private var generation = 0
-    private static let disconnectedMessage = "The SSH connection for the Linux file clipboard closed. Reconnect SSH and select it again in the VNC tab’s Linux File Clipboard menu."
+    private static let disconnectedMessage = "The SSH connection for the Linux file clipboard closed. Reconnect File Clipboard from the VNC tab, or check the VNC session’s SSH settings."
 
     init(client: SFTPClient, title: String) { self.client = client; self.title = title }
 
