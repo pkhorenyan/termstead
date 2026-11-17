@@ -124,6 +124,8 @@ extension SessionStore {
             // The lab's xrdp desktop, directly and through the bastion.
             rdpSession(id: "lab-rdp", user: "lab", host: "127.0.0.1", port: 3390, jumps: []),
             vncSession(id: "lab-vnc", host: "127.0.0.1", port: 5901, jumps: []),
+            Session(id: "lab-vnc-ssh", user: "lab", host: "127.0.0.1", port: 2203,
+                    icon: .server, auth: .key, keyPath: key),
             vncSession(id: "lab-vnc-tls", host: "127.0.0.1", port: 5901, jumps: [], tls: true),
             vncSession(id: "lab-vnc-via-bastion", host: "vnc", port: 5900,
                        jumps: [JumpHost(host: "lab-bastion")]),
@@ -135,7 +137,7 @@ extension SessionStore {
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [
                 .session("lab-direct"), .session("lab-direct-password"), .session("lab-direct-passphrase"),
-                .session("lab-rdp"), .session("lab-vnc"), .session("lab-vnc-tls"), .session("lab-telnet"), .session("lab-telnet-via-bastion"),
+                .session("lab-rdp"), .session("lab-vnc"), .session("lab-vnc-ssh"), .session("lab-vnc-tls"), .session("lab-telnet"), .session("lab-telnet-via-bastion"),
             ])),
             .group(SessionGroup(id: "testlab-jump", name: "Through jump hosts", colorID: "blue", children: [
                 .session("lab-bastion"), .session("lab-app-1-jump"), .session("lab-db-2-jumps"),

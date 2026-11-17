@@ -156,7 +156,7 @@ struct VNCTransferStatusItem: View {
                       copy.done ? "checkmark" : copy.sending ? "arrow.up.doc" : "arrow.down.doc")
                     .labelStyle(InlineIconLabelStyle(spacing: 5, iconSize: 10))
                     .foregroundStyle(copy.error != nil ? theme.ansiRed.color : theme.accent.color)
-                    .help(copy.error ?? (copy.sending ? "Copying files to the remote Mac" : "Copying files to the Mac's clipboard"))
+                    .help(copy.error ?? (copy.sending ? "Copying files to the remote desktop" : "Copying files to the Mac's clipboard"))
                 Button { desktop.dismissFileCopy() } label: {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
                 }

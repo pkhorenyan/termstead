@@ -386,8 +386,34 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
 - `Session.vncOptions` is optional for old-file compatibility. Session
   archives already preserve protocol-specific fields and passwords. VNC is
   excluded from snippets, broadcast input, SFTP and terminal Find.
+- **Linux file clipboard uses an explicit SSH/SFTP connection.** TigerVNC's
+  X11 clipboard exports text, not file-manager URI selections. The VNC tab's
+  Linux File Clipboard menu selects an already logged-in SSH tab for the same
+  desktop user. `VNCLinuxFiles` runs Resources/VNC/linux-clipboard.py in an SSH
+  channel through that tab's master. Python 3 + PyGObject + GTK 3 are required;
+  support is X11 only. No remote installation, listening port, automatic host
+  matching or separate credentials. Closing the SSH/VNC connection stops it;
+  reconnecting requires choosing the SSH tab again.
+  GTK serves text/uri-list, x-special/gnome-copied-files and KDE's copy marker.
+  Check the returned selection's actual type: xclip answers unsupported URI
+  requests with UTF8_STRING, which must remain text, even if it looks like a URL.
+  Publication is acknowledged only after GTK owns the clipboard, then send one
+  Ctrl+V. SFTP writes unique private staging directories, never the visible
+  destination; Thunar/Nautilus resolve collisions through their normal Paste UI.
+  Roots retain their names. Reject links, special files and newlines (SFTP's
+  batch protocol); cap roots/items/bytes. Completed uploads remain pasteable
+  after closing the bridge, and marked, owned, private caches older than seven
+  days are pruned on the next start. Incomplete uploads are removed on cancel.
+  Direction and focus checks apply before reading selections. Explicit Copy
+  keeps one bounded request alive after switching to Finder; a changed local
+  clipboard invalidates it. Never publish background unsolicited changes.
+  Run `python3 -B TestLab/vnc/test_clipboard.py` and `python3 TestLab/vnc/test.py`;
+  `--via-bastion` exercises the SSH/SFTP route through the jump host. Keep live
+  clipboard suites sequential: they share the test desktop. Test credentials
+  and SSH master live in a private /tmp directory, not Documents/TCC.
 - The lab's `vnc` service reuses the RDP image's Xfce installation, adding
-  TigerVNC only: localhost:5901 directly, vnc:5900 through lab-bastion,
+  TigerVNC, SSH and GTK: localhost:5901 directly, SSH localhost:2203
+  (lab-vnc-ssh), vnc:5900 through lab-bastion,
   password `lab`. `lab-vnc`, `lab-vnc-tls` (self-signed X.509) and
   `lab-vnc-via-bastion` are sample sessions. Only rebuilding the VNC image is
   needed for entrypoint changes; do not discard the cached RDP base.

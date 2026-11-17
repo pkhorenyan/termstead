@@ -19,6 +19,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Linux X11 file/folder copy and paste in VNC tabs through an explicitly
+  selected SSH connection to the desktop user. SFTP transfers contents;
+  a temporary GTK clipboard bridge supplies file-manager formats. Preserves
+  names, nested/empty folders and binary files, respects clipboard direction
+  and focus, and cancels transfers without closing the shared SSH connection.
+
 - File and folder uploads to native macOS VNC servers, plus experimental
   download transport, over the authenticated desktop connection and SSH jump hosts.
   Streamed data and resource forks, Unicode names, modification dates,

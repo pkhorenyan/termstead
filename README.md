@@ -88,7 +88,12 @@
   and folders into the remote Finder with ⌘V. Receiving ordinary Finder file
   selections is still under development. The status bar shows progress and Cancel.
   Symbolic links are not followed; each copy supports up to 64 selections,
-  10,000 items and 100 GB. With other VNC servers, Termstead currently shares text only.
+  10,000 items and 100 GB.
+  **Linux file clipboard (X11):** open SSH to the same desktop user, then
+  right-click the VNC tab → **Linux File Clipboard** and select that SSH tab.
+  Copy and paste files/folders normally; contents use SFTP and the Linux
+  clipboard supplies file links. Requires Python 3, PyGObject and GTK 3 on
+  Linux. [Setup and limits](TestLab/vnc/README.md). Other servers share text only.
 - **Port forwarding.** Local, remote and SOCKS tunnels through every jump
   host on the way, started from a session's context menu on a connection of
   their own, with no terminal. Stop or start each one from the status bar.
@@ -179,8 +184,11 @@ against the project's signing key before it is installed.
   require keyboard focus; an initiated file copy can finish in the background.
   Native macOS Screen Sharing supports Unicode text and local file uploads;
   receiving ordinary Finder file selections is still under development. With other
-  servers, Termstead currently shares text only. Files travel over the same VNC connection, including through
-  jump hosts, and completed downloads remain pasteable after closing the tab.
+  servers, Linux X11 supports an explicitly selected SSH/SFTP connection for
+  file clipboard (see setup above); remaining servers share text only. Apple
+  files use the VNC connection, including through jump hosts. Completed
+  downloads remain pasteable after closing the tab. Linux clipboard helpers
+  run only in the selected SSH channel and open no listening port.
   Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
   Auto and Sharp preserve full color. No profile uses lossy JPEG.

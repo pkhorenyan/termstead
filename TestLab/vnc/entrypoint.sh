@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+mkdir -p /run/sshd /home/lab/.ssh
+chmod 700 /home/lab/.ssh
+install -m 600 /lab/hostkey /etc/ssh/ssh_host_ed25519_key
+install -m 600 -o lab -g lab /lab/authorized_keys /home/lab/.ssh/authorized_keys
+chown lab:lab /home/lab/.ssh
+/usr/sbin/sshd
 mkdir -p /home/lab/.vnc
 printf 'lab\n' | tigervncpasswd -f > /home/lab/.vnc/passwd
 chmod 600 /home/lab/.vnc/passwd

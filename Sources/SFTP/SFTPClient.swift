@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 enum SFTPError: Error, Equatable, CustomStringConvertible {
     /// The terminal's ssh has not finished logging in, so there is no
@@ -162,14 +163,21 @@ struct SFTPClient: Equatable, Sendable {
 
     private static func executeReportingErrors(executable: String, arguments: [String],
                                                input: String?) async throws -> (output: String, errors: [String]) {
-        // A transfer can run for minutes; see `BlockingWork`.
-        try await BlockingWork.run {
-            try runBlocking(executable: executable, arguments: arguments, input: input)
+        let cancellation = ProcessCancellation()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            // A transfer can run for minutes; see `BlockingWork`.
+            return try await BlockingWork.run {
+                try runBlocking(executable: executable, arguments: arguments, input: input,
+                                cancellation: cancellation)
+            }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
     private static func runBlocking(executable: String, arguments: [String],
-                                    input: String?) throws -> (output: String, errors: [String]) {
+                                    input: String?, cancellation: ProcessCancellation) throws -> (output: String, errors: [String]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -180,13 +188,15 @@ struct SFTPClient: Equatable, Sendable {
         environment["LC_CTYPE"] = "UTF-8"
         process.environment = environment
         let output = Pipe(), errors = Pipe(), stdin = Pipe()
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         process.standardOutput = output
         process.standardError = errors
         process.standardInput = input == nil ? FileHandle.nullDevice : stdin
-        do { try process.run() } catch { throw SFTPError.failed("Could not start \(executable).") }
+        try cancellation.start(process)
+        defer { cancellation.finished() }
 
         if let input {
-            stdin.fileHandleForWriting.write(Data(input.utf8))
+            try? stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
             try? stdin.fileHandleForWriting.close()
         }
         // Both pipes are drained at once: a big listing fills stdout's buffer
@@ -201,6 +211,7 @@ struct SFTPClient: Equatable, Sendable {
         let outputData = output.fileHandleForReading.readDataToEndOfFile()
         group.wait()
         process.waitUntilExit()
+        try cancellation.check()
 
         let text = String(decoding: outputData, as: UTF8.self)
         let errorText = String(decoding: errorData.get(), as: UTF8.self)
@@ -208,6 +219,30 @@ struct SFTPClient: Equatable, Sendable {
         let errorLines = errorText.split(whereSeparator: \.isNewline).map(String.init)
             .filter { !$0.hasPrefix("sftp>") && !$0.isEmpty }
         return (text, errorLines)
+    }
+
+    /// Cancelling a clipboard copy stops its sftp process, never the shared
+    /// SSH master. Starting and cancelling share a lock so an early cancel
+    /// cannot leave a process running after its tab has closed.
+    private final class ProcessCancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancelled = false
+        func start(_ process: Process) throws {
+            try lock.withLock {
+                if cancelled { throw CancellationError() }
+                try process.run()
+                self.process = process
+            }
+        }
+        func cancel() {
+            lock.withLock {
+                cancelled = true
+                if let process, process.isRunning { process.terminate() }
+            }
+        }
+        func check() throws { try lock.withLock { if cancelled { throw CancellationError() } } }
+        func finished() { lock.withLock { process = nil } }
     }
 
     static func error(from stderr: String) -> SFTPError {

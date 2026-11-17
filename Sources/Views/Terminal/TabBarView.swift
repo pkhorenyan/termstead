@@ -177,6 +177,24 @@ struct TabBarView: View {
         if let desktop = tab.vnc, desktop.phase == .showing {
             Button("Send Ctrl+Alt+Del") { desktop.sendControlAltDelete() }.disabled(desktop.viewOnly)
             Button("Send Windows Key") { desktop.sendWindowsKey() }.disabled(desktop.viewOnly)
+            if !desktop.supportsFiles, desktop.keyboard == .linux {
+                Menu("Linux File Clipboard") {
+                    if let title = desktop.linuxFileConnection {
+                        Text("\(title) — \(desktop.linuxFilesReady ? "connected" : "connecting…")")
+                        Button("Disconnect File Clipboard") { desktop.disconnectLinuxFiles() }
+                        Divider()
+                    }
+                    let sshTabs = connectionStore.connections.filter { $0.kind == .ssh && !$0.isLocalShell && $0.isLoggedIn && $0.sftp != nil }
+                    Text("Choose SSH to this Linux desktop:")
+                    ForEach(sshTabs) { ssh in
+                        Button("\(ssh.title) (\(ssh.address))") {
+                            if let client = ssh.sftp { desktop.connectLinuxFiles(client: client, title: ssh.title) }
+                        }
+                    }
+                    if sshTabs.isEmpty { Text("Open an SSH session as the desktop’s user first.") }
+                }
+                .disabled(desktop.viewOnly || desktop.lastLaunch?.options.clipboard != true)
+            }
             Divider()
         }
         Button("Duplicate Tab") { duplicate(tab) }

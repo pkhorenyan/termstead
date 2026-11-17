@@ -45,6 +45,14 @@ final class VNCDesktop {
     }
     private(set) var fileCopy: FileCopy?
     private(set) var supportsFiles = false
+    private(set) var linuxFileConnection: String?
+    private(set) var linuxFilesReady = false
+    @ObservationIgnored private var linuxFiles: VNCLinuxFiles?
+    @ObservationIgnored private var linuxTransfer: Task<Void, Never>?
+    @ObservationIgnored private var linuxTransferID = 0
+    @ObservationIgnored private var linuxSelectionSerial: Int?
+    @ObservationIgnored private var linuxCaptureRevision: Int?
+    @ObservationIgnored private var linuxCaptureID = 0
     @ObservationIgnored private var pendingFilePaste: Int?
     @ObservationIgnored private var lastPointer: (x: Int, y: Int, buttons: Int)?
     @ObservationIgnored private var filePasteTask: Task<Void, Never>?
@@ -127,6 +135,7 @@ final class VNCDesktop {
         }
     }
     func stop() {
+        disconnectLinuxFiles()
         cancelFilePaste()
         attempt += 1
         reconnectTask?.cancel(); reconnectTask = nil
@@ -173,6 +182,7 @@ final class VNCDesktop {
     }
     private func connect() {
         guard let launch = lastLaunch, let open = openSocket else { return }
+        disconnectLinuxFiles()
         cancelFilePaste()
         attempt += 1
         let current = attempt
@@ -272,6 +282,7 @@ final class VNCDesktop {
                     }
                 }
                 made.onClipboard = { [weak self] text, revision in
+                    guard self?.linuxFiles == nil else { return }
                     guard let self, current == attempt, launch.options.clipboard, launch.options.receiveClipboard,
                           !localFilesAwaitPaste,
                           fileCopy?.sending != true || fileCopy?.done == true || fileCopy?.error != nil else { return }
@@ -288,6 +299,7 @@ final class VNCDesktop {
                 }
                 made.onDisconnected = { [weak self] reason, code in
                     guard let self, current == attempt else { return }
+                    disconnectLinuxFiles()
                     if hasStableConnection { retries = 0; onStableDisconnect?() }
                     connectedAt = nil
                     clipboardWatch?.cancel(); clipboardWatch = nil
@@ -394,6 +406,10 @@ final class VNCDesktop {
         if letter == 0x76 { traceFiles("paste-requested") }
         if letter == 0x63 || letter == 0x78 {
             cancelFilePaste(); pendingFilePaste = nil
+            if linuxFiles != nil {
+                if linuxTransfer != nil { dismissFileCopy() }
+                beginLinuxCapture()
+            }
             // Explicit remote Copy/Cut may replace a pending local file copy.
             // Focus changes and unsolicited clipboard notifications may not.
             remoteCopyRevision = pasteboard.changeCount
@@ -403,6 +419,8 @@ final class VNCDesktop {
         press([keyboard == .macOS ? 0xffeb : 0xffe3, letter])
     }
     func dismissFileCopy() {
+        linuxTransferID += 1
+        linuxTransfer?.cancel(); linuxTransfer = nil
         cancelFilePaste()
         engine?.cancelFiles(); fileCopy = nil; pendingFilePaste = nil
     }
@@ -475,6 +493,7 @@ final class VNCDesktop {
         updateClipboardFocus()
     }
     func keyboardLeft() {
+        updateLinuxFocus()
         if fileCopy != nil { traceFiles("focus-lost") }
         cancelFilePaste()
         view.releaseInput()
@@ -487,6 +506,7 @@ final class VNCDesktop {
     private func updateClipboardFocus() {
         guard phase == .showing, lastLaunch?.options.clipboard == true else { return }
         let active = hasKeyboard(), revision = pasteboard.changeCount
+        updateLinuxFocus()
         if let copy = fileCopy, !copy.done, copy.revision != revision { dismissFileCopy() }
         if let previous = clipboardFocusState, previous.0 == active, previous.1 == revision { return }
         clipboardFocusState = (active, revision)
@@ -527,10 +547,14 @@ final class VNCDesktop {
             // Copying a multi-GB folder must start on an explicit paste, not
             // merely because the user focused a remote desktop.
             guard onPaste else { return false }
+            if let linuxFiles {
+                uploadLinuxFiles(urls, using: linuxFiles, revision: seenChange)
+                return true
+            }
             guard supportsFiles else {
                 traceFiles("upload-unsupported")
                 fileCopy = FileCopy(revision: seenChange, sending: true,
-                    error: "Termstead supports file uploads only with native macOS Screen Sharing. File transfer for this VNC server is not supported in Termstead. Use an SSH/SFTP connection to transfer these files.")
+                    error: "This VNC server does not provide file clipboard transfer. For a Linux X11 desktop, open an SSH session as its desktop user, then select it in this tab’s Linux File Clipboard menu.")
                 return true
             }
             if fileCopy?.revision != seenChange || fileCopy?.sending != true || fileCopy?.done != false || fileCopy?.error != nil {
@@ -546,5 +570,145 @@ final class VNCDesktop {
         guard let text = pasteboard.string(forType: .string), text.utf8.count <= 1_048_576 else { return false }
         engine?.clipboard(text)
         return false
+    }
+
+    func connectLinuxFiles(client: SFTPClient, title: String) {
+        disconnectLinuxFiles()
+        guard phase == .showing, !supportsFiles, keyboard == .linux,
+              !viewOnly, lastLaunch?.options.clipboard == true else { return }
+        let bridge = VNCLinuxFiles(client: client, title: title)
+        linuxFiles = bridge; linuxFileConnection = title
+        let current = attempt
+        bridge.onReady = { [weak self, weak bridge] in
+            guard let self, let bridge, current == attempt, linuxFiles === bridge else { return }
+            linuxFilesReady = true
+            bridge.setActive(hasKeyboard() && lastLaunch?.options.receiveClipboard == true)
+        }
+        bridge.onError = { [weak self, weak bridge] message in
+            guard let self, let bridge, current == attempt, linuxFiles === bridge else { return }
+            linuxFilesReady = bridge.isReady
+            linuxTransferID += 1
+            linuxTransfer?.cancel(); linuxTransfer = nil
+            if !bridge.isReady { disconnectLinuxFiles() }
+            fileCopy = FileCopy(revision: pasteboard.changeCount, sending: false, error: message)
+        }
+        bridge.onSelection = { [weak self, weak bridge] selection in
+            guard let self, let bridge, current == attempt, linuxFiles === bridge,
+                  hasKeyboard() || linuxCaptureRevision == pasteboard.changeCount,
+                  !viewOnly, lastLaunch?.options.receiveClipboard == true,
+                  !localFilesAwaitPaste, linuxSelectionSerial != selection.serial,
+                  linuxTransfer == nil else { return }
+            linuxSelectionSerial = selection.serial
+            guard !selection.files.isEmpty else { return }
+            finishLinuxCapture()
+            downloadLinuxFiles(selection, using: bridge)
+        }
+        bridge.onText = { [weak self, weak bridge] text in
+            guard let self, let bridge, current == attempt, linuxFiles === bridge,
+                  hasKeyboard() || linuxCaptureRevision == pasteboard.changeCount,
+                  lastLaunch?.options.receiveClipboard == true,
+                  !localFilesAwaitPaste, linuxTransfer == nil else { return }
+            finishLinuxCapture()
+            pendingClipboard = text
+            receiveClipboard()
+        }
+        do { try bridge.start() } catch {
+            disconnectLinuxFiles()
+            fileCopy = FileCopy(revision: pasteboard.changeCount, sending: false, error: error.localizedDescription)
+        }
+    }
+    func disconnectLinuxFiles() {
+        guard linuxFiles != nil else { return }
+        linuxTransferID += 1
+        linuxTransfer?.cancel(); linuxTransfer = nil
+        linuxFiles?.close(); linuxFiles = nil
+        linuxFileConnection = nil; linuxFilesReady = false; linuxSelectionSerial = nil
+        linuxCaptureRevision = nil; linuxCaptureID += 1
+        fileCopy = nil
+    }
+    private func beginLinuxCapture() {
+        guard linuxFilesReady, !viewOnly, lastLaunch?.options.receiveClipboard == true else { return }
+        linuxCaptureID += 1
+        let capture = linuxCaptureID
+        linuxCaptureRevision = pasteboard.changeCount
+        updateLinuxFocus()
+        // An explicit Copy may finish after the user switches to Finder.
+        // Keep that one request alive; never monitor background changes after it.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, linuxCaptureID == capture else { return }
+            finishLinuxCapture()
+        }
+    }
+    private func finishLinuxCapture() {
+        linuxCaptureRevision = nil; linuxCaptureID += 1
+        updateLinuxFocus()
+    }
+    private func updateLinuxFocus() {
+        if let revision = linuxCaptureRevision, revision != pasteboard.changeCount {
+            linuxCaptureRevision = nil; linuxCaptureID += 1
+        }
+        linuxFiles?.setActive((hasKeyboard() || linuxCaptureRevision != nil) && !viewOnly &&
+                             lastLaunch?.options.receiveClipboard == true)
+    }
+    private func uploadLinuxFiles(_ urls: [URL], using bridge: VNCLinuxFiles, revision: Int) {
+        if linuxTransfer != nil {
+            if fileCopy?.revision == revision, fileCopy?.sending == true { return }
+            dismissFileCopy()
+        }
+        let current = attempt
+        linuxTransferID += 1
+        let transfer = linuxTransferID
+        fileCopy = FileCopy(revision: revision, sending: true, paste: .waiting)
+        linuxTransfer = Task { [weak self, weak bridge] in
+            guard let self, let bridge else { return }
+            defer { if transfer == linuxTransferID { linuxTransfer = nil } }
+            do {
+                try await bridge.upload(urls)
+                guard !Task.isCancelled, current == attempt, linuxFiles === bridge,
+                      pasteboard.changeCount == revision else { return }
+                fileCopy?.done = true
+                if hasKeyboard(), fileCopy?.paste == .waiting {
+                    press([0xffe3, 0x76])
+                    fileCopy?.paste = .sent
+                }
+            } catch {
+                if !Task.isCancelled, current == attempt, linuxFiles === bridge {
+                    fileCopy?.error = error.localizedDescription
+                }
+            }
+        }
+    }
+    private func downloadLinuxFiles(_ selection: VNCLinuxFiles.Selection, using bridge: VNCLinuxFiles) {
+        let current = attempt
+        linuxTransferID += 1
+        let transfer = linuxTransferID
+        pendingClipboard = nil
+        // Avoid pasting the previous local clipboard before the download ends.
+        pasteboard.clearContents(); seenChange = pasteboard.changeCount
+        let revision = seenChange
+        fileCopy = FileCopy(revision: revision, sending: false, total: selection.total)
+        linuxTransfer = Task { [weak self, weak bridge] in
+            guard let self, let bridge else { return }
+            defer { if transfer == linuxTransferID { linuxTransfer = nil } }
+            do {
+                let urls = try await bridge.download(selection)
+                guard !Task.isCancelled, current == attempt, linuxFiles === bridge,
+                      pasteboard.changeCount == revision else {
+                    if let first = urls.first {
+                        let folder = first.deletingLastPathComponent().deletingLastPathComponent()
+                        _ = await BlockingWork.wait { try? FileManager.default.removeItem(at: folder) }
+                    }
+                    return
+                }
+                pasteboard.clearContents(); pasteboard.writeObjects(urls as [NSURL])
+                seenChange = pasteboard.changeCount
+                fileCopy?.copied = selection.total; fileCopy?.done = true
+            } catch {
+                if !Task.isCancelled, current == attempt, linuxFiles === bridge {
+                    fileCopy?.error = error.localizedDescription
+                }
+            }
+        }
     }
 }

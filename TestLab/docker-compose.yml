@@ -86,7 +86,10 @@ services:
     image: termstead-lab-vnc
     restart: unless-stopped
     hostname: vnc
-    ports: ["127.0.0.1:5901:5900"]
+    ports: ["127.0.0.1:5901:5900", "127.0.0.1:2203:22"]
+    volumes:
+      - ./.state/hostkeys/vnc:/lab/hostkey:ro
+      - ./.state/authorized_keys:/lab/authorized_keys:ro
     networks: [default, dmz]
 
 networks:

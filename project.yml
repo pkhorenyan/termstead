@@ -41,6 +41,8 @@ targets:
       - path: Resources/Licenses
         type: folder
       - path: Resources/Assets.xcassets
+      - path: Resources/VNC/linux-clipboard.py
+        buildPhase: resources
     dependencies:
       - package: SwiftTerm
       - package: Sparkle
