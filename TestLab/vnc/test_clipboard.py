@@ -10,9 +10,34 @@ source = Path(__file__).resolve().parents[2] / 'Resources/VNC/linux-clipboard.py
 spec = importlib.util.spec_from_file_location('clipboard', source)
 clipboard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(clipboard)
+cleanup_spec = importlib.util.spec_from_file_location('cleanup', source.parents[2] / 'TestLab/vnc/cleanup-clipboard.py')
+cleanup = importlib.util.module_from_spec(cleanup_spec)
+cleanup_spec.loader.exec_module(cleanup)
 
 
 class ClipboardTests(unittest.TestCase):
+    def test_missing_file_selection_is_stale_and_recovers_on_the_next_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            live = root / 'live.txt'
+            live.write_bytes(b'123')
+            data = (live.as_uri() + '\r\n' + (root / 'missing.txt').as_uri()).encode()
+            self.assertEqual(clipboard.file_selection(data), {'files': [], 'total': 0, 'stale': True})
+            valid = clipboard.file_selection(live.as_uri().encode())
+            self.assertFalse(valid['stale'])
+            self.assertEqual(valid['total'], 3)
+            self.assertEqual(valid['files'], [{'path': str(live), 'directory': False}])
+
+    def test_cleanup_is_limited_to_missing_test_fixture_selections(self):
+        path = '/tmp/termstead-linux-12345678-1234-1234-1234-123456789ABC/menu-proof.txt'
+        data = ('file://' + path).encode()
+        self.assertTrue(cleanup.expired_fixture_selection(data, exists=lambda _: False))
+        self.assertFalse(cleanup.expired_fixture_selection(data, exists=lambda p: p == path))
+        self.assertFalse(cleanup.expired_fixture_selection(data, exists=lambda p: p == path.rsplit('/', 1)[0]))
+        for value in [b'', b'plain text', b'file:///home/lab/Desktop/user.txt', data + b'\nfile:///home/lab/user.txt',
+                      b'file://other' + path.encode(), data + b'?query']:
+            self.assertFalse(cleanup.expired_fixture_selection(value, exists=lambda _: False))
+
     def test_uri_names_and_rejected_network_paths(self):
         self.assertEqual(clipboard.file_paths('file:///tmp/test_rdp\r\nfile:///tmp/%D0%A4%D0%B0%D0%B9%D0%BB%20%25.txt\r\n'.encode()),
                          ['/tmp/test_rdp', '/tmp/Файл %.txt'])

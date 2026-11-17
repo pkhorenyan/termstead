@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 import plistlib
 import shutil
+import shlex
 import subprocess
 import tempfile
 import time
@@ -82,7 +83,17 @@ def main():
             run('xcodebuild', 'test-without-building', '-xctestrun', target,
                 '-destination', 'platform=macOS,arch=arm64', *selection)
         finally:
-            master.terminate()
+            # Fixture files may have been copied into the real X11 clipboard.
+            # Clear only dead selections owned by this suite before handing
+            # the desktop back to the app, including after a failed test.
+            try:
+                cleaner = (REPO / 'TestLab/vnc/cleanup-clipboard.py').read_text()
+                subprocess.run(['ssh', '-F', str(config), '-S', str(control), 'linux-vnc-test',
+                                'python3 -c ' + shlex.quote(cleaner)], timeout=10, check=True)
+            except (OSError, subprocess.SubprocessError):
+                print('Linux test clipboard cleanup could not run; the app ignores expired selections.')
+            finally:
+                master.terminate()
             try:
                 master.wait(timeout=5)
             except subprocess.TimeoutExpired:

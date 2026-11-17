@@ -356,6 +356,39 @@ struct VNCLinuxFilesTests {
             #expect(ready == true) // send-only still invalidates stale metadata
         }
     }
+    @Test func expiredRemoteFileClipboardIsIgnoredAndTheNextCopyWorks() async throws {
+        let remote = "/tmp/termstead-linux-\(UUID())"
+        defer { _ = TestLabVNC.command(["rm", "-rf", "--", remote]) }
+        // Mimic reconnecting after a test removed its fixture directory but
+        // xclip still owns its old file URI. No local pasteboard is touched.
+        _ = TestLabVNC.command(["sh", "-c", "printf '%s' 'file://\(remote)/missing.txt' | xclip -selection clipboard -t text/uri-list >/dev/null 2>&1"])
+        let bridge = VNCLinuxFiles(client: try client(), title: "Expired clipboard regression")
+        defer { bridge.close() }
+        var selections: [VNCLinuxFiles.Selection] = []
+        var errors: [String] = [], texts: [String] = []
+        bridge.onReady = { [weak bridge] in bridge?.setActive(true) }
+        bridge.onSelection = { selections.append($0) }
+        bridge.onError = { errors.append($0) }
+        bridge.onText = { texts.append($0) }
+        try bridge.start()
+        await wait { !selections.isEmpty || !errors.isEmpty }
+        #expect(errors.isEmpty, "A stale automatic inspection must not open the copy-error dialog")
+        try #require(selections.last?.files.isEmpty == true)
+        #expect(texts.isEmpty, "Expired file URLs must not become clipboard text")
+        #expect(bridge.isReady)
+        let live = remote + "/live.txt"
+        try #require(TestLabVNC.command(["sh", "-c", "mkdir -p '\(remote)'; printf 'live after stale' > '\(live)'"]).status == 0)
+        _ = TestLabVNC.command(["sh", "-c", "printf '%s' 'file://\(live)' | xclip -selection clipboard -t text/uri-list >/dev/null 2>&1"])
+        await wait { selections.last?.files.first?.path == live }
+        let selection = try #require(selections.last)
+        try #require(selection.files.first?.path == live)
+        let urls = try await bridge.download(selection)
+        defer {
+            for url in urls { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        }
+        #expect(try Data(contentsOf: #require(urls.first)) == Data("live after stale".utf8))
+        #expect(errors.isEmpty)
+    }
     private func captureMenu(_ desktop: VNCDesktop, name: String) {
         guard let surface = desktop.view.layer?.sublayers?.first?.contents as? IOSurface else { return }
         IOSurfaceLock(surface, .readOnly, nil)

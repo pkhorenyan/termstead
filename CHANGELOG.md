@@ -9,6 +9,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Ignore expired file selections during automatic Linux clipboard inspection,
+  without replacing the Mac clipboard with stale URI text. Clear dead test-file
+  selections when the Linux lab finishes; valid files and other clipboard data
+  are left intact.
+
 - Enable file Paste in Linux's remote context menu on its first opening.
   Prepare the clipboard without sending Ctrl+V, and acknowledge GTK's format
   replies before opening the menu. Honor send-only mode and avoid redundant

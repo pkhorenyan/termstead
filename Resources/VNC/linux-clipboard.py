@@ -91,6 +91,18 @@ def file_paths(data):
     return paths
 
 
+def file_selection(data):
+    """An automatic clipboard inspection may encounter an expired selection.
+    Keep the selection atomic and never turn missing file URLs into text.
+    Actual upload/download failures still report their errors normally.
+    """
+    try:
+        roots, total = inventory(file_paths(data))
+        return {'files': roots, 'total': total, 'stale': False}
+    except FileNotFoundError:
+        return {'files': [], 'total': 0, 'stale': True}
+
+
 def main():
     # Never guess between several desktops. SSH sessions commonly have no
     # DISPLAY; selecting the sole local X server is safe, ambiguity is an error.
@@ -166,10 +178,9 @@ def main():
                 # with UTF8_STRING anyway. A string that resembles a file URL
                 # must never authorize reading that file.
                 data = (selection.get_data() or b'') if selection.get_data_type() == Gdk.Atom.intern('text/uri-list', False) else b''
-                paths = file_paths(data)
-                roots, total = inventory(paths)
-                emit(event='files', serial=serial, files=roots, total=total)
-                if not paths:
+                metadata = file_selection(data)
+                emit(event='files', serial=serial, **metadata)
+                if not metadata['files'] and not metadata['stale']:
                     def text_received(_clipboard, text, _data):
                         if serial == state['serial'] and state['active'] and not state['owned'] and text is not None:
                             if len(text.encode('utf-8')) <= 1024 * 1024:

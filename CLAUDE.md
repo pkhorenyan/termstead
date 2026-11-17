@@ -428,6 +428,15 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   Direction and focus checks apply before reading selections. Explicit Copy
   keeps one bounded request alive after switching to Finder; a changed local
   clipboard invalidates it. Never publish background unsolicited changes.
+  Expired URI selections are normal after files have been deleted: ignore
+  FileNotFoundError in passive inspection, atomically discard the stale file
+  selection and never fall back to sending its URI text. Upload/download
+  failures still surface. Test fixtures must not poison the shared X11
+  clipboard after cleanup. TestLab/vnc/test.py runs cleanup-clipboard.py in
+  finally; it clears only typed URI selections under missing UUID fixture
+  roots, never valid files, text or unrelated paths. A live regression starts
+  with a deleted fixture URI, checks no error/text event, then downloads a
+  subsequent valid selection through the same helper.
   Run `python3 -B TestLab/vnc/test_clipboard.py` and `python3 TestLab/vnc/test.py`;
   `--via-bastion` exercises the SSH/SFTP route through the jump host. Keep live
   clipboard suites sequential: they share the test desktop. Test credentials

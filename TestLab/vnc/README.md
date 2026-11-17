@@ -67,3 +67,8 @@ and click Paste in the real Thunar menu on its first opening (including
 send-only clipboard mode). They use named Mac
 pasteboards, private temporary SSH credentials and disposable Linux fixtures.
 Run clipboard suites sequentially; they share this desktop.
+The runner clears expired file-URI selections from its own deleted fixture
+directories before handing the desktop back. Valid files, text and unrelated
+clipboard selections are preserved. The app also ignores expired selections
+during automatic clipboard inspection, so reconnecting cannot open a dialog
+just because a previously copied file was deleted.
