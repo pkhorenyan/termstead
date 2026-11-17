@@ -386,6 +386,14 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
 - `Session.vncOptions` is optional for old-file compatibility. Session
   archives already preserve protocol-specific fields and passwords. VNC is
   excluded from snippets, broadcast input, SFTP and terminal Find.
+- **Linux clipboard control pipes must suppress SIGPIPE per descriptor.**
+  Closing the linked SSH tab used to terminate the app during a queued write;
+  `try? FileHandle.write` cannot catch a signal. Set F_SETNOSIGPIPE on stdin,
+  serialize writes/close, cancel the response read source before closing its
+  descriptor and discard old-generation callbacks. The close-tab regression
+  explicitly restores SIGPIPE's default action (XCTest launchers may ignore it):
+  it crashed with "signal pipe" before the fix. Verify VNC stays connected and
+  the clipboard can link to SSH again. Keep this check in the Linux lab suite.
 - **Linux file clipboard uses an explicit SSH/SFTP connection.** TigerVNC's
   X11 clipboard exports text, not file-manager URI selections. The VNC tab's
   Linux File Clipboard menu selects an already logged-in SSH tab for the same

@@ -9,6 +9,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Closing an SSH tab linked to a Linux VNC file clipboard no longer terminates
+  Termstead with SIGPIPE. Broken pipe writes are recoverable, pending I/O closes
+  in order, and file clipboard disconnects while the VNC desktop stays open.
+
 - Native macOS VNC file clipboard archives now keep each selected file or
   folder in a separate pasteboard item. Previously multiple selections were
   encoded as repeated flavors of one item, losing all but the final URL.

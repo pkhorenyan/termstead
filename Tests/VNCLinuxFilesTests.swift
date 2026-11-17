@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Darwin
 import Testing
 @testable import Termstead
 
@@ -37,7 +38,7 @@ struct VNCLinuxFilesTests {
         return SFTPClient(configPath: try #require(env["TERMSTEAD_LINUX_SSH_CONFIG"]),
                           controlPath: try #require(env["TERMSTEAD_LINUX_SSH_CONTROL"]), alias: "linux-vnc-test")
     }
-    private func open(_ desktop: VNCDesktop) async throws {
+    private func open(_ desktop: VNCDesktop, fileClient: SFTPClient? = nil) async throws {
         // TigerVNC desktop and the selected SSH connection are the same user
         // and machine. Named pasteboards never touch Pavel's clipboard.
         desktop.hasKeyboard = { true }
@@ -47,7 +48,7 @@ struct VNCLinuxFilesTests {
         await wait { desktop.phase != .connecting }
         try #require(desktop.phase == .showing)
         #expect(!desktop.supportsFiles) // no Apple file-transfer extension
-        desktop.connectLinuxFiles(client: try client(), title: "Linux test SSH")
+        desktop.connectLinuxFiles(client: try fileClient ?? client(), title: "Linux test SSH")
         await wait { desktop.linuxFilesReady || desktop.fileCopy?.error != nil }
         try #require(desktop.linuxFilesReady, "\(desktop.fileCopy?.error ?? "helper did not start")")
     }
@@ -199,5 +200,47 @@ struct VNCLinuxFilesTests {
         }
         #expect(after == before)
         #expect(try await sftp.home() == "/home/lab")
+    }
+    @Test func closingTheLinkedSSHTabDisconnectsFileClipboardAndKeepsVNCAlive() async throws {
+        // XCTest can inherit SIGPIPE ignored from its launcher. Match a
+        // normally launched app so a broken control pipe cannot hide here.
+        let previous = signal(SIGPIPE, SIG_DFL)
+        defer { signal(SIGPIPE, previous) }
+        let settings = try client()
+        let config = try String(contentsOfFile: settings.configPath, encoding: .utf8)
+        let keychain = KeychainStore(service: "termstead-linux-close-\(UUID())")
+        let ssh = Connection(sessionID: nil, title: "SSH close regression", address: "lab", keyDescription: "test", keychain: keychain)
+        let tabs = ConnectionStore()
+        tabs.add(ssh)
+        defer { tabs.closeAll() }
+        let plan = SSHLaunchPlan(hops: [], target: .init(alias: "linux-vnc-test", host: "127.0.0.1", user: "lab", port: 2203,
+                                                         auth: .automatic, passwordAccount: nil), config: config)
+        ssh.start(plan)
+        await wait { ssh.isLoggedIn || !ssh.state.isRunning }
+        try #require(ssh.isLoggedIn)
+        let board = NSPasteboard(name: .init("linux-close-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let desktop = VNCDesktop(); desktop.pasteboard = board
+        defer { desktop.stop() }
+        try await open(desktop, fileClient: #require(ssh.sftp))
+        for _ in 0..<500 {
+            desktop.hasKeyboard = { false }; desktop.keyboardLeft()
+            desktop.hasKeyboard = { true }; desktop.keyboardArrived()
+        }
+        tabs.close(ssh.id) // the same close operation as the user's tab menu
+        for _ in 0..<200 {
+            desktop.hasKeyboard = { false }; desktop.keyboardLeft()
+            desktop.hasKeyboard = { true }; desktop.keyboardArrived()
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        await wait { desktop.linuxFileConnection == nil }
+        #expect(desktop.linuxFileConnection == nil)
+        #expect(desktop.phase == .showing)
+        #expect(tabs.connections.isEmpty)
+        desktop.connectLinuxFiles(client: settings, title: "Reconnected SSH")
+        await wait { desktop.linuxFilesReady || desktop.fileCopy?.error != nil }
+        #expect(desktop.linuxFilesReady)
+        #expect(desktop.phase == .showing)
+        desktop.stop(); desktop.stop() // repeated teardown is harmless
     }
 }

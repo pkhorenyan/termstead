@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// An explicitly selected, already authenticated SSH connection to the VNC
 /// desktop's user account. GTK owns the file clipboard; SFTP moves contents.
@@ -24,12 +25,14 @@ final class VNCLinuxFiles {
     private(set) var isReady = false
     private var process: Process?
     private var input: FileHandle?
-    private var output: FileHandle?
+    private var reader: PipeReader?
     private var buffer = Data()
     private var nextID = 0
     private var requests: [Int: (Result<Data, any Error>) -> Void] = [:]
     private let writer = DispatchQueue(label: "com.pavelkhorenyan.Termstead.linux-clipboard")
     private var active = false
+    private var generation = 0
+    private static let disconnectedMessage = "The SSH connection for the Linux file clipboard closed. Reconnect SSH and select it again in the VNC tab’s Linux File Clipboard menu."
 
     init(client: SFTPClient, title: String) { self.client = client; self.title = title }
 
@@ -40,6 +43,13 @@ final class VNCLinuxFiles {
             throw Failure.message("The Linux clipboard helper is missing from this build.")
         }
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
+        // EPIPE must become a recoverable write error, never SIGPIPE for the
+        // whole app. try? alone cannot catch a POSIX signal.
+        guard fcntl(outgoing.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            throw Failure.message("Could not protect the Linux clipboard connection against disconnects.")
+        }
+        generation += 1
+        let current = generation
         process.executableURL = URL(fileURLWithPath: SSHLaunch.executable)
         process.arguments = client.shellArguments("exec python3 -u -c " + SFTPClient.shellQuote(script))
         process.standardInput = outgoing
@@ -47,32 +57,38 @@ final class VNCLinuxFiles {
         // Only structured protocol errors enter the UI. SSH/GTK diagnostics
         // can include desktop paths; do not forward them to the clipboard.
         process.standardError = FileHandle.nullDevice
-        output = incoming.fileHandleForReading
         input = outgoing.fileHandleForWriting
-        output?.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            Task { @MainActor [weak self] in self?.receive(data) }
+        reader = try PipeReader(handle: incoming.fileHandleForReading) { [weak self] data in
+            Task { @MainActor [weak self] in
+                guard let self, generation == current else { return }
+                receive(data)
+            }
         }
         process.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.process != nil else { return }
-                fail("The Linux clipboard connection ended. Check that its SSH tab is still connected and that Python 3, python3-gi and GTK 3 are installed on the Linux desktop.")
+                guard let self, generation == current, self.process != nil else { return }
+                fail(Self.disconnectedMessage)
             }
         }
         self.process = process
         do { try process.run() } catch { close(); throw error }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(15))
-            guard let self, !isReady, self.process != nil else { return }
+            guard let self, generation == current, !isReady, self.process != nil else { return }
             fail("The Linux clipboard helper did not start. Check DISPLAY, XAUTHORITY and the SSH connection.")
         }
     }
     func close() {
+        generation += 1
         let running = process
         process = nil; isReady = false
-        output?.readabilityHandler = nil
-        try? output?.close(); output = nil
-        try? input?.close(); input = nil
+        reader?.cancel(); reader = nil
+        let outgoing = input
+        input = nil
+        // Finish queued writes before closing their descriptor. Late writes
+        // fail with EPIPE if SSH has already gone; they cannot kill the app.
+        writer.async { try? outgoing?.close() }
+        buffer.removeAll()
         if running?.isRunning == true { running?.terminate() }
         let pending = requests.values
         requests.removeAll()
@@ -88,7 +104,15 @@ final class VNCLinuxFiles {
         guard let input, var data = try? JSONSerialization.data(withJSONObject: message), data.count <= 128 * 1024 else { return }
         data.append(10)
         let bytes = data
-        writer.async { try? input.write(contentsOf: bytes) }
+        let current = generation
+        writer.async { [weak self] in
+            do { try input.write(contentsOf: bytes) } catch {
+                Task { @MainActor [weak self] in
+                    guard let self, generation == current, process != nil else { return }
+                    fail(Self.disconnectedMessage)
+                }
+            }
+        }
     }
     private func request(_ message: [String: Any]) async throws -> Data {
         guard isReady else { throw Failure.message("The Linux clipboard helper is not connected yet.") }
@@ -110,7 +134,8 @@ final class VNCLinuxFiles {
         }
     }
     private func receive(_ data: Data) {
-        guard process != nil, !data.isEmpty else { return }
+        guard process != nil else { return }
+        guard !data.isEmpty else { fail(Self.disconnectedMessage); return }
         buffer.append(data)
         guard buffer.count <= 8 * 1024 * 1024 else { fail("The Linux clipboard returned too much data."); return }
         while let newline = buffer.firstIndex(of: 10) {
@@ -223,6 +248,43 @@ final class VNCLinuxFiles {
                 }) else { throw Failure.message("The selected folder cannot be read.") }
                 for case let child as URL in enumerator { try check(child) }
                 if let enumerationError { throw enumerationError }
+            }
+        }
+    }
+
+    /// One nonblocking read per notification; the cancellation handler closes
+    /// the descriptor only after pending reads finish. This avoids both a
+    /// closed-handle exception and blocking until an entire buffer is full.
+    private final class PipeReader: @unchecked Sendable {
+        private let handle: FileHandle
+        private let source: any DispatchSourceRead
+        private let receive: @Sendable (Data) -> Void
+        init(handle: FileHandle, receive: @escaping @Sendable (Data) -> Void) throws {
+            let descriptor = handle.fileDescriptor
+            let flags = fcntl(descriptor, F_GETFL)
+            guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
+                throw Failure.message("Could not open the Linux clipboard response channel.")
+            }
+            self.handle = handle
+            self.receive = receive
+            source = DispatchSource.makeReadSource(fileDescriptor: descriptor,
+                queue: DispatchQueue(label: "com.pavelkhorenyan.Termstead.linux-clipboard-reader"))
+            source.setEventHandler { [weak self] in self?.read() }
+            source.setCancelHandler { try? handle.close() }
+            source.resume()
+        }
+        func cancel() { source.cancel() }
+        deinit { source.cancel() }
+        private func read() {
+            var data = Data(count: 16384)
+            let count = data.withUnsafeMutableBytes { bytes in Darwin.read(handle.fileDescriptor, bytes.baseAddress, bytes.count) }
+            if count < 0, errno == EAGAIN || errno == EINTR { return }
+            if count > 0 {
+                data.count = count
+                receive(data)
+            } else {
+                source.cancel()
+                receive(Data())
             }
         }
     }

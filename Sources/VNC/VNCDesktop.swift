@@ -576,6 +576,7 @@ final class VNCDesktop {
         disconnectLinuxFiles()
         guard phase == .showing, !supportsFiles, keyboard == .linux,
               !viewOnly, lastLaunch?.options.clipboard == true else { return }
+        fileCopy = nil
         let bridge = VNCLinuxFiles(client: client, title: title)
         linuxFiles = bridge; linuxFileConnection = title
         let current = attempt
