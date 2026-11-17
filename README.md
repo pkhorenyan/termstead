@@ -90,8 +90,9 @@
   Symbolic links are not followed; each copy supports up to 64 selections,
   10,000 items and 100 GB.
   **Linux file clipboard (X11):** right-click the VNC tab → **Linux File
-  Clipboard** and choose saved SSH settings for that desktop user. SSH runs
-  in the background for the VNC tab; no separate terminal tab is required.
+  Clipboard** → **Choose SSH Session…** and select saved SSH settings for that
+  desktop user. Same-host settings appear first; search for another address.
+  SSH runs in the background for the VNC tab; no separate terminal tab is required.
   Copy and paste files/folders normally; contents use SFTP and the Linux
   clipboard supplies file links. The remote file manager's right-click Paste
   menu is supported too. Requires Python 3, PyGObject and GTK 3 on

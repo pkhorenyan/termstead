@@ -16,6 +16,13 @@ struct TabBarView: View {
     @State private var widths: [UUID: CGFloat] = [:]
     /// Where the pointer last was during a drag, for a drop on another pane.
     @State private var dragPoint: CGPoint?
+    @State private var linuxFilePicker: LinuxFilePickerRequest?
+
+    private struct LinuxFilePickerRequest: Identifiable {
+        let id = UUID()
+        let desktop: VNCDesktop
+        let host: String
+    }
 
     private var tabs: [Connection] { connectionStore.tabs(in: pane) }
     /// Several panes, this one not focused: its tab in front is drawn quieter,
@@ -118,6 +125,9 @@ struct TabBarView: View {
         // chrome. The strip above the tabs is painted by this view's own
         // background, applied in `MainView`, which still bleeds and is meant to.
         .clipped()
+        .sheet(item: $linuxFilePicker) { request in
+            LinuxFileSSHPicker(desktop: request.desktop, vncHost: request.host)
+        }
     }
 
     /// Leaves this pane out of broadcast input, or brings it back.
@@ -184,17 +194,9 @@ struct TabBarView: View {
                         Button("Disconnect File Clipboard") { desktop.disconnectLinuxFiles() }
                         Divider()
                     }
-                    let savedSSH = sessionStore.sessions.values.filter { $0.kind == .ssh }.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
-                    Text("SSH settings for this Linux desktop:")
-                    ForEach(savedSSH, id: \.id) { ssh in
-                        Button("\(ssh.id) (\(ssh.address))") {
-                            do {
-                                let plan = try ConnectionStore.launchPlan(for: ssh, in: sessionStore)
-                                desktop.connectLinuxFiles(plan: plan, title: ssh.id)
-                            } catch { desktop.reportLinuxFilesError(String(describing: error)) }
-                        }
+                    Button("Choose SSH Session…") {
+                        linuxFilePicker = LinuxFilePickerRequest(desktop: desktop, host: desktop.lastLaunch?.host ?? "")
                     }
-                    if savedSSH.isEmpty { Text("Save SSH settings for the desktop’s user first.") }
                 }
                 .disabled(desktop.viewOnly || desktop.lastLaunch?.options.clipboard != true)
             }
