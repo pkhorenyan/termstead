@@ -89,9 +89,11 @@
   selections is still under development. The status bar shows progress and Cancel.
   Symbolic links are not followed; each copy supports up to 64 selections,
   10,000 items and 100 GB.
-  For file transfer on any VNC server with SSH access, choose an SSH session
-  under **File access** in the VNC session settings. The SFTP sidebar then
-  browses that computer's files without opening an SSH terminal tab. Copy
+  To upload or download files on a VNC computer, enable **SSH file transfer
+  (SFTP)** inside that VNC session's settings and enter its SSH host, port,
+  user and key or password there. An existing saved SSH session is not required.
+  The SFTP sidebar then browses that computer's files without opening an SSH
+  terminal tab. Copy
   files from Finder and paste them into the sidebar, or copy a sidebar file
   and paste it into Finder. Drag and drop and Upload/Download also work.
   VNC and SSH authenticate separately; the remote desktop's own clipboard
@@ -104,8 +106,8 @@
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh
   asks — and only for the host they were saved for.
 - **SFTP beside the terminal and VNC desktop.** The SFTP tab reuses an SSH
-  terminal's connection. A VNC tab opens its saved SSH file connection in the
-  background, with separate credentials. When enabled, the sidebar opens on
+  terminal's connection. A VNC tab opens its configured SSH file connection in
+  the background, with separate credentials. When enabled, the sidebar opens on
   files after SSH login. It
   can follow the terminal's current folder; drag files in to upload and out to
   download; copy and paste files with Finder; open a remote file in its Mac app and it is uploaded again each

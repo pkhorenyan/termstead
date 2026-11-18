@@ -52,8 +52,11 @@ struct VNCLinuxFilesTests {
         defer { access.close() }
         var reportedFileLogin = false
         access.onLogin = { reportedFileLogin = true }
-        access.configureFileAccess(try plan(), title: "lab-vnc-ssh")
-        let launch = VNCLaunch(session: try #require(SessionStore.sample().session("lab-vnc")), password: "lab")
+        let store = SessionStore.sample()
+        let session = try #require(store.session("lab-vnc"))
+        access.configureFileAccess(try ConnectionStore.vncFileAccessPlan(for: session, in: store),
+                                   title: "lab-vnc-ssh")
+        let launch = VNCLaunch(session: session, password: "lab")
         access.start(launch)
         await wait { access.vnc?.phase == .showing }
         try #require(access.vnc?.phase == .showing)

@@ -154,6 +154,18 @@ enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
     var hasTerminal: Bool { self == .ssh || self == .telnet }
 }
 
+/// Optional SSH login used only by the SFTP panel beside a VNC desktop.
+/// Passwords live in Keychain under the owning VNC session's permanent ID.
+struct VNCFileAccess: Hashable, Codable, Sendable {
+    var host = ""
+    var port = 22
+    var user = ""
+    var auth: SessionAuth = .key
+    var keyPath = Session.defaultKeyPath
+
+    init() {}
+}
+
 /// How VNC presents the shared desktop, authenticates and transfers input.
 struct VNCOptions: Hashable, Codable, Sendable {
     enum Keyboard: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -186,6 +198,9 @@ struct VNCOptions: Hashable, Codable, Sendable {
     /// Saved SSH settings for the VNC tab's SFTP file browser. Kept by
     /// permanent identity so renaming a session cannot redirect file access.
     var fileSSHSessionID: UUID? = nil
+    /// New sessions keep their SSH file access settings inside the VNC session.
+    /// The saved-session link above remains readable for existing sessions.
+    var fileAccess: VNCFileAccess? = nil
 
     init() {}
     init(from decoder: any Decoder) throws {
@@ -201,6 +216,7 @@ struct VNCOptions: Hashable, Codable, Sendable {
         autoReconnect = try values.decodeIfPresent(Bool.self, forKey: .autoReconnect) ?? true
         allowNoAuth = try values.decodeIfPresent(Bool.self, forKey: .allowNoAuth) ?? false
         fileSSHSessionID = try values.decodeIfPresent(UUID.self, forKey: .fileSSHSessionID)
+        fileAccess = try values.decodeIfPresent(VNCFileAccess.self, forKey: .fileAccess)
     }
 }
 

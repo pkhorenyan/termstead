@@ -203,6 +203,11 @@ enum SessionArchive {
                     throw Problem.invalid("Invalid tunnel ports.")
                 }
             }
+            if let fileAccess = session.vnc.fileAccess,
+               session.kind == .vnc && (!(1...65535).contains(fileAccess.port) ||
+                   fileAccess.user.trimmingCharacters(in: .whitespaces).isEmpty) {
+                throw Problem.invalid("Invalid SSH file access settings.")
+            }
             names.insert(name)
             sessions.append(session)
         }
@@ -233,7 +238,7 @@ enum SessionArchive {
         let known = Dictionary(uniqueKeysWithValues: sessions.map { ($0.persistentID!, $0) })
         var accounts: [String: String] = [:]
         let credentials = try doc.credentials.filter { credential in
-            guard ["password", "keyPassphrase", "hopPassword", "hopKeyPassphrase"].contains(credential.role) else { return false }
+            guard ["password", "keyPassphrase", "hopPassword", "hopKeyPassphrase", "vncFilePassword", "vncFileKeyPassphrase"].contains(credential.role) else { return false }
             // Passwords belonging to an unsupported protocol are skipped too.
             guard let session = known[credential.sessionID] else {
                 if !unsupported.isEmpty { return false }
@@ -254,6 +259,13 @@ enum SessionArchive {
         switch credential.role {
         case "password" where credential.hopID == nil:
             return SSHLaunch.sessionPasswordAccount(session.id)
+        case "vncFilePassword" where credential.hopID == nil && session.kind == .vnc &&
+            session.vnc.fileAccess?.auth == .password:
+            return session.persistentID.map(SSHLaunch.vncFilePasswordAccount)
+        case "vncFileKeyPassphrase" where credential.hopID == nil && session.kind == .vnc &&
+            session.vnc.fileAccess?.auth == .key:
+            guard let path = session.vnc.fileAccess?.keyPath, !path.isEmpty else { return nil }
+            return SSHLaunch.passphraseAccount(forKey: path)
         case "keyPassphrase" where credential.hopID == nil && !session.keyPath.isEmpty:
             return SSHLaunch.passphraseAccount(forKey: session.keyPath)
         case "hopPassword", "hopKeyPassphrase":

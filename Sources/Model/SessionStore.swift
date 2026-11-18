@@ -273,6 +273,13 @@ final class SessionStore {
         sessions[vncID] = session
     }
 
+    func setVNCFileAccess(_ vncID: String, access: VNCFileAccess) {
+        guard var session = sessions[vncID], session.kind == .vnc else { return }
+        session.vnc.fileAccess = access
+        session.vnc.fileSSHSessionID = nil
+        sessions[vncID] = session
+    }
+
     func isPinned(_ id: String) -> Bool { pinnedIDs.contains(id) }
 
     func togglePin(_ id: String) {

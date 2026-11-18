@@ -148,6 +148,25 @@ struct SessionTransferTests {
         #expect(importedSSH.persistentID != source.session("file-access")?.persistentID)
     }
 
+    @Test func inlineVNCFilePasswordFollowsCopiedSessionIdentity() throws {
+        let store = SessionStore(tree: [], sessions: [:], selectedID: nil, pinnedIDs: [])
+        var vnc = Session(id: "desktop", user: "", host: "server.internal", port: 5900, icon: .monitor)
+        vnc.kind = .vnc
+        var access = VNCFileAccess()
+        access.user = "files"
+        access.auth = .password
+        vnc.vnc.fileAccess = access
+        store.createSession(vnc, parentID: nil)
+        let source = try #require(store.session("desktop"))
+        let credential = SessionArchive.Credential(sessionID: source.persistentID!, role: "vncFilePassword", value: "secret")
+        let exported = try SessionArchive.contents(SessionArchive.document(store.snapshot, credentials: [credential]))
+        let plan = try SessionTransfer.plan(exported, into: store.snapshot, conflict: .keepBoth)
+        let copy = try #require(plan.added.first { $0.id == "desktop (2)" })
+        #expect(copy.vnc.fileAccess == source.vnc.fileAccess)
+        #expect(copy.persistentID != source.persistentID)
+        #expect(plan.secrets.contains { $0.account == SSHLaunch.vncFilePasswordAccount(copy.persistentID!) && $0.value == "secret" })
+    }
+
     @Test func keepingBothRenamesTheWholeImportedChainAndRemapsSecrets() throws {
         let original = chain()
         let source = try #require(original.sessions.first { $0.id == "app" })

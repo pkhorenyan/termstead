@@ -132,6 +132,7 @@ enum SSHLaunch {
     /// Keychain accounts. A key's passphrase belongs to the key, not to a
     /// session: the same key usually opens many servers.
     static func sessionPasswordAccount(_ sessionID: String) -> String { "session:\(sessionID):password" }
+    static func vncFilePasswordAccount(_ identity: UUID) -> String { "vnc:\(identity.uuidString):file-password" }
     static func hopPasswordAccount(_ hopID: UUID) -> String { "hop:\(hopID.uuidString):password" }
     static func passphraseAccount(forKey path: String) -> String {
         "key:\((path as NSString).expandingTildeInPath):passphrase"
@@ -143,12 +144,15 @@ enum SSHLaunch {
     static func plan(
         for session: Session,
         sessions: [String: Session],
-        keyExists: (String) -> Bool = { FileManager.default.fileExists(atPath: ($0 as NSString).expandingTildeInPath) }
+        keyExists: (String) -> Bool = { FileManager.default.fileExists(atPath: ($0 as NSString).expandingTildeInPath) },
+        reuseTargetAuthForJumps: Bool = true
     ) throws -> SSHLaunchPlan {
         let targetAuth = try auth(session.auth, keyPath: session.keyPath, keyExists: keyExists)
         let targetPassword = sessionPasswordAccount(session.id)
         let hops = try hopEndpoints(of: session, sessions: sessions,
-                                    sameAsSession: (targetAuth, targetPassword), keyExists: keyExists)
+                                    sameAsSession: reuseTargetAuthForJumps
+                                        ? (targetAuth, targetPassword) : (.automatic, nil),
+                                    keyExists: keyExists)
 
         let target = try endpoint(user: session.user.isEmpty ? nil : session.user,
                                   host: session.host, port: session.port,

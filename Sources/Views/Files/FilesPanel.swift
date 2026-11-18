@@ -18,13 +18,13 @@ struct FilesPanel: View {
                 } else {
                     VStack(spacing: 10) {
                         placeholder("VNC files", connection.fileAccessProblem ??
-                                    "Choose SSH access in this VNC session's settings to browse and transfer files.")
+                                    "To upload or download files, enable SSH file transfer in this VNC session's settings and enter its SSH login there.")
                         if connection.fileAccessTitle != nil, connection.fileAccessProblem != nil {
                             Button("Reconnect File Access") { connection.reconnectFileAccess() }
                                 .buttonStyle(PrimaryButtonStyle(theme: theme, height: 28, horizontalPadding: 12))
                         }
                         if let id = connection.sessionID {
-                            Button("File Access Settings…") { appState.route = .sessionSettings(id: id) }
+                            Button("Set Up File Transfer…") { appState.route = .sessionSettings(id: id) }
                                 .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26, fontSize: 12))
                         }
                     }

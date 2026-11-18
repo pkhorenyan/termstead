@@ -49,6 +49,11 @@ struct SessionSheet: View {
     @State private var forwards: [PortForward] = []
     @State private var rdp = RDPOptions()
     @State private var vnc = VNCOptions()
+    @State private var vncFileAccess = VNCFileAccess()
+    @State private var vncFileAccessEnabled = false
+    @State private var vncFilePort = "22"
+    @State private var vncFilePassword = ""
+    @State private var vncFilePassphrase = ""
     /// The fixed size's fields, as typed; read into `rdp.display` on save.
     @State private var displayChoice: DisplayChoice = .fitTab
     @State private var fixedWidth = "1920"
@@ -396,21 +401,7 @@ struct SessionSheet: View {
                     checkbox("Mac → server", isOn: $vnc.sendClipboard)
                     checkbox("Server → Mac", isOn: $vnc.receiveClipboard)
                 }
-                FormField(label: "File access") {
-                        Picker("SSH settings", selection: $vnc.fileSSHSessionID) {
-                            Text("None").tag(nil as UUID?)
-                            ForEach(sessionStore.sessions.values.filter { $0.kind == .ssh }
-                                .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }, id: \.id) { ssh in
-                                Text("\(ssh.id) (\(ssh.address))").tag(ssh.persistentID as UUID?)
-                            }
-                            if let id = vnc.fileSSHSessionID,
-                               !sessionStore.sessions.values.contains(where: { $0.persistentID == id && $0.kind == .ssh }) {
-                                Text("Missing SSH session").tag(id as UUID?)
-                            }
-                        }
-                        .labelsHidden()
-                }
-                InsetNote(text: "Optional SSH access to this computer's files. The SFTP panel opens beside VNC without another terminal tab. VNC and SSH sign in separately.")
+                vncFileAccessSection
                 checkbox("Reconnect after connection loss", isOn: $vnc.autoReconnect)
                 FormField(label: "Transport") {
                     SegmentedPicker(options: VNCOptions.Security.allCases, selection: $vnc.security,
@@ -569,6 +560,73 @@ struct SessionSheet: View {
         }
     }
 
+    private var vncFileAccessSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            FormLabel("File transfer")
+            InsetNote(text: "To upload or download files through SFTP, enable SSH access here inside this VNC session. The Files sidebar then browses the same computer beside the desktop. No separate SSH session or terminal tab is needed. VNC and SSH sign in separately.")
+            if vnc.fileSSHSessionID == nil || vncFileAccessEnabled {
+                checkbox("Enable SSH file transfer (SFTP)", isOn: $vncFileAccessEnabled)
+            }
+            if vncFileAccessEnabled {
+                HStack(alignment: .bottom, spacing: 8) {
+                    FormField(label: "SSH host") {
+                        SBTextField(text: $vncFileAccess.host, placeholder: "Same as VNC host", font: SBFont.mono(13))
+                    }
+                    FormField(label: "SSH port") {
+                        SBTextField(text: $vncFilePort, placeholder: "22", font: SBFont.mono(13))
+                    }
+                    .frame(width: 84)
+                }
+                FormField(label: "SSH user") {
+                    SBTextField(text: $vncFileAccess.user, placeholder: "Remote account", font: SBFont.mono(13))
+                }
+                FormField(label: "SSH authentication") {
+                    SegmentedPicker(options: SessionAuth.allCases, selection: $vncFileAccess.auth,
+                                    label: \.label, title: "SSH authentication method")
+                }
+                if vncFileAccess.auth == .key {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        FormField(label: "SSH key file") {
+                            SBTextField(text: $vncFileAccess.keyPath, placeholder: Session.defaultKeyPath,
+                                        font: SBFont.mono(13))
+                        }
+                        Button("Choose…") {
+                            if let path = KeyFilePicker.choose(startingAt: vncFileAccess.keyPath) {
+                                vncFileAccess.keyPath = path
+                            }
+                        }
+                        .buttonStyle(SecondaryButtonStyle(theme: theme, height: 36,
+                                                          horizontalPadding: 14, filled: true))
+                    }
+                    secretField(label: "SSH key passphrase (optional)", text: $vncFilePassphrase,
+                                placeholder: "Ask on connect", account: vncFilePassphraseAccount)
+                } else {
+                    secretField(label: "SSH password", text: $vncFilePassword,
+                                placeholder: "Ask on connect", account: vncFilePasswordAccount)
+                }
+                InsetNote(text: "SSH uses this VNC session's jump hosts. Leave SSH host blank if it is the same computer; SSH often uses a different user and port from VNC.")
+            } else if let id = vnc.fileSSHSessionID {
+                let linked = sessionStore.sessions.values.first { $0.persistentID == id && $0.kind == .ssh }
+                InsetNote(text: "File transfer currently uses the saved SSH session \"\(linked?.id ?? "(missing)")\". To keep the settings inside VNC instead, copy its SSH address below, then check the jump route and credentials before saving.")
+                Button("Copy SSH address into this VNC session") {
+                    if let linked {
+                        vncFileAccess.host = linked.host
+                        vncFilePort = String(linked.port)
+                        vncFileAccess.user = linked.user
+                        vncFileAccess.auth = linked.auth
+                        vncFileAccess.keyPath = linked.keyPath
+                    }
+                    vncFileAccessEnabled = true
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.accent.color)
+                Button("Stop using saved SSH settings") { vnc.fileSSHSessionID = nil }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent.color)
+            }
+        }
+    }
+
     private var keychainToggle: some View {
         checkbox("Save to Keychain", isOn: $saveToKeychain)
     }
@@ -608,6 +666,16 @@ struct SessionSheet: View {
 
     private var passphraseAccount: String? {
         let path = keyPath.trimmingCharacters(in: .whitespaces)
+        return path.isEmpty ? nil : SSHLaunch.passphraseAccount(forKey: path)
+    }
+
+    private var vncFilePasswordAccount: String? {
+        editingSessionID.flatMap { sessionStore.session($0)?.persistentID }
+            .map(SSHLaunch.vncFilePasswordAccount)
+    }
+
+    private var vncFilePassphraseAccount: String? {
+        let path = vncFileAccess.keyPath.trimmingCharacters(in: .whitespaces)
         return path.isEmpty ? nil : SSHLaunch.passphraseAccount(forKey: path)
     }
 
@@ -859,6 +927,9 @@ struct SessionSheet: View {
     private var isValid: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
             && !host.trimmingCharacters(in: .whitespaces).isEmpty
+            && (!vncFileAccessEnabled || kind != .vnc ||
+                ((1...65535).contains(Int(vncFilePort) ?? 0)
+                 && !vncFileAccess.user.trimmingCharacters(in: .whitespaces).isEmpty))
     }
 
     // MARK: - Loading and saving
@@ -900,6 +971,11 @@ struct SessionSheet: View {
             kind = session.kind
             rdp = session.rdp
             vnc = session.vnc
+            if let access = session.vnc.fileAccess {
+                vncFileAccess = access
+                vncFilePort = String(access.port)
+                vncFileAccessEnabled = true
+            }
             if case .fixed(let width, let height) = session.rdp.display {
                 displayChoice = .fixed
                 fixedWidth = String(width)
@@ -913,12 +989,15 @@ struct SessionSheet: View {
         var accounts = jumps.map { SSHLaunch.hopPasswordAccount($0.id) }
         if let sessionPasswordAccount { accounts.append(sessionPasswordAccount) }
         if let passphraseAccount { accounts.append(passphraseAccount) }
+        if let vncFilePasswordAccount { accounts.append(vncFilePasswordAccount) }
+        if kind == .vnc, vncFileAccessEnabled, vncFileAccess.auth == .key,
+           let vncFilePassphraseAccount { accounts.append(vncFilePassphraseAccount) }
         storedAccounts = Set(accounts.filter(KeychainStore.shared.contains))
     }
 
     /// Writes what was typed; leaves alone what was not. Also keeps the
     /// Keychain in step with a rename and with hops that were removed.
-    private func storeSecrets(for sessionID: String) {
+    private func storeSecrets(for sessionID: String, identity: UUID) {
         let keychain = KeychainStore.shared
         if let editingSessionID {
             keychain.move(SSHLaunch.sessionPasswordAccount(editingSessionID),
@@ -935,6 +1014,14 @@ struct SessionSheet: View {
         }
         if kind == .ssh, authMode == .key, !passphrase.isEmpty, let passphraseAccount {
             keychain.set(passphrase, for: passphraseAccount)
+        }
+        if kind == .vnc, vncFileAccessEnabled, vncFileAccess.auth == .password,
+           !vncFilePassword.isEmpty {
+            keychain.set(vncFilePassword, for: SSHLaunch.vncFilePasswordAccount(identity))
+        }
+        if kind == .vnc, vncFileAccessEnabled, vncFileAccess.auth == .key,
+           !vncFilePassphrase.isEmpty, let vncFilePassphraseAccount {
+            keychain.set(vncFilePassphrase, for: vncFilePassphraseAccount)
         }
         for hop in jumps where hop.auth == .password {
             if let secret = jumpPasswords[hop.id], !secret.isEmpty {
@@ -963,11 +1050,18 @@ struct SessionSheet: View {
             colorID: colorID
         )
         session.kind = kind
+        session.persistentID = editingSessionID.flatMap { sessionStore.session($0)?.persistentID } ?? UUID()
         session.logs = kind.hasTerminal && logs
         switch kind {
         case .rdp:
             session.rdp = rdpOptionsToSave
         case .vnc:
+            vncFileAccess.port = Int(vncFilePort) ?? 22
+            vncFileAccess.host = vncFileAccess.host.trimmingCharacters(in: .whitespaces)
+            vncFileAccess.user = vncFileAccess.user.trimmingCharacters(in: .whitespaces)
+            vncFileAccess.keyPath = vncFileAccess.keyPath.trimmingCharacters(in: .whitespaces)
+            vnc.fileAccess = vncFileAccessEnabled ? vncFileAccess : nil
+            if vncFileAccessEnabled { vnc.fileSSHSessionID = nil }
             session.vnc = vnc
         case .ssh:
             session.forwards = forwards
@@ -976,7 +1070,7 @@ struct SessionSheet: View {
         }
 
         var savedID: String?
-        storeSecrets(for: trimmedName)
+        storeSecrets(for: trimmedName, identity: session.persistentID!)
         if let editingSessionID {
             sessionStore.applySessionEdits(originalID: editingSessionID,
                                            updated: session, parentID: parentID)

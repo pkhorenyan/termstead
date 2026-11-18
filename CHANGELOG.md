@@ -9,6 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- VNC file transfer can now be configured directly inside the VNC session:
+  SSH host, port, user and authentication. No separate saved SSH session is
+  needed. Existing VNC links to saved SSH sessions continue to work.
 - VNC sessions can use a saved SSH connection for the SFTP sidebar, on Linux
   or macOS, without an extra terminal tab or a remote clipboard helper.
   Exporting a VNC folder includes its linked SSH settings.

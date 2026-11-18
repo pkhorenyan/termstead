@@ -61,6 +61,10 @@ struct KeychainStore: Sendable {
     /// so the copy already shares it.
     func copySecrets(of original: Session, to copy: Session) {
         var pairs = [(SSHLaunch.sessionPasswordAccount(original.id), SSHLaunch.sessionPasswordAccount(copy.id))]
+        if original.kind == .vnc, original.vnc.fileAccess?.auth == .password,
+           let oldID = original.persistentID, let newID = copy.persistentID {
+            pairs.append((SSHLaunch.vncFilePasswordAccount(oldID), SSHLaunch.vncFilePasswordAccount(newID)))
+        }
         for (old, new) in zip(original.jumps, copy.jumps) {
             pairs.append((SSHLaunch.hopPasswordAccount(old.id), SSHLaunch.hopPasswordAccount(new.id)))
         }

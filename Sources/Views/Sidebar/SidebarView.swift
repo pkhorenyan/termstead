@@ -154,6 +154,9 @@ struct SidebarView: View {
         pendingDeletion = nil
         for session in sessionStore.delete(items) {
             KeychainStore.shared.delete(SSHLaunch.sessionPasswordAccount(session.id))
+            if session.kind == .vnc, let identity = session.persistentID {
+                KeychainStore.shared.delete(SSHLaunch.vncFilePasswordAccount(identity))
+            }
             for hop in session.jumps {
                 KeychainStore.shared.delete(SSHLaunch.hopPasswordAccount(hop.id))
             }

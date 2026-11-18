@@ -290,6 +290,15 @@ final class ConnectionStore {
     /// The saved SSH account supplies SFTP beside the VNC desktop, without an
     /// extra terminal tab or a remote clipboard helper.
     private func configureVNCFileAccess(_ connection: Connection, session: Session, in store: SessionStore) {
+        if let access = session.vnc.fileAccess {
+            do {
+                let plan = try Self.vncFileAccessPlan(for: session, in: store)
+                connection.configureFileAccess(plan, title: "\(access.user)@\(plan.target.host)")
+            } catch {
+                connection.configureFileAccess(nil, problem: "Could not start SSH file access: \(error)")
+            }
+            return
+        }
         guard let id = session.vnc.fileSSHSessionID else {
             connection.configureFileAccess(nil)
             return
@@ -304,6 +313,27 @@ final class ConnectionStore {
         } catch {
             connection.configureFileAccess(nil, problem: "Could not start SSH file access: \(error)")
         }
+    }
+
+    static func vncFileAccessPlan(for session: Session, in store: SessionStore) throws -> SSHLaunchPlan {
+        guard let access = session.vnc.fileAccess else {
+            throw SSHLaunchError.invalid(field: "SSH file access", value: "disabled")
+        }
+        var ssh = Session(id: "vnc-files-\(session.persistentID?.uuidString ?? session.id)",
+                          user: access.user, host: access.host.isEmpty ? session.host : access.host,
+                          port: access.port, icon: .server, auth: access.auth,
+                          keyPath: access.keyPath, jumps: session.jumps)
+        ssh.persistentID = session.persistentID
+        var plan = Self.withDevelopmentPrefix(try SSHLaunch.plan(for: ssh, sessions: store.sessions,
+                                                                 reuseTargetAuthForJumps: false))
+        if let identity = session.persistentID {
+            let account = SSHLaunch.vncFilePasswordAccount(identity)
+            plan.target.passwordAccount = account
+            for index in plan.hops.indices where plan.hops[index].passwordAccount == SSHLaunch.sessionPasswordAccount(ssh.id) {
+                plan.hops[index].passwordAccount = account
+            }
+        }
+        return plan
     }
 
     func refreshVNCFileAccess(sessionID: String, in store: SessionStore) {

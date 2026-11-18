@@ -116,6 +116,13 @@ enum SessionTransfer {
             if session.kind == .ssh && session.auth == .key && !session.keyPath.isEmpty {
                 wanted.append(.init(sessionID: identity, role: "keyPassphrase", value: ""))
             }
+            if session.kind == .vnc && session.vnc.fileAccess?.auth == .password {
+                wanted.append(.init(sessionID: identity, role: "vncFilePassword", value: ""))
+            }
+            if session.kind == .vnc && session.vnc.fileAccess?.auth == .key &&
+                session.vnc.fileAccess?.keyPath.isEmpty == false {
+                wanted.append(.init(sessionID: identity, role: "vncFileKeyPassphrase", value: ""))
+            }
             for hop in session.jumps {
                 if hop.auth == .password {
                     wanted.append(.init(sessionID: identity, hopID: hop.id, role: "hopPassword", value: ""))
