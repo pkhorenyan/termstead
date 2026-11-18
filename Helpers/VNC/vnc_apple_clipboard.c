@@ -48,38 +48,6 @@ bool tsv_apple_clipboard_pack(const char *text, size_t length, uint8_t **packet,
     return okay;
 }
 
-bool tsv_apple_clipboard_pack_files(const char *urls, size_t length, uint8_t **packet, size_t *size) {
-    *packet = NULL; *size = 0;
-    if (!urls || !length || length > TSV_CLIPBOARD_TEXT_LIMIT || memchr(urls, 0, length)) return false;
-    const char type[] = "public.file-url";
-    size_t count = 1;
-    for (size_t i = 0; i < length; ++i) if (urls[i] == '\n') ++count;
-    if (count > 64) return false;
-    size_t capacity = length + count * (20 + sizeof(type) - 1);
-    uint8_t *raw = malloc(capacity);
-    if (!raw) return false;
-    size_t start = 0, offset = 0;
-    for (size_t i = 0; i <= length; ++i) {
-        if (i < length && urls[i] != '\n') continue;
-        size_t n = i - start;
-        if (!n || n > 16384) { free(raw); return false; }
-        /* Each pasteboard item starts with its own flavor count. Repeating
-           public.file-url as flavors of one item makes Finder keep only
-           the last URL instead of a multiple-file selection. */
-        put32(raw + offset, 1); offset += 4;
-        put32(raw + offset, sizeof(type) - 1); offset += 4;
-        memcpy(raw + offset, type, sizeof(type) - 1); offset += sizeof(type) - 1;
-        put32(raw + offset, 0); offset += 4;
-        put32(raw + offset, 0); offset += 4;
-        put32(raw + offset, (uint32_t)n); offset += 4;
-        memcpy(raw + offset, urls + start, n); offset += n;
-        start = i + 1;
-    }
-    bool okay = pack_archive(raw, offset, packet, size);
-    free(raw);
-    return okay;
-}
-
 typedef struct { const uint8_t *next; size_t remaining; } reader;
 static bool take32(reader *r, uint32_t *value) {
     if (r->remaining < 4) return false;
@@ -115,16 +83,13 @@ static void decode_text(const uint8_t *bytes, size_t length, CFStringEncoding en
     CFRelease(value);
 }
 bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t expanded,
-                                char **text, int *text_length, char **file_urls) {
-    *file_urls = NULL;
+                                char **text, int *text_length) {
     *text = NULL; *text_length = 0;
     if (!length || length > TSV_APPLE_ARCHIVE_LIMIT || expanded > TSV_APPLE_ARCHIVE_LIMIT) return false;
     uint8_t *raw = malloc(expanded + 1);
     if (!raw) return false;
     z_stream stream = {0};
     bool okay = false;
-    char *files = NULL;
-    size_t files_length = 0;
     if (inflateInit(&stream) != Z_OK) { free(raw); return false; }
     stream.next_in = (Bytef *)compressed; stream.avail_in = (uInt)length;
     stream.next_out = raw; stream.avail_out = (uInt)expanded + 1;
@@ -167,44 +132,15 @@ bool tsv_apple_clipboard_unpack(const uint8_t *compressed, size_t length, size_t
             } else if (is_type(type, type_length, "com.apple.traditional-mac-plain-text")) {
                 rank = 1; candidate = kCFStringEncodingMacRoman;
             }
-            bool finder_node = is_type(type, type_length, "com.apple.finder.node");
-            if (finder_node || is_type(type, type_length, "public.file-url")) {
-                if (!data_length || data_length > 16384 || memchr(data, 0, data_length) ||
-                    memchr(data, '\n', data_length)) goto done;
-                /* Apple's node flavor carries absolute POSIX paths. Convert
-                   through CFURL so spaces, Unicode and '%' are escaped. */
-                char *converted = NULL;
-                if (finder_node) {
-                    if (data[0] != '/') goto done;
-                    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, data, data_length, false);
-                    if (!url) goto done;
-                    CFStringRef string = CFURLGetString(url);
-                    CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(string), kCFStringEncodingUTF8) + 1;
-                    converted = malloc((size_t)capacity);
-                    bool valid = converted && CFStringGetCString(string, converted, capacity, kCFStringEncodingUTF8);
-                    CFRelease(url);
-                    if (!valid) { free(converted); goto done; }
-                    data = (const uint8_t *)converted; data_length = (uint32_t)strlen(converted);
-                }
-                char *grown = realloc(files, files_length + data_length + 2);
-                if (!grown) { free(converted); goto done; }
-                files = grown;
-                if (files_length) files[files_length++] = '\n';
-                memcpy(files + files_length, data, data_length); files_length += data_length;
-                files[files_length] = 0;
-                free(converted);
-            }
             if (rank > priority) {
                 best = data; best_length = data_length; priority = rank; encoding = candidate;
             }
         }
     }
     if (r.remaining) goto done;
-    if (files) { *file_urls = files; files = NULL; }
     if (best) decode_text(best, best_length, encoding, text, text_length);
     okay = true;
 done:
-    free(files);
     free(raw);
     return okay;
 }

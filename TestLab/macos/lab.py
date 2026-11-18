@@ -123,15 +123,6 @@ def up():
     ssh('sudo -n launchctl enable system/com.apple.screensharing; '
         'sudo -n launchctl bootstrap system /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true; '
         'sudo -n launchctl kickstart system/com.apple.screensharing')
-    helper = ROOT / 'tool/file-clipboard'
-    if not helper.exists() or helper.stat().st_mtime < (REPO / 'TestLab/macos/clipboard.swift').stat().st_mtime:
-        run(['/usr/bin/xcrun', 'swiftc', '-target', 'arm64-apple-macos14.0', REPO / 'TestLab/macos/clipboard.swift', '-o', helper])
-    with helper.open('rb') as data:
-        ssh('cat > /tmp/termstead-file-clipboard; chmod 700 /tmp/termstead-file-clipboard', stdin=data)
-    ssh("mkdir -p ~/Desktop/'Termstead Files'/nested; "
-        "printf '%s\\n' 'Termstead — привет 日本語 🙂' > ~/Desktop/'Termstead Files'/nested/'данные.txt'; "
-        "touch ~/Desktop/'Termstead Files'/empty; "
-        'dd if=/dev/urandom of="$HOME/Desktop/Termstead Files/binary.bin" bs=1024 count=256 2>/dev/null')
     tunnel = ['/usr/bin/ssh', '-F', CONFIG, '-N', '-o', 'ExitOnForwardFailure=yes',
               '-L', '127.0.0.1:15900:127.0.0.1:5900', 'macos-vnc-vm']
     if not listening():
@@ -154,12 +145,23 @@ def listening():
 
 def profile():
     path = ROOT / 'sessions.json'
-    if path.exists(): return
+    address = next(line.split(None, 1)[1] for line in CONFIG.read_text().splitlines()
+                   if line.strip().startswith('HostName '))
+    access = {'host': address, 'port': 22, 'user': 'admin', 'auth': 'key',
+              'keyPath': str(ROOT / 'id_ed25519')}
+    if path.exists():
+        snapshot = json.loads(path.read_text())
+        for saved in snapshot.get('sessions', []):
+            if saved.get('id') == 'macos-vnc-test':
+                saved.setdefault('vncOptions', {})['fileAccess'] = access
+                path.write_text(json.dumps(snapshot, indent=2)); path.chmod(0o600)
+                return
     session = {'id': 'macos-vnc-test', 'persistentID': str(uuid.uuid4()), 'user': 'admin',
                'host': '127.0.0.1', 'port': 15900, 'icon': 'monitor', 'auth': 'password',
                'keyPath': '', 'jumps': [], 'sessionKind': 'vnc',
                'vncOptions': {'keyboard': 'macOS', 'clipboard': True, 'sendClipboard': True,
-                              'receiveClipboard': True, 'autoReconnect': False}}
+                              'receiveClipboard': True, 'autoReconnect': False,
+                              'fileAccess': access}}
     snapshot = {'version': 2, 'sessions': [session], 'tree': [
         {'id': 'macos-lab', 'name': 'macOS VNC lab', 'children': [{'session': {'_0': session['id']}}]}],
         'pinnedIDs': [], 'collapsedGroupIDs': []}

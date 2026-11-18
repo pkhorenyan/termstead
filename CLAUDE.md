@@ -220,6 +220,8 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   access remains on the same worker thread. Do not restore 10 ms idle polling
   or move library writes to XPC callback threads. Disconnect shuts down the
   network socket and wakes the pipe; the pipe descriptors outlive the worker.
+  Direct TCP VNC configures 30-second keepalive idle, 10-second probes and
+  three misses in `RDPSocket`; SSH tunnels already use ServerAliveInterval.
 - **WITH_LZO=OFF does not remove Ultra/UltraZip:** LibVNCClient falls back to
   bundled minilzo. `disabled-ultra.patch` rejects both before decoding because
   Termstead does not request them and the bundled UltraZip parser has an
@@ -256,15 +258,18 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   helpers load/unload providers on classic VNC login, disabling automatic
   provider fallback and leaving later SSL_CTX_new without ciphers otherwise.
   Test alternating classic/TLS logins in the same engine process.
-- Auto uses full color/ZRLE with compression 2, Sharp full color/compression 6,
-  Fast reduced RGB565 color ranges/compression 1 (32-bit storage on the wire).
+- Balanced (stored as `automatic` for old sessions) uses full color/ZRLE with
+  compression 2, Sharp full color/compression 6, and Fast reduced RGB565 color
+  ranges/compression 1 (32-bit storage on the wire).
   Convert to BGRA in a separate display buffer: never change the decoder's
   framebuffer, which CopyRect and subsequent updates still use. Cursor
   channels use the same pixel-format maxima. No JPEG is compiled in.
 - Clipboard directions are enforced in both app and engine. Keyboard profiles
   map Edit commands to Super/Command on macOS, Control on Windows/Linux;
-  app shortcuts stay local. `VNCDesktop` retries drops only after a successful
-  connection, at 2/5/10/30/60 seconds, then ends. Authentication and certificate
+  app shortcuts stay local. The tab and Session menus send selected system
+  shortcuts explicitly through `VNCDesktop.press`. `VNCDesktop` retries drops
+  only after a successful connection, at 2/5/10/30/60 seconds, then ends.
+  Authentication and certificate
   failures ask/stop, never retry automatically. Stopping cancels retries.
 - **Apple Screen Sharing needs its own pasteboard messages.** Standard
   ClientCutText reaches the Mac but creates only legacy `TEXT`, not the
@@ -281,103 +286,14 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   identical echoes must not rewrite the clipboard. Do not poll the server.
   Protocol reference: https://github.com/renegadelink/iShareScreen/blob/main/src/isharescreen/proxy/protocol/clipboard.py
   Verified on native macOS 26.6.2, including Unicode and focus transitions.
-  File URLs use the same archive. The `com.apple.finder.node` flavor carries
-  absolute POSIX paths; convert those with CFURL
-  so spaces, Unicode and percent characters survive. Contents use Apple's RFB type 0x22, not
-  text, SSH/SFTP, a second socket, or a guest helper. `VNCFileMessage` describes
-  the wire and `VNCFileUpload`/`VNCFileDownloadStream` stream 64 KB blocks.
-  Kind 200 confirms uploads: its argument is **i16 status + u16 name length**,
-  followed by the UTF-8 destination name and NUL. Kind **5** stops/releases a
-  copy (kind 3 pauses). Do not publish remote staging URLs or send Paste before
-  a successful confirmation. Download start messages (kind 1) need argument
-  bit 0 set; otherwise Screen Sharing creates a paused sender and sends no
-  data. Downloaded files stay in their private temp
-  directory after tab close; incomplete copies are removed. Local file URLs
-  suppress a focus-triggered clipboard fetch, which would otherwise replace
-  the Finder selection with the old remote text before an explicit Paste.
-  Server change notifications still fetch normally, but must not replace
-  local file URLs waiting for Paste. `VNCDesktop` accepts that replacement only
-  after explicit remote Copy/Cut at the current local pasteboard revision;
-  a subsequent local copy revokes it. Guard both incoming files/text and any
-  pending text consumed on focus. Suppressing the focus-triggered fetch alone
-  does not protect against a delayed native notification after focus settles.
-  Apply that protection only when uploads are allowed: receive-only and
-  view-only sessions must still receive the remote clipboard normally.
-  File Paste always uses Command-V for the native Apple transport, even if
-  the session's general keyboard profile is Linux/Windows. The previous
-  profile-based Control-V branch was a confirmed bug (regression fails
-  before the fix). Keep the live file test on the default keyboard profile.
-  `FileCopy.done` means transport completion; `paste` separately records
-  waiting/sent/cancelled. A sent shortcut does not confirm a Finder insertion.
-  Unified-log category `VNCFiles` records stages, revision and focus only;
-  never log file paths or clipboard contents. After an upload, allow the
-  native agent's input handoff to settle (3 s),
-  repeat the last pointer position/buttons, and pace the synthetic macOS
-  Paste chord (100 ms between pointer, modifier, letter, and modifier release).
-  The combination is needed: a delay alone or SetMode did not fix Finder
-  ignoring the first paste. Cancel on lost focus, new clipboard contents,
-  or explicit remote Copy/Cut, and always release Command. Never synthesize
-  a click. The native test must verify the actual destination
-  folder and contents, not only the remote staging URLs.
-  Clipboard directions, focus, local generations and view-only mode are
-  checked on both sides of XPC.
-  `scripts/test-vnc-files-native.py` verifies both streams against temporary,
-  ad-hoc-signed copies of macOS's own file-copy helpers without changing
-  system files or enabling sharing. These helpers are never used by the app.
-  The probe covers nested folders, binary data, Unicode, empty files and
-  resource forks. Keep this native oracle alongside the socket-peer/XPC tests.
-  `VNCMacOSTests` is opt-in: set `TERMSTEAD_MACOS_VNC_HOST` (optional `_PORT`,
-  `_USER`, `_PASSWORD`, default 5900/admin/admin) and
-  `TERMSTEAD_MACOS_VNC_SSH_CONFIG` in the test scheme's environment. The SSH
-  config must have a `macos-vnc-vm` alias for the isolated guest. The test uses
-  a named pasteboard and never reads the user's clipboard. Leave it disabled
-  without an isolated VM. `VNCAppleClipboardTests` needs no external server.
-  `TestLab/macos/lab.py up --open` prepares a persistent, host-only VM under
-  **`TestLab/.state/macos`**, never `/tmp`. `lab.py down` retains its disk and
-  downloaded image. Do not delete or prune them without Pavel's instruction.
-  Pavel explicitly requested keeping the VM running while this investigation
-  is active. Do not automatically shut it down after a test run or at the
-  end of a turn; only stop it when requested or when testing is finished.
-  **Resumed on 2026-11-13:** manual host-to-Mac file and
-  folder copying still fails despite the automated tests passing. Do not
-  consider this feature fixed. Resume with the real Finder workflow and
-  `test_rdp` reproduction. Preserve the VM disk and downloaded image across
-  session exits; stop the VM without deleting its storage.
-  The follow-up fixed the wrong Paste modifier but manual GUI acceptance
-  and drag integration remain outstanding. Headless `screencapture` failed
-  and System Events timed out; do not claim the user's workflow is fixed
-  on the strength of the named-pasteboard tests alone.
-  Follow-up diagnostics can capture the guest framebuffer through VNC even
-  when host screencapture fails. Apple client message 0x20 launches SSDragHelper
-  with the packed file archive; a later pointer release makes it return a
-  destination via the drag channel. Standard RFB pointer events do not mark
-  the viewer as the drag owner (native daemon reports it cannot find the
-  viewer that started the drag). Native input uses encrypted Apple events;
-  the clear V2 diagnostic was rejected by the guest with a decryption error.
-  Diagnostic changes are isolated under `.state/macos/tool`, not shipped.
-  Auto-review rejected a diagnostic LibVNCClient build that retained the
-  test ARD session key in process. Explicit approval was requested; do not
-  retry that action or work around the rejection without a reply.
-  `TestLab/macos/test.py` runs native text and file transfers in both directions
-  with generated test-run environment settings, plus clipboard/file regressions.
-  Leave a gap between live connections so the native agent releases input and
-  clipboard ownership from the previous viewer before the next test starts.
-  See `TestLab/macos/README.md` for the pinned Tart tool and image.
-  **Native Finder Command-C is not yet integrated for downloads.** The
-  agent's ordinary clipboard RPC filters `public.file-url`; it exports only
-  text/icon flavors for a real Finder copy. Native file transfer uses its drag
-  channel separately. The live transport test injects an explicit node flavor
-  in the guest to verify contents and must not be reported as an end-to-end
-  Finder copy test. Keep this distinction until native drag reception is done.
-  **Apple clipboard archive item boundaries:** the wire repeats a flavor
-  count and its flavor records for EACH pasteboard item, until the archive
-  ends. There is no leading total item count. Multiple selected files need
-  multiple single-flavor groups; writing N repeated `public.file-url`
-  flavors under a single count N makes Finder keep only the last URL.
-  The native three-object Paste regression failed for both clipboard
-  directions before this fix and passed after it. Parse all groups on input,
-  bounded to 64 items and 64 flavors per item. Text-only single-item fixtures
-  cannot detect this mistake. The native tests must cover multiple objects.
+  Native macOS Screen Sharing synchronizes text only. File transfer uses the
+  optional SSH/SFTP access configured inside the VNC session, displayed in the
+  Files sidebar without an extra terminal tab. VNC and SSH authenticate
+  separately. The isolated macOS VM under `TestLab/.state/macos` remains
+  available for text clipboard and SFTP integration checks; preserve its disk
+  and downloaded image when stopping the VM. `VNCMacOSTests` is opt-in and
+  verifies Unicode text and focus. `VNCAppleClipboardTests` uses a socket peer
+  and needs no external server. See `TestLab/macos/README.md` for lab details.
 - Retry budgets are renewed after 30 seconds of **continuous** connection,
   measured with monotonic uptime when it ends. A long backoff must not count
   as stability. The SSH tunnel's budget follows the same rule, whichever
@@ -385,7 +301,7 @@ repository; the GPL-2.0-or-later license ships in `Resources/Licenses/`.
   A manual reconnect starts a fresh budget; an automatic retry preserves it.
 - `Session.vncOptions` is optional for old-file compatibility. Session
   archives already preserve protocol-specific fields and passwords. VNC is
-  excluded from snippets, broadcast input, SFTP and terminal Find.
+  excluded from snippets, broadcast input and terminal Find.
 - **Linux clipboard control pipes must suppress SIGPIPE per descriptor.**
   Closing the linked SSH tab used to terminate the app during a queued write;
   `try? FileHandle.write` cannot catch a signal. Set F_SETNOSIGPIPE on stdin,

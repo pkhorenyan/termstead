@@ -144,7 +144,6 @@ struct VNCLinuxFilesTests {
         }
         await wait { desktop.phase != .connecting }
         try #require(desktop.phase == .showing)
-        #expect(!desktop.supportsFiles) // no Apple file-transfer extension
         if background {
             desktop.connectLinuxFiles(plan: try plan(), title: "Linux test SSH", keychain: KeychainStore(service: "linux-background-\(UUID())"))
         } else { desktop.connectLinuxFiles(client: try fileClient ?? client(), title: "Linux test SSH") }

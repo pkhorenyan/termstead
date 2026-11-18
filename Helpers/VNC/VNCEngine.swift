@@ -12,7 +12,7 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
     private var descriptor: Int32 = -1
     private enum Input: Sendable {
         case key(UInt32, Bool), pointer(Int, Int, Int), clipboard(String), resize(Int, Int)
-        case clipboardFocus(Bool, Int, Bool), files([String], Int, Bool), cancelFiles, filesTimeout(UInt32)
+        case clipboardFocus(Bool, Int, Bool)
     }
     private var inputs: [Input] = []
     private var certificateAnswer: CertificateAnswer?
@@ -20,18 +20,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
     private let wakeWrite: Int32
     // Worker-thread state only.
     private var surface: IOSurfaceRef?
-    private var fileTransfer: VNCFileTransfer?
-    private var remoteFiles: [String] = []
-    private var publishedFiles: [String] = []
-    private var fileSession: UInt32 = 1
-    private var lastFileProgress: TimeInterval = 0
-    private var lastFileActivity: TimeInterval = 0
-    private var fileRevision = -1
-    private var focused = false
-    private var sendingFiles = false
-    private var receivingFiles = false
-    private var sessionForFiles: OpaquePointer?
-
 
     init(connection: NSXPCConnection) {
         self.connection = connection
@@ -106,15 +94,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
         enqueue(.clipboard(text))
     }
     func clipboardFocus(_ active: Bool, revision: Int, fetch: Bool) { enqueue(.clipboardFocus(active, revision, fetch)) }
-    func uploadFiles(_ urls: [String], revision: Int) {
-        guard VNCFileTransfer.fileURLs(urls) != nil else { return }
-        enqueue(.files(urls, revision, true))
-    }
-    func downloadFiles(_ urls: [String], revision: Int) {
-        guard VNCFileTransfer.fileURLs(urls) != nil else { return }
-        enqueue(.files(urls, revision, false))
-    }
-    func cancelFiles() { enqueue(.cancelFiles) }
     func resize(width: Int, height: Int) { enqueue(.resize(width, height)) }
     func disconnect() {
         lock.lock()
@@ -143,7 +122,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                 autoreleasepool {
                     guard let bytes, length >= 0, length <= 1_048_576 else { return }
                     let data = Data(bytes: bytes, count: Int(length))
-                    guard owner(context).fileTransfer?.sending != true else { return }
                     if let text = String(data: data, encoding: utf8 ? .utf8 : .isoLatin1) {
                         owner(context).client?.serverClipboard(text, revision: Int(revision))
                     }
@@ -169,17 +147,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                 autoreleasepool {
                     if let session { owner(context).flushInput(session) }
                 }
-            },
-            files: { context, urls, revision in
-                autoreleasepool {
-                    guard let urls else { return }
-                    owner(context).copiedFiles(String(cString: urls).components(separatedBy: "\n"), revision: Int(revision))
-                }
-            },
-            file_message: { context, bytes, length in
-                autoreleasepool {
-                    if let bytes { owner(context).fileMessage(Data(bytes: bytes, count: Int(length))) }
-                }
             })
         guard socket >= 0,
               let session = tsv_new(socket, host, user, password, allowNoAuth, viewOnly, clipboard,
@@ -192,7 +159,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             lock.withLock { descriptor = -1 }
             tsv_free(session)
             surface = nil
-            fileTransfer = nil; sessionForFiles = nil
         }
         tsv_set_wakeup(session, wakeRead)
         if lock.withLock({ stopped }) { return }
@@ -210,10 +176,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             if !lock.withLock({ stopped }) { client?.disconnected(reason: reason, code: code) }
             return
         }
-        sessionForFiles = session
-        sendingFiles = clipboard && !viewOnly && tsv_is_apple(session)
-        receivingFiles = receiveClipboard && tsv_is_apple(session)
-        client?.fileTransferSupport(tsv_is_apple(session))
         client?.connected()
         while !lock.withLock({ stopped }) {
             autoreleasepool { flushInput(session) }
@@ -238,8 +200,6 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
             case .pointer(let x, let y, let buttons):
                 tsv_pointer(session, Int32(x), Int32(y), Int32(buttons))
             case .clipboard(let text):
-                cancelFileTransfer(session)
-                publishedFiles = []
                 let latin = text.data(using: .isoLatin1, allowLossyConversion: true) ?? Data()
                 latin.withUnsafeBytes { bytes in
                     tsv_clipboard(session, text, Int32(text.utf8.count),
@@ -247,102 +207,9 @@ final class VNCEngine: NSObject, VNCEngineProtocol, @unchecked Sendable {
                 }
             case .resize(let width, let height): tsv_resize(session, Int32(clamping: width), Int32(clamping: height))
             case .clipboardFocus(let active, let revision, let fetch):
-                focused = active; fileRevision = revision
-                if let copy = fileTransfer, copy.revision != revision { cancelFileTransfer(session) }
                 tsv_clipboard_focus(session, active, Int64(revision), fetch)
-            case .files(let values, let revision, let sending):
-                guard (sending ? sendingFiles : receivingFiles), focused,
-                      revision == fileRevision, sending || values == remoteFiles,
-                      let urls = VNCFileTransfer.fileURLs(values) else { continue }
-                cancelFileTransfer(session)
-                do {
-                    fileSession &+= 128
-                    if sending { publishedFiles = [] }
-                    fileTransfer = try VNCFileTransfer(urls: urls, revision: revision, upload: sending, id: fileSession)
-                    lastFileProgress = 0
-                    lastFileActivity = ProcessInfo.processInfo.systemUptime
-                    scheduleFileTimeout(fileSession, after: 30)
-                } catch {
-                    client?.filesReady([], revision: revision, sending: sending, error: String(describing: error))
-                }
-            case .cancelFiles: cancelFileTransfer(session)
-            case .filesTimeout(let id):
-                if fileTransfer?.token == id {
-                    let left = 30 - (ProcessInfo.processInfo.systemUptime - lastFileActivity)
-                    if left <= 0 { failFiles("The remote Mac did not complete the file copy.") }
-                    else { scheduleFileTimeout(id, after: left) }
-                }
-
             }
         }
-        advanceFiles(session)
-    }
-
-    private func copiedFiles(_ urls: [String], revision: Int) {
-        guard receivingFiles, fileTransfer?.sending != true,
-              VNCFileTransfer.fileURLs(urls) != nil, urls != publishedFiles else { return }
-        remoteFiles = urls
-        client?.serverFiles(urls, revision: revision)
-    }
-    private func fileMessage(_ data: Data) {
-        guard let copy = fileTransfer, let session = sessionForFiles else { return }
-        do {
-            let message = try VNCFileMessage(wire: data)
-            guard message.session == copy.session else { return }
-            lastFileActivity = ProcessInfo.processInfo.systemUptime
-            try copy.accept(message)
-            if message.kind == 104 || message.kind == 200 {
-                let finished = VNCFileMessage(kind: 5, session: message.session).wire
-                finished.withUnsafeBytes {
-                    _ = tsv_file_message(session, $0.bindMemory(to: UInt8.self).baseAddress, finished.count, copy.sending)
-                }
-            }
-            if let urls = copy.ready {
-                if copy.sending {
-                    publishedFiles = urls
-                    let joined = urls.joined(separator: "\n")
-                    tsv_clipboard_files(session, joined, joined.utf8.count)
-                }
-                client?.filesReady(urls, revision: copy.revision, sending: copy.sending, error: "")
-                fileTransfer = nil
-            } else { advanceFiles(session) }
-        } catch { failFiles(String(describing: error)) }
-    }
-    private func advanceFiles(_ session: OpaquePointer) {
-        guard let copy = fileTransfer else { return }
-        do {
-            if let packet = try copy.next() {
-                let okay = packet.withUnsafeBytes {
-                    tsv_file_message(session, $0.bindMemory(to: UInt8.self).baseAddress, packet.count, copy.sending)
-                }
-                guard okay else { throw VNCFileError.changed }
-                lastFileActivity = ProcessInfo.processInfo.systemUptime
-                if !copy.waitingForUploadReply, copy.sending { lock.withLock { wake() } }
-            }
-            let now = ProcessInfo.processInfo.systemUptime
-            if now - lastFileProgress >= 0.1 {
-                lastFileProgress = now
-                client?.fileProgress(Int64(copy.copied), total: Int64(copy.total), revision: copy.revision, sending: copy.sending)
-            }
-        } catch { failFiles(String(describing: error)) }
-    }
-    private func cancelFileTransfer(_ session: OpaquePointer) {
-        if let copy = fileTransfer {
-            let packet = VNCFileMessage(kind: 5, session: copy.session).wire
-            packet.withUnsafeBytes {
-                _ = tsv_file_message(session, $0.bindMemory(to: UInt8.self).baseAddress, packet.count, copy.sending)
-            }
-        }
-        fileTransfer = nil
-    }
-    private func failFiles(_ error: String) {
-        guard let copy = fileTransfer else { return }
-        client?.filesReady([], revision: copy.revision, sending: copy.sending, error: error)
-        if let session = sessionForFiles { cancelFileTransfer(session) }
-        else { fileTransfer = nil }
-    }
-    private func scheduleFileTimeout(_ id: UInt32, after seconds: TimeInterval) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [weak self] in self?.enqueue(.filesTimeout(id)) }
     }
 
     private func verify(_ pem: String) -> Bool {

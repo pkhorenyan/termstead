@@ -20,3 +20,6 @@ Applied to the pinned LibVNCClient 0.9.15 source by `build-vnc-deps.sh`.
 - `desktop-size.patch`: preserve the advertised screen id/flags, initialize
   padding in resize requests, accept valid screen id zero, and do not resize
   the local framebuffer when the server rejects a request.
+- `write-tls-timeout.patch`: apply a deadline to the TLS handshake and to
+  writes. Wait for the socket to become readable or writable as requested by
+  OpenSSL, and close the connection if writing fails.

@@ -200,8 +200,8 @@ final class VNCLinuxFiles {
               selection.files.allSatisfy({ Self.validPath($0.path) }) else {
             throw Failure.message("The Linux clipboard contains invalid file paths.")
         }
-        let folder = URL.temporaryDirectory.appendingPathComponent("termstead-linux-\(UUID())")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        let folder = FileBrowser.clipboardDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         do {
             var urls: [URL] = []
             for (index, file) in selection.files.enumerated() {

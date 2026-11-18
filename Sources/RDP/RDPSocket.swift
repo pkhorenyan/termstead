@@ -19,10 +19,11 @@ enum RDPSocket {
 
     /// TCP to `host:port`, trying each address the name resolves to, each for
     /// up to `timeout`. Off the main thread: resolving and connecting block.
-    static func connect(host: String, port: Int, timeout: TimeInterval = 10) async throws -> FileHandle {
+    static func connect(host: String, port: Int, timeout: TimeInterval = 10,
+                        responsiveKeepalive: Bool = false) async throws -> FileHandle {
         // Up to `timeout` per address, blocked; see `BlockingWork`.
         try await BlockingWork.run {
-            try openTCP(host: host, port: port, timeout: timeout)
+            try openTCP(host: host, port: port, timeout: timeout, responsiveKeepalive: responsiveKeepalive)
         }
     }
 
@@ -53,7 +54,8 @@ enum RDPSocket {
         return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
-    private static func openTCP(host: String, port: Int, timeout: TimeInterval) throws -> FileHandle {
+    private static func openTCP(host: String, port: Int, timeout: TimeInterval,
+                                responsiveKeepalive: Bool) throws -> FileHandle {
         var hints = addrinfo()
         hints.ai_socktype = SOCK_STREAM
         hints.ai_protocol = IPPROTO_TCP
@@ -71,7 +73,7 @@ enum RDPSocket {
             let info = candidate.pointee
             do {
                 let fd = try open(family: info.ai_family, address: info.ai_addr, length: info.ai_addrlen,
-                                  timeout: timeout)
+                                  timeout: timeout, responsiveKeepalive: responsiveKeepalive)
                 return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
             } catch let failure as Failure {
                 lastFailure = failure
@@ -83,7 +85,7 @@ enum RDPSocket {
     /// A non-blocking connect, waited on with `poll`, so an address that
     /// never answers costs `timeout` rather than the system's minute or so.
     private static func open(family: Int32, address: UnsafeMutablePointer<sockaddr>?, length: socklen_t,
-                             timeout: TimeInterval) throws -> Int32 {
+                             timeout: TimeInterval, responsiveKeepalive: Bool) throws -> Int32 {
         let fd = socket(family, SOCK_STREAM, IPPROTO_TCP)
         guard fd >= 0 else { throw Failure.connect(String(cString: strerror(errno))) }
         var keep = false
@@ -105,8 +107,27 @@ enum RDPSocket {
         // Small writes — a key, a mouse move — go out at once.
         var on: Int32 = 1
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, socklen_t(MemoryLayout<Int32>.size))
-        setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, socklen_t(MemoryLayout<Int32>.size))
+        if responsiveKeepalive { try configureResponsiveKeepalive(fd) }
+        else { setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, socklen_t(MemoryLayout<Int32>.size)) }
         keep = true
         return fd
+    }
+
+    /// Direct VNC has no SSH heartbeat. Detect a silent network drop in about
+    /// a minute so its existing reconnect policy can run; RDP keeps its own
+    /// transport settings, and SSH tunnels use ServerAliveInterval instead.
+    static func configureResponsiveKeepalive(_ fd: Int32) throws {
+        var enabled: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled,
+                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw Failure.connect("could not enable TCP keepalive: \(String(cString: strerror(errno)))")
+        }
+        for (option, seconds) in [(TCP_KEEPALIVE, Int32(30)), (TCP_KEEPINTVL, 10), (TCP_KEEPCNT, 3)] {
+            var value = seconds
+            guard setsockopt(fd, IPPROTO_TCP, option, &value,
+                             socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+                throw Failure.connect("could not configure TCP keepalive: \(String(cString: strerror(errno)))")
+            }
+        }
     }
 }

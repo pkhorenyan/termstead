@@ -237,7 +237,9 @@ final class Connection: Identifiable {
             terminalView.feed(text: "\u{1b}[2mOpening a tunnel through \(route)…\u{1b}[0m\r\n")
             start(tunnel)
         } else {
-            vnc.start(launch) { try await RDPSocket.connect(host: launch.host, port: launch.port) }
+            vnc.start(launch) {
+                try await RDPSocket.connect(host: launch.host, port: launch.port, responsiveKeepalive: true)
+            }
         }
     }
 

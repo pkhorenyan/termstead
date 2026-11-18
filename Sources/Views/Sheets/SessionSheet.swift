@@ -384,7 +384,7 @@ struct SessionSheet: View {
                     SegmentedPicker(options: VNCOptions.Quality.allCases, selection: $vnc.quality,
                                     label: \.label, title: "VNC picture quality")
                 }
-                InsetNote(text: "Auto balances compression and speed. Sharp preserves all colors with stronger compression. Fast uses fewer colors and lighter compression. All profiles avoid JPEG artifacts.")
+                InsetNote(text: "Balanced uses full color and moderate compression. Sharp uses stronger compression. Fast uses fewer colors and lighter compression. All profiles avoid JPEG artifacts.")
                 FormField(label: "Scale") {
                     Picker("Scale", selection: $vnc.zoom) {
                         Text("Fit tab").tag(0)
@@ -396,7 +396,7 @@ struct SessionSheet: View {
                 }
                 checkbox("View only", isOn: $vnc.viewOnly)
                 checkbox("Share clipboard", isOn: $vnc.clipboard)
-                    .help("Share text with VNC servers; also files and folders with macOS Screen Sharing.")
+                    .help("Share text with VNC servers. Transfer files through the SFTP sidebar.")
                 if vnc.clipboard {
                     checkbox("Mac → server", isOn: $vnc.sendClipboard)
                     checkbox("Server → Mac", isOn: $vnc.receiveClipboard)

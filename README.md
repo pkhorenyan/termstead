@@ -5,8 +5,9 @@
 <h1 align="center">Termstead</h1>
 
 <p align="center">
-  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.8.2-2F6FB5" alt="Version 0.8.2"></a>
+  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.9.0-2F6FB5" alt="Version 0.9.0"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-2F6FB5?logo=apple&logoColor=white" alt="macOS 14 or later">
+  <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution"><img src="https://img.shields.io/badge/Apple-Notarized-3DA639?logo=apple&logoColor=white" alt="Notarized by Apple"></a>
   <img src="https://img.shields.io/badge/universal-Apple%20Silicon%20%2B%20Intel-2F6FB5" alt="Universal: Apple Silicon and Intel">
   <img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-3DA639" alt="License: GPL-3.0-or-later"></a>
@@ -73,22 +74,21 @@
 - **Telnet** for switches, routers and older gear, in a tab like the rest,
   through your jump hosts if need be, with logs, snippets and broadcast input
   — macOS ships no telnet of its own any more, so Termstead brings one.
-- **VNC desktops in tabs** (unreleased). Connect directly or through SSH jump
+- **VNC desktops in tabs**. Connect directly or through SSH jump
   hosts using a VNC password or Apple Remote Desktop credentials. The server's
   existing desktop fits the pane or scrolls at a chosen scale. Use View for
   100%, zoom, a full screen tab, or an explicit server resolution request
   (when supported). Option-scroll pans the local viewport; ordinary scrolling
-  reaches the remote app. macOS, Windows and Linux keyboard profiles, Auto /
+  reaches the remote app. macOS, Windows and Linux keyboard profiles, Balanced /
   Sharp / Fast picture profiles, directional clipboard, view-only mode
-  and bounded automatic reconnect are available in session settings.
+  and bounded automatic reconnect are available in session settings. The tab's
+  menu can send remote Command-Tab, Alt-Tab and other system shortcuts that
+  macOS normally keeps for itself. Direct VNC connections use shorter TCP
+  keepalive intervals to detect silent network drops and start reconnecting.
   Require TLS uses X.509 VeNCrypt with certificate and hostname verification;
-  Standard VNC needs a trusted network or SSH jump hosts. Settings and saved
-  passwords travel with session exports.
-  Native macOS Screen Sharing supports Unicode text and pasting local files
-  and folders into the remote Finder with ⌘V. Receiving ordinary Finder file
-  selections is still under development. The status bar shows progress and Cancel.
-  Symbolic links are not followed; each copy supports up to 64 selections,
-  10,000 items and 100 GB.
+  Standard VNC needs a trusted network or SSH jump hosts. VNC settings
+  can be exported, with saved passwords included in encrypted exports if selected.
+  Native macOS Screen Sharing supports Unicode text. File transfers use SFTP.
   To upload or download files on a VNC computer, enable **SSH file transfer
   (SFTP)** inside that VNC session's settings and enter its SSH host, port,
   user and key or password there. An existing saved SSH session is not required.
@@ -138,7 +138,7 @@
 
 <p align="center">
   <img src="docs/images/sftp.png" alt="The SFTP tab next to a session" width="56%">
-  <img src="docs/images/session-settings.png" alt="Session settings with a jump host" width="42%">
+  <img src="docs/images/session-settings.png" alt="VNC session settings with connection, keyboard and picture controls" width="42%">
 </p>
 
 ## Install
@@ -153,7 +153,8 @@ brew install --cask pkhorenyan/tap/termstead
 
 **Or download** the latest `Termstead.dmg` from
 [Releases](https://github.com/pkhorenyan/termstead/releases/latest), open it and
-drag Termstead to Applications.
+drag Termstead to Applications. The release is signed with Developer ID and
+notarized by Apple.
 
 Termstead keeps itself up to date: it looks for a new version once a day, and
 **Termstead ▸ Check for Updates…** does it on demand. Every update is verified
@@ -185,21 +186,14 @@ against the project's signing key before it is installed.
   TLS: it needs an X.509 VeNCrypt server. macOS verifies the certificate for
   the destination host; an untrusted or changed certificate asks in the tab.
   Approved fingerprints are saved separately from RDP. Clipboard has
-  independent send and receive controls. Text sync and file-copy initiation
-  require keyboard focus; an initiated file copy can finish in the background.
-  Native macOS Screen Sharing supports Unicode text and local file uploads;
-  receiving ordinary Finder file selections is still under development.
-  Linux X11 file clipboard uses saved SSH settings to open a background
-  connection owned by the VNC tab. Authentication appears in its pane; no
-  separate SSH tab or listening port is needed. Apple file contents use the
-  VNC connection, including through jump hosts. Completed downloads remain
-  pasteable after closing the tab. Remaining servers share text only.
+  independent send and receive controls. Text synchronization requires
+  keyboard focus and supports Unicode with macOS Screen Sharing.
   Optional SSH/SFTP file access lets a VNC tab browse and transfer files in
-  the sidebar without a remote desktop clipboard helper. SSH credentials are
+  the sidebar. SSH credentials are
   separate from VNC credentials; file copies stage locally until the app quits.
   Edit commands use Command on a remote Mac and Control
   on Windows/Linux; Termstead shortcuts stay local. Fast reduces colors;
-  Auto and Sharp preserve full color. No profile uses lossy JPEG.
+  Balanced and Sharp preserve full color. No profile uses lossy JPEG.
 - Terminal session logs are written only when you ask, to a folder you choose
   (`~/Documents/Termstead Logs` at first), readable only by you.
 - Sessions and snippets are stored in `~/Library/Application Support/Termstead/`

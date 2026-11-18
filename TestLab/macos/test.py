@@ -14,7 +14,7 @@ def run(args):
 if __name__ == '__main__':
     if not CONFIG.exists():
         raise SystemExit('Start the isolated VM with TestLab/macos/lab.py up first.')
-    suites = ['VNCMacOSTests', 'VNCAppleClipboardTests', 'VNCFileTests']
+    suites = ['VNCMacOSTests', 'VNCAppleClipboardTests']
     selection = [f'-only-testing:TermsteadTests/{suite}' for suite in suites]
     run(['xcodebuild', '-project', 'Termstead.xcodeproj', '-scheme', 'Termstead',
          '-derivedDataPath', 'build', *selection, 'build-for-testing'])

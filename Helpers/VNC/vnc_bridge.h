@@ -17,8 +17,6 @@ typedef struct {
     void (*resize_support)(void *, bool);
     /* Called only on the worker, also while a partial message waits for data. */
     void (*input)(void *, tsv_session *);
-    void (*files)(void *, const char *, int64_t);
-    void (*file_message)(void *, const uint8_t *, size_t);
 } tsv_callbacks;
 /* Owns socket, including when initialization fails. All calls run on one thread. */
 tsv_session *tsv_new(int socket, const char *host, const char *user, const char *password, bool allow_none,
@@ -34,9 +32,6 @@ void tsv_resize(tsv_session *, int width, int height);
 void tsv_clipboard(tsv_session *, const char *utf8, int utf8_length,
                    const char *latin1, int latin1_length);
 void tsv_clipboard_focus(tsv_session *, bool active, int64_t revision, bool fetch);
-bool tsv_is_apple(tsv_session *);
-bool tsv_file_message(tsv_session *, const uint8_t *, size_t, bool sending);
-void tsv_clipboard_files(tsv_session *, const char *urls, size_t length);
 const char *tsv_error(tsv_session *);
 int tsv_error_code(tsv_session *);
 void tsv_free(tsv_session *);

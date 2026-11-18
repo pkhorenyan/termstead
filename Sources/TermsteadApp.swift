@@ -80,6 +80,12 @@ struct TermsteadApp: App {
         connectionStore.active?.desktop.flatMap { $0.phase == .showing ? $0 : nil }
     }
 
+    private var activeVNC: VNCDesktop? {
+        connectionStore.active?.vnc.flatMap { $0.phase == .showing ? $0 : nil }
+    }
+
+    private var canSendRemoteKeys: Bool { activeDesktop != nil || activeVNC?.viewOnly == false }
+
     /// Next and previous tab go round the focused pane's tabs only.
     private var focusedTabCount: Int { connectionStore.tabs(in: connectionStore.focusedPane).count }
 
@@ -290,16 +296,20 @@ struct TermsteadApp: App {
             }
             Divider()
             // Keys a Mac keeps for itself, for the remote desktop in front.
+            if let desktop = activeVNC {
+                VNCSpecialKeysMenu(desktop: desktop)
+                    .disabled(desktop.viewOnly || formIsOpen)
+            }
             Button("Send Ctrl+Alt+Del") {
                 activeDesktop?.sendControlAltDelete()
-                connectionStore.active?.vnc?.sendControlAltDelete()
+                activeVNC?.sendControlAltDelete()
             }
-                .disabled((activeDesktop == nil && connectionStore.active?.vnc?.phase != .showing) || formIsOpen)
+                .disabled(!canSendRemoteKeys || formIsOpen)
             Button("Send Windows Key") {
                 activeDesktop?.sendWindowsKey()
-                connectionStore.active?.vnc?.sendWindowsKey()
+                activeVNC?.sendWindowsKey()
             }
-                .disabled((activeDesktop == nil && connectionStore.active?.vnc?.phase != .showing) || formIsOpen)
+                .disabled(!canSendRemoteKeys || formIsOpen)
             Divider()
             // ⇧⌘[ and ⇧⌘], as in Safari, Terminal and Xcode. Declared as the
             // characters those keys type, "{" and "}" with ⌘, the way Terminal

@@ -75,14 +75,10 @@ private final class AppleBoardPeer: @unchecked Sendable {
     private var local: [String] = []
     private var vendor = 0
     private var frames = 0
-    private var filePackets: [Data] = []
     private var pressedKeys: [UInt32] = []
     var receivedKeys: [UInt32] { lock.withLock { pressedKeys } }
     private var releasedKeys: [UInt32] = []
     var receivedKeyReleases: [UInt32] { lock.withLock { releasedKeys } }
-    private var fileOffers: [[String]] = []
-    var receivedFilePackets: [Data] { lock.withLock { filePackets } }
-    var receivedFileOffers: [[String]] { lock.withLock { fileOffers } }
     let socket: FileHandle
     var requests: Int { lock.withLock { fetches } }
     var received: [String] { lock.withLock { local } }
@@ -90,8 +86,7 @@ private final class AppleBoardPeer: @unchecked Sendable {
     var sentFrame: Bool { lock.withLock { frames > 0 } }
     var isClosed: Bool { writeLock.withLock { closed } }
     init(reply: [UInt8] = AppleBoardWire.text("remote initial"), apple: Bool = true,
-         holdFirstReply: Bool = false, unsolicited: Bool = false,
-         fileFixture: [Data] = [], holdFileReply: Bool = false) throws {
+         holdFirstReply: Bool = false, unsolicited: Bool = false) throws {
         self.reply = reply
         var pair: [Int32] = [0, 0]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw CocoaError(.fileReadUnknown) }
@@ -146,35 +141,11 @@ private final class AppleBoardPeer: @unchecked Sendable {
                         let h = try read(15)
                         let n = h[11..<15].reduce(0) { $0 << 8 | Int($1) }
                         let items = try AppleBoardWire.unpackLocal(h, read(n))
-                        let files = items.filter { $0.0 == "public.file-url" }.map { String(decoding: $0.1, as: UTF8.self) }
                         lock.withLock {
-                            if !files.isEmpty {
-                                fileOffers.append(files)
-                                self.reply = AppleBoardWire.packet(AppleBoardWire.archive(items))
-                            } else if let text = items.first(where: { $0.0 == "public.utf8-plain-text" }) {
+                            if let text = items.first(where: { $0.0 == "public.utf8-plain-text" }) {
                                 let value = String(decoding: text.1, as: UTF8.self)
                                 local.append(value); self.reply = AppleBoardWire.text(value)
                             }
-                        }
-                    case 0x22:
-                        let h = try read(5)
-                        let n = h[1..<5].reduce(0) { $0 << 8 | Int($1) }
-                        let packet = Data([0x22] + h + (try read(n)))
-                        let message = try VNCFileMessage(wire: packet)
-                        lock.withLock { filePackets.append(packet) }
-                        if message.kind == 1 {
-                            for data in fileFixture {
-                                var reply = try VNCFileMessage(wire: data)
-                                reply.session = message.session
-                                try send(Array(reply.wire))
-                            }
-                        } else if message.kind == 104, !holdFileReply {
-                            let packets = try lock.withLock { try filePackets.map { try VNCFileMessage(wire: $0) } }
-                            let item = packets.first { $0.session == message.session && $0.kind == 101 }!
-                            let n = Int(item.payload.be16(96))
-                            let name = item.payload.subdata(in: 100..<100 + n)
-                            try send(Array(VNCFileMessage(kind: 200, session: message.session,
-                                                         argument: UInt32(n), payload: name + Data([0])).wire))
                         }
                     case 4:
                         let h = try read(7)
@@ -209,11 +180,6 @@ private final class AppleBoardPeer: @unchecked Sendable {
         lock.withLock { reply = AppleBoardWire.text(text) }
         try send([0x14, 0, 0, 4, 0, 1, 0, 2])
     }
-    func changeFiles(_ urls: [String], type: String = "public.file-url") throws {
-        lock.withLock { reply = AppleBoardWire.packet(AppleBoardWire.archive(urls.map { (type, Array($0.utf8)) })) }
-        try send([0x14, 0, 0, 4, 0, 1, 0, 2])
-    }
-    func sendFile(_ message: VNCFileMessage) throws { try send(Array(message.wire)) }
     func releaseReply() throws {
         let rest = lock.withLock { defer { held = nil }; return held }
         if let rest { try send(rest) }
@@ -222,22 +188,6 @@ private final class AppleBoardPeer: @unchecked Sendable {
 
 @MainActor @Suite(.serialized)
 struct VNCAppleClipboardTests {
-    @Test func nativeArchiveKeepsSeparateFileItems() async throws {
-        let urls = ["file:///Users/test/first", "file:///Users/test/second%20folder"]
-        let raw = urls.flatMap { AppleBoardWire.archive([("public.file-url", Array($0.utf8))]) }
-        let peer = try AppleBoardPeer(reply: AppleBoardWire.packet(raw))
-        let engine = VNCEngineConnection(); defer { engine.close() }
-        var received: [String]?
-        engine.onConnected = { engine.clipboardFocus(true, revision: 99) }
-        engine.onServerFiles = { values, revision in
-            #expect(revision == 99)
-            received = values
-        }
-        engine.connect(launch(), socket: peer.socket)
-        await wait { received != nil || peer.isClosed }
-        #expect(received == urls)
-    }
-
     private func launch(send: Bool = true, receive: Bool = true, viewOnly: Bool = false) -> VNCLaunch {
         var session = Session(id: "apple-test", user: "", host: "fake", port: 5900, icon: .monitor, auth: .password)
         session.kind = .vnc
@@ -248,253 +198,6 @@ struct VNCAppleClipboardTests {
     private func wait(_ condition: () -> Bool) async {
         let until = Date().addingTimeInterval(6)
         while !condition(), Date() < until { try? await Task.sleep(for: .milliseconds(20)) }
-    }
-    @Test func fileUploadsUseTheAuthenticatedChannelAndPublishOnlyAfterCompletion() async throws {
-        let root = URL.temporaryDirectory.appendingPathComponent("termstead-files-xpc-\(UUID())")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let file = root.appendingPathComponent("данные.bin")
-        let data = Data((0..<170_003).map { UInt8(truncatingIfNeeded: $0) })
-        try data.write(to: file)
-        let peer = try AppleBoardPeer()
-        let engine = VNCEngineConnection(); defer { engine.close() }
-        var connected = false, ready = false
-        engine.onConnected = { connected = true; engine.clipboardFocus(true, revision: 12) }
-        engine.onFilesReady = { urls, revision, sending, error in
-            #expect(error.isEmpty && revision == 12 && sending && urls.count == 1)
-            ready = true
-        }
-        engine.connect(launch(), socket: peer.socket)
-        await wait { connected }
-        engine.uploadFiles([file], revision: 12)
-        await wait { ready }
-        try #require(ready && peer.receivedFileOffers.count == 1)
-        let packets = try peer.receivedFilePackets.map { try VNCFileMessage(wire: $0) }
-        #expect(packets.first?.kind == 2 && packets.contains { $0.kind == 104 })
-        #expect(packets.filter { $0.kind == 102 }.reduce(into: Data()) { $0.append($1.payload) } == data)
-        #expect(peer.receivedFileOffers.first?.first?.hasPrefix("file:///private/tmp/Termstead-") == true)
-    }
-    @Test(arguments: [false, true], ["public.file-url", "com.apple.finder.node"])
-    func macFilesBecomeFinderURLsAfterAllBytesArrive(_ viewOnly: Bool, _ type: String) async throws {
-        // Independently specified native sender layout: empty file and a
-        // Unicode-named binary file, inside a directory (levels 0 and 1).
-        let body = Data([0, 1, 2, 255, 13, 10, 42])
-        let fixture = try [
-            VNCFileMessage.item(session: 1, name: "folder", directory: true, level: 0, size: 0),
-            .item(session: 1, name: "empty", directory: false, level: 1, size: 0),
-            .item(session: 1, name: "данные.bin", directory: false, level: 1, size: UInt64(body.count)),
-            VNCFileMessage(kind: 102, session: 1, argument: UInt32(body.count), payload: body),
-            VNCFileMessage(kind: 104, session: 1)
-        ].map(\.wire)
-        let peer = try AppleBoardPeer(fileFixture: fixture)
-        let board = NSPasteboard(name: .init("termstead-files-\(UUID())"))
-        defer { board.releaseGlobally() }
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        desktop.pasteboard = board; desktop.hasKeyboard = { true }
-        desktop.start(launch(viewOnly: viewOnly)) { peer.socket }
-        await wait { desktop.phase == .showing }
-        let path = "/Users/test/Папка с пробелами %25"
-        let offered = type == "public.file-url" ? URL(fileURLWithPath: path).absoluteString : path
-        try peer.changeFiles([offered], type: type)
-        await wait { desktop.fileCopy?.done == true }
-        try #require(desktop.fileCopy?.done == true && desktop.fileCopy?.error == nil)
-        let files = try #require(board.readObjects(forClasses: [NSURL.self]) as? [URL])
-        let folder = try #require(files.first)
-        defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent().deletingLastPathComponent()) }
-        #expect(try Data(contentsOf: folder.appendingPathComponent("данные.bin")) == body)
-        #expect(try Data(contentsOf: folder.appendingPathComponent("empty")).isEmpty)
-        let count = peer.receivedFilePackets.count
-        try await Task.sleep(for: .milliseconds(800))
-        #expect(peer.receivedFilePackets.count == count, "file clipboard echoes must not download again")
-        let request = try #require(peer.receivedFilePackets.first.map { try VNCFileMessage(wire: $0) })
-        #expect(request.kind == 1)
-        #expect(String(decoding: request.payload.dropFirst(6), as: UTF8.self) == path)
-    }
-    @Test func localFinderFilesWaitForExplicitPasteAndSurviveFocusingTheDesktop() async throws {
-        let root = URL.temporaryDirectory.appendingPathComponent("termstead-files-paste-\(UUID())")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let file = root.appendingPathComponent("file.txt")
-        try Data("file contents".utf8).write(to: file)
-        let peer = try AppleBoardPeer()
-        let board = NSPasteboard(name: .init("termstead-file-paste-\(UUID())")); defer { board.releaseGlobally() }
-        board.writeObjects([file as NSURL])
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        desktop.pasteboard = board; desktop.hasKeyboard = { true }
-        desktop.start(launch()) { peer.socket }
-        await wait { desktop.phase == .showing }
-        try await Task.sleep(for: .milliseconds(650))
-        #expect(peer.receivedFilePackets.isEmpty && peer.requests == 0)
-        #expect((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [file])
-        desktop.view.paste(nil)
-        await wait { desktop.fileCopy?.done == true && peer.receivedKeys.contains(0x76) }
-        #expect(desktop.fileCopy?.done == true && desktop.fileCopy?.error == nil)
-        #expect(peer.receivedFileOffers.count == 1 && peer.receivedKeys.contains(0x76))
-        #expect(peer.receivedKeys.contains(0xffeb), "Native Mac file paste must use Command even with the default Linux keyboard profile")
-        #expect(!peer.receivedKeys.contains(0xffe3))
-        #expect(desktop.fileCopy?.paste == .sent)
-    }
-    @Test(arguments: [false, true])
-    func remoteNotificationsDoNotReplaceLocalFinderFilesBeforePaste(_ fileOffer: Bool) async throws {
-        let root = URL.temporaryDirectory.appendingPathComponent("termstead-focus-files-\(UUID())")
-        let folder = root.appendingPathComponent("test_rdp")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Data("new local folder".utf8).write(to: folder.appendingPathComponent("proof.txt"))
-        let peer = try AppleBoardPeer()
-        let board = NSPasteboard(name: .init("termstead-focus-files-\(UUID())"))
-        defer { board.releaseGlobally() }
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        var focused = true
-        desktop.pasteboard = board; desktop.hasKeyboard = { focused }
-        desktop.start(launch()) { peer.socket }
-        await wait { board.string(forType: .string) == "remote initial" }
-        focused = false; desktop.keyboardLeft()
-        board.clearContents(); board.writeObjects([folder as NSURL])
-        focused = true; desktop.keyboardArrived()
-        try await Task.sleep(for: .milliseconds(300))
-        // A late native pasteboard notification may fetch the old remote
-        // selection after the newly copied local folder gained focus.
-        if fileOffer { try peer.changeFiles(["file:///Users/test/old-folder"]) }
-        else { try peer.change("Termstead Files") }
-        try await Task.sleep(for: .milliseconds(200))
-        #expect((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [folder])
-        desktop.edit(0x76)
-        await wait { desktop.fileCopy?.done == true && peer.receivedKeys.contains(0x76) }
-        try #require(desktop.fileCopy?.done == true)
-        let remote = try #require(peer.receivedFileOffers.last?.first.flatMap(URL.init(string:)))
-        #expect(remote.lastPathComponent == "test_rdp")
-        // Intentionally copying on the remote desktop must still work while
-        // the local clipboard contains the files that were just uploaded.
-        desktop.edit(0x63)
-        try peer.change("intentional remote copy")
-        await wait { board.string(forType: .string) == "intentional remote copy" }
-        #expect(board.string(forType: .string) == "intentional remote copy")
-        desktop.edit(0x63)
-        board.clearContents(); board.writeObjects([folder as NSURL])
-        desktop.offerClipboard()
-        try await Task.sleep(for: .milliseconds(300))
-        try peer.change("late reply to the previous remote copy")
-        try await Task.sleep(for: .milliseconds(200))
-        #expect((board.readObjects(forClasses: [NSURL.self]) as? [URL]) == [folder])
-    }
-    @Test(arguments: [false, true])
-    func localFilesDoNotBlockReceiveOnlyOrViewOnlyClipboard(_ viewOnly: Bool) async throws {
-        let peer = try AppleBoardPeer()
-        let folder = URL.temporaryDirectory.appendingPathComponent("termstead-receive-files-\(UUID())")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let board = NSPasteboard(name: .init("termstead-receive-files-\(UUID())"))
-        defer { board.releaseGlobally() }
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        desktop.pasteboard = board; desktop.hasKeyboard = { true }
-        desktop.start(launch(send: viewOnly, viewOnly: viewOnly)) { peer.socket }
-        await wait { board.string(forType: .string) == "remote initial" }
-        desktop.keyboardLeft()
-        board.clearContents(); board.writeObjects([folder as NSURL])
-        desktop.keyboardArrived()
-        try await Task.sleep(for: .milliseconds(300))
-        try peer.change("remote incoming")
-        await wait { board.string(forType: .string) == "remote incoming" }
-        #expect(board.string(forType: .string) == "remote incoming")
-        #expect(peer.received.isEmpty && peer.receivedFilePackets.isEmpty)
-    }
-    @Test(arguments: [false, true])
-    func delayedMacPasteCancelsAndReleasesCommand(_ loseFocus: Bool) async throws {
-        let folder = URL.temporaryDirectory.appendingPathComponent("termstead-cancel-paste-\(UUID())")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let peer = try AppleBoardPeer()
-        let board = NSPasteboard(name: .init("termstead-cancel-paste-\(UUID())"))
-        defer { board.releaseGlobally() }
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        var focused = true
-        desktop.pasteboard = board; desktop.hasKeyboard = { focused }
-        var options = launch(); options.options.keyboard = .macOS
-        desktop.start(options) { peer.socket }
-        await wait { board.string(forType: .string) == "remote initial" }
-        board.clearContents(); board.writeObjects([folder as NSURL])
-        desktop.edit(0x76)
-        await wait { peer.receivedKeys.contains(0xffeb) }
-        try #require(peer.receivedKeys.contains(0xffeb))
-        if loseFocus { focused = false; desktop.keyboardLeft() }
-        else { board.clearContents(); board.setString("new local copy", forType: .string) }
-        await wait { peer.receivedKeyReleases.contains(0xffeb) }
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(peer.receivedKeyReleases.contains(0xffeb))
-        #expect(!peer.receivedKeys.contains(0x76), "A stale or unfocused upload must not paste")
-        #expect(desktop.fileCopy?.paste == .cancelled)
-    }
-    @Test func cancelledUploadDoesNotPublishOrPasteAndTextClipboardRecovers() async throws {
-        let root = URL.temporaryDirectory.appendingPathComponent("termstead-files-cancel-\(UUID())")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let file = root.appendingPathComponent("file.txt")
-        try Data("file contents".utf8).write(to: file)
-        let peer = try AppleBoardPeer(holdFileReply: true)
-        let board = NSPasteboard(name: .init("termstead-file-cancel-\(UUID())")); defer { board.releaseGlobally() }
-        board.writeObjects([file as NSURL])
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        desktop.pasteboard = board; desktop.hasKeyboard = { true }
-        desktop.start(launch()) { peer.socket }
-        await wait { desktop.phase == .showing }
-        desktop.edit(0x76)
-        await wait { peer.receivedFilePackets.contains { (try? VNCFileMessage(wire: $0).kind) == 104 } }
-        #expect(peer.receivedFileOffers.isEmpty && peer.receivedKeys.isEmpty)
-        desktop.dismissFileCopy()
-        await wait { peer.receivedFilePackets.contains { (try? VNCFileMessage(wire: $0).kind) == 5 } }
-        #expect(peer.receivedFileOffers.isEmpty && peer.receivedKeys.isEmpty)
-        board.clearContents(); board.setString("new text after cancel", forType: .string)
-        desktop.offerClipboard()
-        await wait { peer.received.contains("new text after cancel") }
-        #expect(peer.received.contains("new text after cancel"))
-    }
-    @Test(arguments: [0, 1, 2])
-    func fileDirectionsAndViewOnlyAreEnforcedInTheEngine(_ mode: Int) async throws {
-        let file = URL.temporaryDirectory.appendingPathComponent("termstead-direction-\(UUID())")
-        try Data([1]).write(to: file); defer { try? FileManager.default.removeItem(at: file) }
-        let peer = try AppleBoardPeer()
-        let engine = VNCEngineConnection(); defer { engine.close() }
-        var connected = false
-        engine.onConnected = { connected = true; engine.clipboardFocus(true, revision: 1) }
-        engine.connect(launch(send: mode != 0, receive: mode != 2, viewOnly: mode == 1), socket: peer.socket)
-        await wait { connected }
-        if mode == 2 { engine.downloadFiles(["file:///Users/test/file"], revision: 1) }
-        else { engine.uploadFiles([file], revision: 1) }
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(peer.receivedFilePackets.isEmpty && peer.receivedFileOffers.isEmpty)
-    }
-    @Test func incomingFilesClearTheOldClipboardAndCannotOverwriteANewerCopy() async throws {
-        let fixture = try [VNCFileMessage.item(session: 1, name: "late.bin", directory: false, level: 0, size: 3)].map(\.wire)
-        let peer = try AppleBoardPeer(fileFixture: fixture)
-        let board = NSPasteboard(name: .init("termstead-file-stale-\(UUID())")); defer { board.releaseGlobally() }
-        board.setString("old local clipboard", forType: .string)
-        let desktop = VNCDesktop(); defer { desktop.stop() }
-        desktop.pasteboard = board; desktop.hasKeyboard = { true }
-        desktop.start(launch()) { peer.socket }
-        await wait { desktop.phase == .showing }
-        try peer.changeFiles(["file:///Users/test/late.bin"])
-        await wait { !peer.receivedFilePackets.isEmpty }
-        try #require(!peer.receivedFilePackets.isEmpty && desktop.fileCopy?.done == false)
-        #expect(board.string(forType: .string) == nil, "the old clipboard must not be pasted while files download")
-        let id = try VNCFileMessage(wire: #require(peer.receivedFilePackets.first)).session
-        board.clearContents(); board.setString("newer local clipboard", forType: .string)
-        desktop.offerClipboard()
-        await wait { peer.received.contains("newer local clipboard") }
-        try peer.sendFile(VNCFileMessage(kind: 102, session: id, argument: 3, payload: Data([1, 2, 3])))
-        try peer.sendFile(VNCFileMessage(kind: 104, session: id))
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(board.string(forType: .string) == "newer local clipboard" && desktop.fileCopy == nil)
-    }
-    @Test func oversizedFileMessageIsRejectedWithoutWaitingForItsPayload() async throws {
-        let peer = try AppleBoardPeer(reply: [0x22, 0, 0, 2, 0, 1])
-        let engine = VNCEngineConnection(); defer { engine.close() }
-        var ended = false
-        engine.onConnected = { engine.clipboardFocus(true, revision: 1) }
-        engine.onDisconnected = { _, _ in ended = true }
-        engine.connect(launch(), socket: peer.socket)
-        await wait { ended }
-        #expect(ended)
     }
     @Test func unicodeTransfersBothWaysOnNotificationsWithoutPolling() async throws {
         let peer = try AppleBoardPeer()
@@ -578,6 +281,29 @@ struct VNCAppleClipboardTests {
         try await Task.sleep(for: .milliseconds(600))
         #expect(peer.requests == requests, "echoes must settle instead of producing a clipboard loop")
     }
+    @Test func remoteTextCopyReplacesLocalFinderFilesWithoutFetchingOnFocus() async throws {
+        let file = URL.temporaryDirectory.appendingPathComponent("vnc-local-copy-\(UUID())")
+        try Data("local file".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let board = NSPasteboard(name: .init("termstead-apple-files-\(UUID())"))
+        defer { board.releaseGlobally() }
+        #expect(board.writeObjects([file as NSURL]))
+
+        let peer = try AppleBoardPeer()
+        let desktop = VNCDesktop(); defer { desktop.stop() }
+        desktop.pasteboard = board
+        desktop.hasKeyboard = { true }
+        desktop.start(launch()) { peer.socket }
+        await wait { desktop.phase == .showing && peer.vendorMessages > 0 }
+        try #require(desktop.phase == .showing)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(peer.requests == 0, "focusing VNC must preserve the Finder selection")
+
+        let copied = "copied on the remote Mac with the mouse"
+        try peer.change(copied)
+        await wait { board.string(forType: .string) == copied }
+        #expect(board.string(forType: .string) == copied)
+    }
     @Test func utf8IsPreferredToLegacyFlavors() async throws {
         let wire = AppleBoardWire.packet(AppleBoardWire.archive([
             ("com.apple.traditional-mac-plain-text", Array("legacy".utf8)),
@@ -616,7 +342,7 @@ struct VNCAppleClipboardTests {
         else { try await Task.sleep(for: .milliseconds(100)) }
         #expect(text == expected && !ended)
     }
-    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8])
+    @Test(arguments: [0, 1, 2, 3, 4, 5])
     func malformedArchivesAreRejected(_ variant: Int) async throws {
         let packet: [UInt8]
         switch variant {
@@ -625,9 +351,6 @@ struct VNCAppleClipboardTests {
         case 2: packet = AppleBoardWire.packet(AppleBoardWire.u32(65))
         case 3: packet = AppleBoardWire.packet(AppleBoardWire.u32(1) + AppleBoardWire.u32(9999))
         case 4: packet = AppleBoardWire.packet([UInt8](repeating: 0, count: 1_048_576), expanded: 0)
-        case 6, 7, 8:
-            let path = variant == 6 ? "relative/file" : variant == 7 ? "/tmp/a\0b" : "/tmp/a\nb"
-            packet = AppleBoardWire.packet(AppleBoardWire.archive([("com.apple.finder.node", Array(path.utf8))]))
         default:
             var truncated = Array(AppleBoardWire.text("truncated").dropLast(2))
             truncated.replaceSubrange(12..<16, with: AppleBoardWire.u32(truncated.count - 16))

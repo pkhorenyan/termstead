@@ -5,9 +5,11 @@ connection. This works with macOS and Linux hosts that offer SSH access; no
 helper is installed on the remote desktop. VNC still carries the screen and
 text clipboard.
 
-1. Enable SSH/SFTP on the VNC computer and save an SSH session in Termstead.
-2. In the VNC session settings, choose that SSH session under **File access**.
-   The VNC and SSH passwords or keys are independent.
+1. Enable SSH/SFTP on the VNC computer.
+2. In the VNC session settings, enable **SSH file transfer (SFTP)** and enter
+   its SSH host, user and key or password. These settings live in the VNC
+   session; no separate SSH session is needed. VNC and SSH credentials are
+   independent.
 3. Open the VNC tab and select **SFTP** in the sidebar. The SSH file connection
    opens in the background without an extra terminal tab.
 4. Copy files in Finder, select the destination folder in the sidebar, then
@@ -16,19 +18,20 @@ text clipboard.
    its download to finish, then paste into Finder. Drag and drop and
    Upload/Download are also available.
 
-The saved SSH settings supply authentication, host-key checks and jump hosts.
+The VNC session's SSH settings supply authentication and host-key checks;
+its jump hosts are reused for file access.
 The background connection ends with the VNC tab. SSH login questions appear
 inside its terminal pane. File transfer depends on SSH/SFTP availability and
 does not use the VNC desktop's own file-manager clipboard.
 
-The earlier experimental X11 clipboard bridge remains in the test harness
-below, but is no longer the app's default file transfer path.
+The optional Linux X11 file clipboard bridge remains available for desktop
+file-manager Copy/Paste. It uses SSH/SFTP separately from the Files sidebar.
 
 ## Docker verification
 
 Run `TestLab/lab.sh up`. The VNC desktop is `lab:lab` at `127.0.0.1:5901`;
 its SSH endpoint is `lab@127.0.0.1:2203`, also reachable as `vnc:22` through
-`lab-bastion`. The sample session is **lab-vnc-ssh**.
+`lab-bastion`. The sample VNC session includes its SSH file settings.
 
 ```sh
 python3 -B TestLab/vnc/test_clipboard.py

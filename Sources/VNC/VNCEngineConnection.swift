@@ -6,10 +6,6 @@ final class VNCEngineConnection {
     var onSurface: ((IOSurface, Int, Int) -> Void)?
     var onChange: (() -> Void)?
     var onClipboard: ((String, Int) -> Void)?
-    var onFileSupport: ((Bool) -> Void)?
-    var onServerFiles: (([String], Int) -> Void)?
-    var onFileProgress: ((Int64, Int64, Int, Bool) -> Void)?
-    var onFilesReady: (([String], Int, Bool, String) -> Void)?
     var onCursor: ((Data, Int, Int, Int, Int) -> Void)?
     var onConnected: (() -> Void)?
     var onResizeSupport: ((Bool) -> Void)?
@@ -47,9 +43,6 @@ final class VNCEngineConnection {
     func pointer(x: Int, y: Int, buttons: Int) { engine?.pointer(x: x, y: y, buttons: buttons) }
     func clipboard(_ text: String) { engine?.clipboard(text) }
     func clipboardFocus(_ active: Bool, revision: Int, fetch: Bool = true) { engine?.clipboardFocus(active, revision: revision, fetch: fetch) }
-    func uploadFiles(_ urls: [URL], revision: Int) { engine?.uploadFiles(urls.map(\.absoluteString), revision: revision) }
-    func downloadFiles(_ urls: [String], revision: Int) { engine?.downloadFiles(urls, revision: revision) }
-    func cancelFiles() { engine?.cancelFiles() }
     func resize(width: Int, height: Int) { engine?.resize(width: width, height: height) }
     func close() {
         guard !ended else { return }
@@ -77,14 +70,6 @@ final class VNCEngineConnection {
         }
         func surfaceChanged() { onMain { $0.onChange?() } }
         func serverClipboard(_ text: String, revision: Int) { onMain { $0.onClipboard?(text, revision) } }
-        func fileTransferSupport(_ supported: Bool) { onMain { $0.onFileSupport?(supported) } }
-        func serverFiles(_ urls: [String], revision: Int) { onMain { $0.onServerFiles?(urls, revision) } }
-        func fileProgress(_ copied: Int64, total: Int64, revision: Int, sending: Bool) {
-            onMain { $0.onFileProgress?(copied, total, revision, sending) }
-        }
-        func filesReady(_ urls: [String], revision: Int, sending: Bool, error: String) {
-            onMain { $0.onFilesReady?(urls, revision, sending, error) }
-        }
         func cursorShape(_ rgba: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
             guard width >= 0, height >= 0, width <= 1024, height <= 1024,
                   rgba.count == width * height * 4 else { return }

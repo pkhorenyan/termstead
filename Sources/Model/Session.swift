@@ -176,7 +176,7 @@ struct VNCOptions: Hashable, Codable, Sendable {
     enum Quality: String, Codable, CaseIterable, Identifiable, Sendable {
         case automatic, sharp, fast
         var id: String { rawValue }
-        var label: String { switch self { case .automatic: "Auto"; case .sharp: "Sharp"; case .fast: "Fast" } }
+        var label: String { switch self { case .automatic: "Balanced"; case .sharp: "Sharp"; case .fast: "Fast" } }
     }
     enum Security: String, Codable, CaseIterable, Identifiable, Sendable {
         case standard, tls

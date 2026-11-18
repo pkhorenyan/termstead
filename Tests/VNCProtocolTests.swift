@@ -338,6 +338,43 @@ struct VNCProtocolTests {
         let modifier: UInt32 = keyboard == .macOS ? 0xffeb : 0xffe3
         #expect(peer.receivedKeys == [modifier, 0x63, 0x63, modifier])
     }
+    @Test(arguments: VNCOptions.Keyboard.allCases)
+    func systemShortcutsReachTheRemoteDesktop(_ keyboard: VNCOptions.Keyboard) async throws {
+        let peer = try VNCFakeServer(.rawFrame)
+        let desktop = VNCDesktop()
+        defer { desktop.stop() }
+        var settings = launch(allowNone: true)
+        settings.options.keyboard = keyboard
+        desktop.start(settings) { peer.socket }
+        await wait { desktop.phase == .showing }
+        try #require(desktop.phase == .showing)
+        let expected = desktop.shortcuts.flatMap { shortcut in
+            shortcut.symbols + Array(shortcut.symbols.reversed())
+        }
+        for shortcut in desktop.shortcuts { desktop.sendShortcut(shortcut) }
+        await wait { peer.receivedKeys.count >= expected.count }
+        #expect(peer.receivedKeys == expected)
+    }
+    @Test(arguments: [AF_INET, AF_INET6])
+    func responsiveKeepaliveConfiguresDirectTCPSocket(_ family: Int32) throws {
+        let fd = socket(family, SOCK_STREAM, IPPROTO_TCP)
+        try #require(fd >= 0)
+        defer { Darwin.close(fd) }
+        try RDPSocket.configureResponsiveKeepalive(fd)
+        let options: [(Int32, Int32, Int32)] = [
+            (SOL_SOCKET, SO_KEEPALIVE, 1),
+            (IPPROTO_TCP, TCP_KEEPALIVE, 30),
+            (IPPROTO_TCP, TCP_KEEPINTVL, 10),
+            (IPPROTO_TCP, TCP_KEEPCNT, 3)
+        ]
+        for (level, option, expected) in options {
+            var actual: Int32 = 0
+            var size = socklen_t(MemoryLayout<Int32>.size)
+            #expect(getsockopt(fd, level, option, &actual, &size) == 0)
+            if level == SOL_SOCKET { #expect(actual != 0) }
+            else { #expect(actual == expected) }
+        }
+    }
     @Test func requireTLSNeverDowngradesToClassicOrAnonymousVNC() async throws {
         let peer = try VNCFakeServer(.rawFrame)
         let engine = VNCEngineConnection()

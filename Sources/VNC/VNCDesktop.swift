@@ -44,7 +44,6 @@ final class VNCDesktop {
         var paste: Paste?
     }
     private(set) var fileCopy: FileCopy?
-    private(set) var supportsFiles = false
     private(set) var linuxFileConnection: String?
     private(set) var linuxFilesReady = false
     private(set) var filesSSH: Connection?
@@ -58,15 +57,10 @@ final class VNCDesktop {
     @ObservationIgnored private var linuxPublishedRevision: Int?
     @ObservationIgnored private var linuxSynchronizedRevision: Int?
     @ObservationIgnored private var linuxContextReady: ((Bool) -> Void)?
-    @ObservationIgnored private var pendingFilePaste: Int?
-    @ObservationIgnored private var lastPointer: (x: Int, y: Int, buttons: Int)?
-    @ObservationIgnored private var filePasteTask: Task<Void, Never>?
-    @ObservationIgnored private var filePasteModifier: UInt32?
     @ObservationIgnored private let fileLogger = Logger(subsystem: "com.pavelkhorenyan.Termstead", category: "VNCFiles")
     private func traceFiles(_ event: String) {
         fileLogger.info("\(event, privacy: .public) attempt=\(self.attempt) revision=\(self.pasteboard.changeCount) focused=\(self.hasKeyboard())")
     }
-    @ObservationIgnored private var receivedFileURLs: [String] = []
     private(set) var supportsResize = false
     private(set) var resizeMessage: String?
     var asksScale = false
@@ -141,14 +135,12 @@ final class VNCDesktop {
     }
     func stop(keepLinuxFilesConfiguration: Bool = false) {
         disconnectLinuxFiles(keepConfiguration: keepLinuxFilesConfiguration)
-        cancelFilePaste()
         attempt += 1
         reconnectTask?.cancel(); reconnectTask = nil
         resizeTask?.cancel(); resizeTask = nil
         retryMessage = nil; supportsResize = false; resizeMessage = nil
         asksScale = false
-        fileCopy = nil; supportsFiles = false; pendingFilePaste = nil
-        receivedFileURLs = []
+        fileCopy = nil
         connectedAt = nil
         let answer = certificateAnswer
         certificateAnswer = nil; certificateQuestion = nil
@@ -160,7 +152,6 @@ final class VNCDesktop {
         openSocket = nil
         pendingClipboard = nil
         remoteCopyRevision = nil
-        lastPointer = nil
         view.releaseInput()
         view.show(nil)
         size = nil
@@ -188,15 +179,13 @@ final class VNCDesktop {
     private func connect() {
         guard let launch = lastLaunch, let open = openSocket else { return }
         disconnectLinuxFiles(keepConfiguration: true)
-        cancelFilePaste()
         attempt += 1
         let current = attempt
         phase = .connecting
         retryMessage = nil
-        fileCopy = nil; supportsFiles = false; pendingFilePaste = nil
+        fileCopy = nil
         pendingClipboard = nil
         remoteCopyRevision = nil
-        lastPointer = nil
         clipboardFocusState = nil
         engine?.close(); engine = nil
         log?("Connecting to \(launch.host):\(launch.port) over VNC…")
@@ -220,50 +209,6 @@ final class VNCDesktop {
                 made.onChange = { [weak self] in
                     guard let self, current == attempt else { return }
                     view.surfaceChanged()
-                }
-                made.onFileSupport = { [weak self] supported in
-                    guard let self, current == attempt else { return }
-                    supportsFiles = supported
-                }
-                made.onServerFiles = { [weak self] urls, revision in
-                    guard let self, current == attempt, hasKeyboard(), pasteboard.changeCount == revision,
-                          !localFilesAwaitPaste,
-                          launch.options.clipboard, launch.options.receiveClipboard,
-                          fileCopy?.sending != true || fileCopy?.done == true || fileCopy?.error != nil else { return }
-                    if receivedFileURLs == urls, fileCopy?.done == false, fileCopy?.error == nil { return }
-                    receivedFileURLs = urls
-                    // Do not let a quick Finder paste insert the previous
-                    // clipboard while the newly copied files are downloading.
-                    pendingClipboard = nil
-                    pasteboard.clearContents()
-                    seenChange = pasteboard.changeCount
-                    fileCopy = FileCopy(revision: seenChange, sending: false)
-                    clipboardFocusState = (true, seenChange)
-                    engine?.clipboardFocus(true, revision: seenChange, fetch: false)
-                    engine?.downloadFiles(urls, revision: seenChange)
-                }
-                made.onFileProgress = { [weak self] copied, total, revision, sending in
-                    guard let self, current == attempt, fileCopy?.revision == revision, fileCopy?.sending == sending else { return }
-                    fileCopy?.copied = copied; fileCopy?.total = total
-                }
-                made.onFilesReady = { [weak self] urls, revision, sending, error in
-                    guard let self, current == attempt, fileCopy?.revision == revision, fileCopy?.sending == sending else { return }
-                    guard pasteboard.changeCount == revision else { dismissFileCopy(); return }
-                    traceFiles(error.isEmpty ? "transport-complete" : "transport-failed")
-                    if !error.isEmpty { fileCopy?.error = error; pendingFilePaste = nil; return }
-                    fileCopy?.done = true
-                    if sending {
-                        if pendingFilePaste == revision, hasKeyboard() {
-                            pendingFilePaste = nil
-                            pasteUploadedFiles(revision: revision)
-                        }
-                    } else {
-                        let local = urls.compactMap(URL.init(string:))
-                        guard local.count == urls.count, local.allSatisfy(\.isFileURL) else { return }
-                        pasteboard.clearContents()
-                        pasteboard.writeObjects(local as [NSURL])
-                        seenChange = pasteboard.changeCount
-                    }
                 }
                 made.onCursor = { [weak self] rgba, width, height, hotX, hotY in
                     guard let self, current == attempt else { return }
@@ -315,7 +260,6 @@ final class VNCDesktop {
                     answer?(false)
                     engine = nil
                     if fileCopy?.done == false { fileCopy?.error = "The connection closed before the files were copied." }
-                    pendingFilePaste = nil; supportsFiles = false
                     supportsResize = false
                     view.show(nil)
                     if code == 2 || code == 3 {
@@ -398,20 +342,48 @@ final class VNCDesktop {
     }
     func pointer(x: Int, y: Int, buttons: Int) {
         guard phase == .showing, !viewOnly else { return }
-        lastPointer = (x, y, buttons)
         engine?.pointer(x: x, y: y, buttons: buttons)
     }
     func press(_ symbols: [UInt32]) {
         symbols.forEach { send($0, down: true) }
         symbols.reversed().forEach { send($0, down: false) }
     }
+    enum Shortcut: String, Identifiable {
+        case commandTab, commandSpace, altTab, windowsR, windowsE
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .commandTab: "Command-Tab"
+            case .commandSpace: "Command-Space"
+            case .altTab: "Alt-Tab"
+            case .windowsR: "Windows-R"
+            case .windowsE: "Windows-E"
+            }
+        }
+        var symbols: [UInt32] {
+            switch self {
+            case .commandTab: [0xffeb, 0xff09]
+            case .commandSpace: [0xffeb, 0x20]
+            case .altTab: [0xffe9, 0xff09]
+            case .windowsR: [0xffeb, 0x72]
+            case .windowsE: [0xffeb, 0x65]
+            }
+        }
+    }
+    var shortcuts: [Shortcut] {
+        switch keyboard {
+        case .macOS: [.commandTab, .commandSpace]
+        case .windows: [.altTab, .windowsR, .windowsE]
+        case .linux: [.altTab]
+        }
+    }
+    func sendShortcut(_ shortcut: Shortcut) { press(shortcut.symbols) }
     func sendControlAltDelete() { press([0xffe3, 0xffe9, 0xffff]) }
     func sendWindowsKey() { press([0xffeb]) }
     var keyboard: VNCOptions.Keyboard { lastLaunch?.options.keyboard ?? .linux }
     func edit(_ letter: UInt32) {
         if letter == 0x76 { traceFiles("paste-requested") }
         if letter == 0x63 || letter == 0x78 {
-            cancelFilePaste(); pendingFilePaste = nil
             if linuxFiles != nil {
                 if linuxTransfer != nil { dismissFileCopy() }
                 beginLinuxCapture()
@@ -428,53 +400,7 @@ final class VNCDesktop {
         finishLinuxContext(false)
         linuxTransferID += 1
         linuxTransfer?.cancel(); linuxTransfer = nil
-        cancelFilePaste()
-        engine?.cancelFiles(); fileCopy = nil; pendingFilePaste = nil
-    }
-    private func cancelFilePaste() {
-        if fileCopy?.paste == .waiting {
-            fileCopy?.paste = .cancelled
-            traceFiles("paste-cancelled")
-        }
-        filePasteTask?.cancel(); filePasteTask = nil
-        if let modifier = filePasteModifier { send(modifier, down: false) }
-        filePasteModifier = nil
-    }
-    private func pasteUploadedFiles(revision: Int) {
-        // File transport is currently native Apple only. Its destination is
-        // always Finder, regardless of the user's general keyboard profile.
-        cancelFilePaste()
-        fileCopy?.paste = .waiting
-        traceFiles("paste-scheduled")
-        let current = attempt
-        filePasteTask = Task { [weak self] in
-            // Allow the native agent's input/clipboard handoff to settle,
-            // then refresh pointer state and pace the shortcut.
-            // No synthetic mouse click is needed.
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
-            guard let self, !Task.isCancelled, current == attempt else { return }
-            guard hasKeyboard(), pasteboard.changeCount == revision,
-                  phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
-            if let pointer = lastPointer {
-                engine?.pointer(x: pointer.x, y: pointer.y, buttons: pointer.buttons)
-            }
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard !Task.isCancelled, current == attempt else { return }
-            guard hasKeyboard(), pasteboard.changeCount == revision,
-                  phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
-            filePasteModifier = 0xffeb
-            send(0xffeb, down: true)
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard !Task.isCancelled, current == attempt else { return }
-            guard hasKeyboard(), pasteboard.changeCount == revision,
-                  phase == .showing, fileCopy?.revision == revision else { cancelFilePaste(); return }
-            send(0x76, down: true); send(0x76, down: false)
-            fileCopy?.paste = .sent
-            traceFiles("paste-chord-sent")
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard !Task.isCancelled, current == attempt else { return }
-            cancelFilePaste()
-        }
+        fileCopy = nil
     }
     func redo() {
         if keyboard == .macOS { press([0xffeb, 0xffe1, 0x7a]) }
@@ -502,7 +428,6 @@ final class VNCDesktop {
     func keyboardLeft() {
         updateLinuxFocus()
         if fileCopy != nil { traceFiles("focus-lost") }
-        cancelFilePaste()
         view.releaseInput()
         if let launch = lastLaunch, launch.options.clipboard {
             let revision = pasteboard.changeCount
@@ -538,8 +463,8 @@ final class VNCDesktop {
         updateClipboardFocus()
     }
     private var localFilesAwaitPaste: Bool {
-        lastLaunch?.options.sendClipboard == true && !viewOnly &&
-        (linuxFiles == nil || linuxSynchronizedRevision != pasteboard.changeCount) &&
+        linuxFiles != nil && lastLaunch?.options.sendClipboard == true && !viewOnly &&
+        linuxSynchronizedRevision != pasteboard.changeCount &&
         remoteCopyRevision != pasteboard.changeCount &&
         pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
@@ -559,19 +484,8 @@ final class VNCDesktop {
                 uploadLinuxFiles(urls, using: linuxFiles, revision: seenChange)
                 return true
             }
-            guard supportsFiles else {
-                traceFiles("upload-unsupported")
-                fileCopy = FileCopy(revision: seenChange, sending: true,
-                    error: "This VNC server does not provide file clipboard transfer. For a Linux X11 desktop, set SSH access for its desktop user in the VNC session settings. The file clipboard then connects in the background.")
-                return true
-            }
-            if fileCopy?.revision != seenChange || fileCopy?.sending != true || fileCopy?.done != false || fileCopy?.error != nil {
-                traceFiles("upload-requested")
-                fileCopy = FileCopy(revision: seenChange, sending: true)
-                engine?.clipboardFocus(true, revision: seenChange, fetch: false)
-                engine?.uploadFiles(urls, revision: seenChange)
-            }
-            pendingFilePaste = seenChange
+            fileCopy = FileCopy(revision: seenChange, sending: true,
+                error: "Use the Files sidebar to transfer files over SFTP. Set up SSH file transfer in this VNC session's settings.")
             return true
         }
         if fileCopy?.revision != seenChange { dismissFileCopy() }
@@ -597,7 +511,7 @@ final class VNCDesktop {
         filesSSH?.renameSessionAccount(from: oldID, to: newID)
     }
     private func startFilesSSH() {
-        guard phase == .showing, !supportsFiles, keyboard == .linux, !viewOnly,
+        guard phase == .showing, keyboard == .linux, !viewOnly,
               lastLaunch?.options.clipboard == true, filesSSH == nil, let launch = filesSSHLaunch else { return }
         fileCopy = nil
         linuxFileConnection = launch.title
@@ -618,7 +532,7 @@ final class VNCDesktop {
         ssh.start(launch.plan)
     }
     private func attachLinuxFiles(client: SFTPClient, title: String) {
-        guard phase == .showing, !supportsFiles, keyboard == .linux,
+        guard phase == .showing, keyboard == .linux,
               !viewOnly, lastLaunch?.options.clipboard == true else { return }
         fileCopy = nil
         let bridge = VNCLinuxFiles(client: client, title: title)

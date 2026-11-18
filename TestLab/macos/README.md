@@ -21,57 +21,20 @@ manage the user's `~/.tart` VMs.
 ```sh
 TestLab/macos/lab.py up --open  # fetch once, boot, provision, open Release app
 TestLab/macos/lab.py status
-TestLab/macos/test.py          # native interop and file/clipboard regressions
+TestLab/macos/test.py          # native text clipboard and SFTP file checks
 TestLab/macos/lab.py down      # shut down; retain disk and downloaded image
 ```
 
 The guest test account is `admin` / `admin`. An SSH tunnel publishes its
 native Screen Sharing service on `127.0.0.1:15900`. Termstead opens a separate
 session store in `.state/macos/sessions.json`; personal sessions are not used.
-`~/Desktop/Termstead Files` in the guest contains binary, empty and nested
-Unicode test files for manual copying in either direction.
+File transfer in Termstead uses a separate SSH/SFTP login configured inside
+its VNC session. The Files sidebar browses the Mac over that connection; VNC
+Screen Sharing handles the desktop and text clipboard. The VM exposes SSH for
+SFTP checks. The opt-in test suite uses named pasteboards to verify Unicode
+text, focus behavior, and file and folder transfers through the SFTP panel.
+Generated test-run settings stay
+in `.state`; no checked-in Xcode scheme changes are needed.
 
-The tests use a named pasteboard on the host and the guest's own clipboard.
-The guest `clipboard.swift` utility only supplies or inspects test selections;
-SSH verifies results. File contents travel through the production VNC engine
-over its authenticated desktop socket. No helper or SSH access is needed for
-Termstead's actual VNC file transfer feature. Generated test-run settings stay
-in `.state`; no changes to the checked-in Xcode scheme are required.
-
-The incoming transport test explicitly injects `com.apple.finder.node` in
-the guest. This verifies the native sender/receiver but does **not** test an
-ordinary Finder Command-C: macOS filters `public.file-url` from its clipboard
-RPC. Receiving a real Finder selection still needs native drag-channel
-integration. Automated local file upload and remote Finder Paste tests pass,
-but Pavel reports that manual host-to-Mac file and folder copying still fails
-(2026-11-13). Investigation is paused at his request. Resume with the real
-Finder workflow and `test_rdp`; keep the VM disk and downloaded image across
-session exits.
-
-File-transfer diagnostics are available in macOS unified logging:
-
-```sh
-log stream --level info --predicate 'subsystem == "com.pavelkhorenyan.Termstead" AND category == "VNCFiles"'
-```
-
-Events distinguish Paste dispatch, upload requests, transport completion,
-scheduled/sent Paste and cancellation. They include only attempt/revision
-numbers and focus state, never file paths or clipboard contents. A sent Paste
-chord is not confirmation that Finder inserted the files. Native file Paste
-always uses Command-V, including with the default Linux keyboard profile.
-
-The 2026-11-13 follow-up reproduced and fixed the wrong-modifier bug with a
-failing-before/passing-after regression. The live test intentionally keeps
-the default profile. Manual GUI reproduction and native drag integration are
-still outstanding; headless automation must not be presented as manual
-acceptance. Preserve the existing VM and cache for the next interactive run.
-
-The subsequent multi-selection test found an archive-format bug: each
-pasteboard item has its own flavor count, rather than one global count for
-all selected files. The fixed codec supports separate items in both
-directions. `nativeMultipleSelectionsPasteIntoFinder` checks a folder,
-an empty Unicode folder and a binary file together, with clipboard receiving
-enabled and disabled. It verifies actual Finder output and file bytes.
-Keep other test viewers disconnected during automated Finder input tests;
-open the isolated Release viewer again afterward. Keep the VM running while
-the investigation is active, as Pavel requested.
+Keep the VM disk and downloaded image under `TestLab/.state/macos` for future
+manual tests. `lab.py down` shuts the VM down without deleting either one.

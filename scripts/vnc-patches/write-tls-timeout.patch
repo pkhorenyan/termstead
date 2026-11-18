@@ -1,0 +1,178 @@
+--- a/src/libvncclient/tls_openssl.c
++++ b/src/libvncclient/tls_openssl.c
+@@ -21,6 +21,10 @@
+ #include <stdio.h>
+ #include <rfb/rfbclient.h>
+ #include <errno.h>
++#include <limits.h>
++#include <poll.h>
++#include <sys/socket.h>
++#include <time.h>
+ 
+ #include <openssl/err.h>
+ #include <openssl/ssl.h>
+@@ -159,54 +163,46 @@
+   return TRUE;
+ }
+ 
+-static int sock_read_ready(SSL *ssl, uint32_t ms)
++static uint64_t tls_now_ms(void)
+ {
+-	int r = 0;
+-	fd_set fds;
+-	struct timeval tv;
++  struct timespec now;
++  clock_gettime(CLOCK_MONOTONIC, &now);
++  return (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000;
++}
+ 
+-	FD_ZERO(&fds);
+-
+-	FD_SET(SSL_get_fd(ssl), &fds);
+-
+-	tv.tv_sec = ms / 1000;
+-	tv.tv_usec = (ms % 1000) * 1000;
+-	
+-	r = select (SSL_get_fd(ssl) + 1, &fds, NULL, NULL, &tv); 
+-
+-	return r;
++static uint64_t tls_deadline(rfbClient *client)
++{
++  return tls_now_ms() + (uint64_t)(client->readTimeout ? client->readTimeout : 15) * 1000;
+ }
+ 
+-static int wait_for_data(SSL *ssl, int ret, int timeout)
++/* Wait for the direction requested by OpenSSL, even when a write needs
++ * to read. Keep one deadline across retries, including interrupted polls. */
++static rfbBool wait_for_tls(int fd, int ssl_error, uint64_t deadline)
+ {
+-  int err;
+-  int retval = 1;
++  short events;
++  if (ssl_error == SSL_ERROR_WANT_READ)
++    events = POLLIN;
++  else if (ssl_error == SSL_ERROR_WANT_WRITE)
++    events = POLLOUT;
++  else
++    return FALSE;
+ 
+-  err = SSL_get_error(ssl, ret);
+-	
+-  switch(err)
+-  {
+-    case SSL_ERROR_WANT_READ:
+-    case SSL_ERROR_WANT_WRITE:
+-      ret = sock_read_ready(ssl, timeout*1000);
+-			
+-      if (ret == -1) {
+-        retval = 2;
+-      }
+-				
+-      break;
+-    default:
+-      retval = 3;
+-      long verify_res = SSL_get_verify_result(ssl);
+-      if (verify_res != X509_V_OK)
+-        rfbClientLog("Could not verify server certificate: %s.\n",
+-                     X509_verify_cert_error_string(verify_res));
+-      break;
+-   }
+-	
+-  ERR_clear_error();
+-				
+-  return retval;
++  for (;;) {
++    uint64_t now = tls_now_ms();
++    if (now >= deadline) {
++      rfbClientLog("VNC TLS operation timed out.\n");
++      return FALSE;
++    }
++    uint64_t remaining = deadline - now;
++    struct pollfd waiting = { .fd = fd, .events = events };
++    int result = poll(&waiting, 1, remaining > INT_MAX ? INT_MAX : (int)remaining);
++    if (result < 0 && errno == EINTR)
++      continue;
++    if (result == 0)
++      continue;
++    return result > 0 && !(waiting.revents & (POLLERR | POLLHUP | POLLNVAL)) &&
++           (waiting.revents & events);
++  }
+ }
+ 
+ static rfbBool
+@@ -260,7 +256,7 @@
+ {
+   SSL_CTX *ssl_ctx = NULL;
+   SSL *ssl = NULL;
+-  int n, finished = 0;
++  int n;
+   X509_VERIFY_PARAM *param;
+   uint8_t verify_crls;
+ 
+@@ -363,21 +359,17 @@
+   SSL_set_tlsext_host_name(ssl, client->serverHost);
+   SSL_CTX_set_app_data (ssl_ctx, client);
+ 
+-  do
+-  {
++  uint64_t deadline = tls_deadline(client);
++  for (;;) {
++    ERR_clear_error();
+     n = SSL_connect(ssl);
+-		
+-    if (n != 1) 
+-    {
+-      if (wait_for_data(ssl, n, 1) != 1) 
+-      {
+-        finished = 1;
+-        SSL_shutdown(ssl);
+-
+-        goto error_free_ssl;
+-      }
++    if (n == 1)
++      break;
++    if (!wait_for_tls(sockfd, SSL_get_error(ssl, n), deadline)) {
++      rfbClientLog("VNC TLS handshake failed.\n");
++      goto error_free_ssl;
+     }
+-  } while( n != 1 && finished != 1 );
++  }
+ 
+   if (client->VerifyX509Certificate) {
+     BIO *pem = BIO_new(BIO_s_mem());
+@@ -705,24 +697,23 @@
+ WriteToTLS(rfbClient* client, const char *buf, unsigned int n)
+ {
+   unsigned int offset = 0;
+-  int ret = 0;
+-  int ssl_error = SSL_ERROR_NONE;
++  uint64_t deadline = tls_deadline(client);
+ 
+   while (offset < n)
+   {
+     LOCK(client->tlsRwMutex);
+-    ret = SSL_write (client->tlsSession, buf + offset, (size_t)(n-offset));
+-
+-    if (ret < 0)
+-      ssl_error = SSL_get_error (client->tlsSession, ret);
++    ERR_clear_error();
++    int ret = SSL_write(client->tlsSession, buf + offset, (size_t)(n-offset));
++    int ssl_error = ret <= 0 ? SSL_get_error(client->tlsSession, ret) : SSL_ERROR_NONE;
+     UNLOCK(client->tlsRwMutex);
+ 
+-    if (ret == 0) return -1;
+-    if (ret < 0)
+-    {
+-      errno = ssl_error_to_errno(ssl_error);
+-      if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+-      rfbClientLog("Error writing to TLS: -\n");
++    if (ret <= 0) {
++      if (wait_for_tls(client->sock, ssl_error, deadline))
++        continue;
++      rfbClientLog("VNC TLS write failed.\n");
++      /* Some callers discard the result of a write. Wake the reader so
++       * the connection closes instead of leaving a frozen desktop open. */
++      shutdown(client->sock, SHUT_RDWR);
+       return -1;
+     }
+     offset += (unsigned int)ret;

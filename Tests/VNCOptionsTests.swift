@@ -10,6 +10,8 @@ import Testing
         #expect(options.sendClipboard && options.receiveClipboard)
         #expect(options.security == .standard && options.keyboard == .linux)
         #expect(options.zoom == 0 && options.autoReconnect)
+        #expect(VNCOptions.Quality.automatic.label == "Balanced")
+        #expect(VNCOptions.Quality.automatic.rawValue == "automatic")
         #expect(options.fileSSHSessionID == nil)
         #expect(options.fileAccess == nil)
         var changed = options

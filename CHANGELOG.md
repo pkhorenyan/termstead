@@ -7,108 +7,40 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- VNC file transfer can now be configured directly inside the VNC session:
-  SSH host, port, user and authentication. No separate saved SSH session is
-  needed. Existing VNC links to saved SSH sessions continue to work.
-- VNC sessions can use a saved SSH connection for the SFTP sidebar, on Linux
-  or macOS, without an extra terminal tab or a remote clipboard helper.
-  Exporting a VNC folder includes its linked SSH settings.
-- The file browser accepts Finder file Paste and copies remote files to Finder
-  after downloading them. An existing destination name is reported instead
-  of silently overwritten.
-
-### Fixed
-
-- Ignore expired file selections during automatic Linux clipboard inspection,
-  without replacing the Mac clipboard with stale URI text. Clear dead test-file
-  selections when the Linux lab finishes; valid files and other clipboard data
-  are left intact.
-
-- Enable file Paste in Linux's remote context menu on its first opening.
-  Prepare the clipboard without sending Ctrl+V, and acknowledge GTK's format
-  replies before opening the menu. Honor send-only mode and avoid redundant
-  uploads while the published selection is still current.
-
-- Closing an SSH tab linked to a Linux VNC file clipboard no longer terminates
-  Termstead with SIGPIPE. Broken pipe writes are recoverable, pending I/O closes
-  in order, and file clipboard disconnects while the VNC desktop stays open.
-
-- Native macOS VNC file clipboard archives now keep each selected file or
-  folder in a separate pasteboard item. Previously multiple selections were
-  encoded as repeated flavors of one item, losing all but the final URL.
-- Native macOS VNC file uploads now send Finder's Command-V even when the
-  session uses the default Linux keyboard profile. Upload completion and
-  the subsequent Paste request have separate status messages; sending Paste
-  does not claim that Finder inserted the files.
+## [0.9.0] - 2026-11-18
 
 ### Added
 
-- Linux X11 file/folder copy and paste in VNC tabs through an explicitly
-  selected SSH connection to the desktop user. SFTP transfers contents;
-  a temporary GTK clipboard bridge supplies file-manager formats. Preserves
-  names, nested/empty folders and binary files, respects clipboard direction
-  and focus, and cancels transfers without closing the shared SSH connection.
-
-- File and folder uploads to native macOS VNC servers, plus experimental
-  download transport, over the authenticated desktop connection and SSH jump hosts.
-  Streamed data and resource forks, Unicode names, modification dates,
-  progress and cancellation. Local file uploads begin only on explicit Paste.
-  Receiving ordinary Finder selections still needs native drag integration.
-- VNC sessions in tabs and split panes, directly or through SSH jump hosts.
-  VNC password and Apple Remote Desktop authentication, Keychain passwords,
-  text clipboard sharing, view-only mode, and session import/export. The
-  server's existing desktop scales to fit the pane. LibVNCClient runs in a
-  separate XPC process. Unauthenticated servers require explicit opt-in.
-- A VNC server and sample sessions in the Docker test lab.
-- VNC Fit, 25–400% zoom with scrollbars, and full screen tab presentation
-  without changing the saved pane layout. Explicit server resolution requests
-  are available when the server advertises support.
-- VNC macOS/Windows/Linux keyboard profiles, Auto/Sharp/Fast picture profiles,
-  separate clipboard directions and bounded automatic reconnect after a drop.
-- VNC X.509 VeNCrypt TLS with macOS certificate and hostname checks, cancellable
-  in-tab trust questions, and separate saved fingerprints. Require TLS never
-  falls back to plaintext or anonymous TLS. The Docker lab also offers TLS.
+- VNC sessions in tabs and split panes. Connect directly or through SSH jump
+  hosts, using a VNC password or Apple Remote Desktop credentials. Save
+  passwords in Keychain and include VNC sessions in imports and exports.
+- Fit, zoom and full screen controls for VNC, with explicit resolution changes
+  on supported servers. VNC also supports view-only mode, macOS, Windows and
+  Linux keyboard profiles, and remote shortcuts from the Session menu.
+- VNC text clipboard sharing with separate controls for each direction,
+  including Unicode text with macOS Screen Sharing.
+- Optional SSH file access inside a VNC session. Upload and download through
+  the SFTP sidebar without opening a terminal tab or creating a saved SSH
+  session. Existing links to saved SSH sessions still work.
+- Require TLS for VNC servers that offer X.509 VeNCrypt, with certificate and
+  hostname checks and saved certificate fingerprints.
+- VNC sample sessions and a server for the Docker test lab.
 
 ### Changed
 
-- Linux VNC file clipboard now selects saved SSH settings and opens its own
-  background connection. No separate SSH tab is required; authentication stays
-  in the VNC pane, reconnects restore the connection, and closing VNC stops it.
-
-- Toggle the sidebar with Command-B instead of Control-Command-S. Update
-  menu shortcuts, tooltips and the welcome screen hints to match.
-- Hide terminal logging controls for RDP and VNC sessions and ignore their
-  saved automatic logging setting. Logging remains available for terminals.
-- Refresh the README screenshots for 0.8.2. The RDP demo hides Xfce's
-  bottom dock and places its windows fully inside the remote desktop.
+- Press Command-B to toggle the sidebar.
+- Terminal logging controls appear only in terminal sessions.
+- The SFTP sidebar supports copying and pasting files between Finder and
+  the server. Uploads skip files whose names already exist at the destination.
 
 ### Fixed
 
-- Keep locally copied files intact when a late VNC clipboard notification
-  arrives after returning from Finder, so Paste uploads the selected folder
-  instead of inserting the remote desktop's old clipboard contents.
-- Allow the native macOS clipboard handoff to settle before automatically
-  pasting uploaded files, with a pointer refresh and paced keyboard input.
-- Native macOS VNC file downloads recognize Finder's clipboard paths and
-  start the server's sender immediately instead of waiting indefinitely.
-  Show an in-tab explanation when pasting files into an unsupported VNC server.
-- Unicode text clipboard sharing with native macOS Screen Sharing servers,
-  using Apple's pasteboard messages in both directions. Remote changes are
-  received on notifications; stale replies cannot overwrite a newer local copy.
-- A password rejected by macOS Screen Sharing opens the VNC login prompt
-  again, rather than being reported as a generic connection failure.
-- Reject unused Ultra/UltraZip encodings before decoding, including when a
-  server sends them without negotiation. This blocks the vulnerable bundled
-  UltraZip parser (GHSA-87q7-v983-qwcj).
-- VNC input wakes the worker immediately and is serviced while an incomplete
-  frame waits for more data. Idle connections no longer poll every 10 ms.
-- VNC reconnect limits reset only after 30 seconds of continuous connection;
-  long backoff pauses no longer renew the retry budget, including SSH tunnels.
-- VNC cursor movement no longer waits for a screen update from the server.
-  Cursor shapes and hot spots are received separately and rendered locally,
-  scaled to the pane, including hidden and transparent cursors.
+- VNC draws the cursor locally so pointer movement does not wait for the
+  next remote screen update. Sending input no longer waits for a full frame.
+- VNC detects silent drops on direct connections and limits automatic
+  reconnect attempts. A stalled TLS handshake or write now times out.
+- VNC refuses unsupported Ultra and UltraZip encodings before decoding.
+- macOS Screen Sharing password errors reopen the login prompt.
 
 ## [0.8.2] - 2026-11-10
 

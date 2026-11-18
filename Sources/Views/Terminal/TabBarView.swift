@@ -175,6 +175,7 @@ struct TabBarView: View {
             Divider()
         }
         if let desktop = tab.vnc, desktop.phase == .showing {
+            VNCSpecialKeysMenu(desktop: desktop).disabled(desktop.viewOnly)
             Button("Send Ctrl+Alt+Del") { desktop.sendControlAltDelete() }.disabled(desktop.viewOnly)
             Button("Send Windows Key") { desktop.sendWindowsKey() }.disabled(desktop.viewOnly)
             if let saved {
@@ -411,6 +412,19 @@ struct TabBarView: View {
             Rectangle().fill(topLine).frame(height: isActive ? 3 : 2)
         }
         .contextMenu { menu(for: tab) }
+    }
+}
+
+/// Shortcuts intercepted by the viewer Mac can still be sent explicitly.
+struct VNCSpecialKeysMenu: View {
+    let desktop: VNCDesktop
+
+    var body: some View {
+        Menu("Send Shortcut") {
+            ForEach(desktop.shortcuts) { shortcut in
+                Button(shortcut.title) { desktop.sendShortcut(shortcut) }
+            }
+        }
     }
 }
 
