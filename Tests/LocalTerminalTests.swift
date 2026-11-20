@@ -75,6 +75,9 @@ struct LocalTerminalTests {
         #expect(screen(tab).contains("The shell exited"))
         #expect(screen(tab).contains("Press Return to start it again"))
 
+        tab.terminalView.sendPaste("first line\nsecond line")
+        #expect(!tab.state.isRunning, "Pasting cannot restart an exited shell")
+
         tab.terminalView.send(txt: "\r")
         #expect(tab.state.isRunning)
         #expect(await run("echo TERMSTEAD_$((7*8))_AGAIN", in: tab, until: "TERMSTEAD_56_AGAIN"))

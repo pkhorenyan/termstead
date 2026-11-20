@@ -488,12 +488,18 @@ class SelectionService: CustomDebugStringConvertible {
      */
     public func selectWordOrExpression (at uncheckedPosition: Position, in buffer: Buffer)
     {
-//        let position = Position(
-//            col: max (min (uncheckedPosition.col, buffer.cols-1), 0),
-//            row: max (min (uncheckedPosition.row, buffer.rows-1+buffer.yDisp), buffer.yDisp))
-        let position = Position (col: (min (terminal.cols, max (uncheckedPosition.col, 0))),
-                                 row: (max (uncheckedPosition.row, 0)))
-        switch character (at: position, in: buffer) {
+        var position = Position(col: min(terminal.cols - 1, max(uncheckedPosition.col, 0)),
+                                row: max(uncheckedPosition.row, 0))
+        var cell = buffer.getChar(atBufferRelative: position)
+        if cell.code == 0 && position.col > 0 {
+            let previous = Position(col: position.col - 1, row: position.row)
+            let previousCell = buffer.getChar(atBufferRelative: previous)
+            if previousCell.width == 2 {
+                position = previous
+                cell = previousCell
+            }
+        }
+        switch terminal.getCharacter(for: cell) {
         case Character(UnicodeScalar(0)):
             simpleScanSelection (from: position, in: buffer) { ch in ch == nullChar }
         case " ":
@@ -514,9 +520,9 @@ class SelectionService: CustomDebugStringConvertible {
         case "}":
             balancedSearchBackward(from: position, in: buffer)
         default:
-            // For other characters, we just stop there
             start = position
-            end = position
+            end = Position(col: min(terminal.cols, position.col + max(1, Int(cell.width))),
+                           row: position.row)
         }
         selectionMode = .word
         setActiveAndNotify()

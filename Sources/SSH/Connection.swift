@@ -156,6 +156,7 @@ final class Connection: Identifiable {
             self?.browser?.terminalMayHaveMoved()
         }
         terminalView.onUserInput = { [weak self] data in self?.onInput?(data) }
+        terminalView.onUserPaste = { [weak self] text in self?.onPaste?(text) }
         terminalView.onOutput = { [weak self] data in self?.log?.append(Array(data)) }
         desktop?.log = { [weak self] line in
             self?.terminalView.feed(text: "\u{1b}[2m\(line)\u{1b}[0m\r\n")
@@ -283,8 +284,9 @@ final class Connection: Identifiable {
         terminalView.feed(text: "\r\n\u{1b}[2m\(reason) Press Return to reconnect.\u{1b}[0m\r\n")
     }
 
-    /// Typed or pasted into this tab — see `ConnectionStore.broadcast`.
+    /// Keystrokes and snippets to forward to the other panes.
     @ObservationIgnored var onInput: ((ArraySlice<UInt8>) -> Void)?
+    @ObservationIgnored var onPaste: ((String) -> Void)?
 
     /// Starts ssh with `plan`, or restarts it after it exited.
     func start(_ plan: SSHLaunchPlan) {
@@ -809,7 +811,7 @@ final class SSHTerminalView: LocalProcessTerminalView {
     var appliedStyle: String?
     /// Copy a selection to the clipboard as soon as it is made.
     var copyOnSelect = true
-    /// Where copy-on-select writes. A test swaps in a private pasteboard so
+    /// Where terminal copy writes. A test swaps in a private pasteboard so
     /// that running the suite does not overwrite the user's clipboard.
     var copyPasteboard: NSPasteboard = .general
     private var pendingCopy: Task<Void, Never>?
@@ -1005,21 +1007,28 @@ final class SSHTerminalView: LocalProcessTerminalView {
     /// More than one line — one line that ends in a newline is still one line,
     /// just copied whole.
     static func needsPasteConfirmation(for text: String) -> Bool {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let trimmed = normalized.hasSuffix("\n") ? String(normalized.dropLast()) : normalized
-        return trimmed.contains("\n")
+        let normalized = terminalPasteText(text)
+        let trimmed = normalized.hasSuffix("\r") ? normalized.dropLast() : normalized[...]
+        return trimmed.contains("\r")
+    }
+
+    private static func terminalPasteText(_ text: String) -> String {
+        // Terminal Enter is CR. Nano can ignore LF in a bracketed paste or
+        // interpret it as Ctrl-J outside one. CRLF represents one line break.
+        text.replacingOccurrences(of: "\r\n", with: "\r")
+            .replacingOccurrences(of: "\n", with: "\r")
     }
 
     /// ⌘V, the menu's Paste and a right-click paste all arrive here. Several
     /// lines ask first, as a sheet on the window — each line would otherwise
     /// run as a command the moment it lands.
     override func paste(_ sender: Any) {
+        guard process.running,
+              let text = NSPasteboard.general.string(forType: .string) else { return }
         guard confirmMultilinePaste,
-              let text = NSPasteboard.general.string(forType: .string),
               Self.needsPasteConfirmation(for: text),
               let window else {
-            pasteWithoutAsking(sender)
+            sendPaste(text)
             return
         }
         let lines = text.split(whereSeparator: \.isNewline)
@@ -1036,7 +1045,7 @@ final class SSHTerminalView: LocalProcessTerminalView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if alert.suppressionButton?.state == .on { self.onStopConfirmingPaste?() }
-                if response == .alertFirstButtonReturn { self.pasteWithoutAsking(sender) }
+                if response == .alertFirstButtonReturn { self.sendPaste(text) }
             }
         }
     }
@@ -1044,15 +1053,28 @@ final class SSHTerminalView: LocalProcessTerminalView {
     /// A snippet, as typed: to this tab's program, and through broadcast
     /// input to the other panes, as a paste is.
     func sendSnippet(_ snippet: Snippet) {
-        isPasting = true
-        defer { isPasting = false }
+        isSendingSnippet = true
+        defer { isSendingSnippet = false }
         send(txt: snippet.keystrokes)
     }
 
-    private func pasteWithoutAsking(_ sender: Any) {
-        isPasting = true
-        defer { isPasting = false }
-        super.paste(sender)
+    func sendPaste(_ text: String) {
+        guard process.running, !text.isEmpty else { return }
+        let normalized = Self.terminalPasteText(text)
+        receivePaste(normalized)
+        onUserPaste?(normalized)
+    }
+
+    /// Each receiving program negotiates bracketed paste independently.
+    func receivePaste(_ normalized: String) {
+        guard process.running else { return }
+        isSendingPaste = true
+        defer { isSendingPaste = false }
+        if getTerminal().bracketedPasteMode {
+            send(txt: "\u{1b}[200~" + normalized + "\u{1b}[201~")
+        } else {
+            send(txt: normalized)
+        }
     }
 
     /// Right-click: Copy, Paste, Select All — whether or not copy-on-select is
@@ -1062,9 +1084,9 @@ final class SSHTerminalView: LocalProcessTerminalView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let copy = NSMenuItem(title: "Copy", action: #selector(menuCopy), keyEquivalent: "c")
-        copy.isEnabled = selectionActive
+        copy.isEnabled = getSelection()?.isEmpty == false
         let paste = NSMenuItem(title: "Paste", action: #selector(menuPaste), keyEquivalent: "v")
-        paste.isEnabled = NSPasteboard.general.string(forType: .string) != nil
+        paste.isEnabled = process.running && NSPasteboard.general.availableType(from: [.string]) != nil
         let all = NSMenuItem(title: "Select All", action: #selector(menuSelectAll), keyEquivalent: "a")
         for item in [copy, paste, all] {
             item.target = self
@@ -1076,6 +1098,20 @@ final class SSHTerminalView: LocalProcessTerminalView {
     @objc private func menuCopy() { copy(self) }
     @objc private func menuPaste() { paste(self) }
     @objc private func menuSelectAll() { selectAll(nil) }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(copy(_:)): return getSelection()?.isEmpty == false
+        case #selector(paste(_:)): return process.running
+        default: return super.validateUserInterfaceItem(item)
+        }
+    }
+
+    override func copy(_ sender: Any) {
+        guard let text = getSelection(), !text.isEmpty else { return }
+        copyPasteboard.clearContents()
+        copyPasteboard.setString(text, forType: .string)
+    }
 
     /// Copies once the mouse lets go, not on every step of the drag that makes
     /// the selection: each copy would land in a clipboard manager's history.
@@ -1091,25 +1127,24 @@ final class SSHTerminalView: LocalProcessTerminalView {
                 try? await Task.sleep(for: .milliseconds(50))
                 if Task.isCancelled { return }
             }
-            guard let self, !Task.isCancelled, self.selectionActive,
-                  let text = self.getSelection(), !text.isEmpty else { return }
-            self.copyPasteboard.clearContents()
-            self.copyPasteboard.setString(text, forType: .string)
+            guard let self, !Task.isCancelled, self.copyOnSelect, !self.isFinding else { return }
+            self.copy(self)
         }
     }
 
     /// Return was sent to a live shell — see `FileBrowser.terminalMayHaveMoved`.
     var onReturnWhileRunning: (() -> Void)?
-    /// What the user typed or pasted, for broadcast input
-    /// (`ConnectionStore.broadcast`). Never the terminal's own replies.
+    /// Keystrokes and snippets, without terminal replies or mouse reports.
     var onUserInput: ((ArraySlice<UInt8>) -> Void)?
+    var onUserPaste: ((String) -> Void)?
 
     /// The terminal answering the program — a cursor position, colours,
     /// focus in and out — comes through `send(source: TerminalView, …)`
     /// like typing does. Those answers belong to this terminal's state
     /// alone, so they are marked here and never broadcast.
     private var isReplying = false
-    private var isPasting = false
+    private var isSendingSnippet = false
+    private var isSendingPaste = false
     /// The event being handled; replaceable so a test can hand it one.
     var eventInProgress: () -> NSEvent? = { NSApp.currentEvent }
 
@@ -1122,7 +1157,9 @@ final class SSHTerminalView: LocalProcessTerminalView {
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
         if process.running {
             super.send(source: source, data: data)
-            if data.contains(13) { onReturnWhileRunning?() }
+            if data.contains(13), !isSendingPaste || !getTerminal().bracketedPasteMode {
+                onReturnWhileRunning?()
+            }
             if isUserInput { onUserInput?(data) }
         } else {
             onInputWhileStopped?(data)
@@ -1132,8 +1169,8 @@ final class SSHTerminalView: LocalProcessTerminalView {
     /// Typed or pasted: not a reply, and not a mouse report — a click or the
     /// wheel in vim or htop is sent too, and means nothing to another pane.
     private var isUserInput: Bool {
-        if isReplying { return false }
-        if isPasting { return true }
+        if isReplying || isSendingPaste { return false }
+        if isSendingSnippet { return true }
         switch eventInProgress()?.type {
         case .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
              .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel:

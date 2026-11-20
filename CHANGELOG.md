@@ -7,6 +7,18 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-20
+
+### Fixed
+
+- Multiline clipboard paste preserves line breaks, blank lines, indentation,
+  and Unicode text in terminal editors such as nano and Vim.
+- Broadcast Input uses each pane's own bracketed paste mode, so pasting
+  between different terminal programs sends the right input to each one.
+- Pasting into an exited terminal no longer restarts its shell or connection.
+- Double-clicking an emoji or other symbol selects the whole character.
+  Copy with an empty selection leaves the clipboard intact.
+
 ## [0.9.0] - 2026-11-18
 
 ### Added

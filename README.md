@@ -5,7 +5,7 @@
 <h1 align="center">Termstead</h1>
 
 <p align="center">
-  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.9.0-2F6FB5" alt="Version 0.9.0"></a>
+  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.9.1-2F6FB5" alt="Version 0.9.1"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-2F6FB5?logo=apple&logoColor=white" alt="macOS 14 or later">
   <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution"><img src="https://img.shields.io/badge/Apple-Notarized-3DA639?logo=apple&logoColor=white" alt="Notarized by Apple"></a>
   <img src="https://img.shields.io/badge/universal-Apple%20Silicon%20%2B%20Intel-2F6FB5" alt="Universal: Apple Silicon and Intel">

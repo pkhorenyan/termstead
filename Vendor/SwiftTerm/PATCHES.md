@@ -112,6 +112,11 @@ the buffer's end, or handing the mouse to a terminal application stops it.
 The initial press is kept as the selection's anchor, including when the
 first drag event is already outside the view.
 
+## Selection: double-click on a symbol
+
+A double-click selects the whole glyph for emoji and other symbols,
+including when it lands on the second cell of a wide glyph.
+
 ## Drawing: leave the scroll bar outside the terminal canvas
 
 The last cell's background was extended to the view's full width, painting

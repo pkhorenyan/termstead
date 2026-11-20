@@ -1214,11 +1214,12 @@ These have each cost real time. They are not hypothetical.
   that typing goes through. `SSHTerminalView` overrides the other entry,
   `send(source: Terminal, …)`, to mark those replies, and also leaves out
   what is sent during a mouse event (mouse reports in vim, htop, the wheel
-  on the alternate screen); a paste is marked explicitly, since a
-  right-click paste happens during one. Other panes get the bytes through
-  `receiveBroadcast`, straight to their process, so they are never
-  broadcast again. The bytes are the source terminal's: an arrow key in
-  application-cursor mode there arrives in that form everywhere.
+  on the alternate screen). Snippets are marked explicitly so they can be
+  broadcast when invoked with the mouse. Other panes receive those bytes
+  through `receiveBroadcast`. An arrow key in application-cursor mode
+  arrives in that form everywhere. Clipboard paste forwards the normalized
+  text through `receivePaste`, which applies each pane's own bracketed
+  paste mode.
 - **Dropping a tab on another pane uses SwiftUI's global space.** Strips
   and tabs report `frame(in: .global)` to `AppState.paneStrips` /
   `tabFrames` (not observed), and `TabInteractionView` converts the pointer

@@ -30,6 +30,43 @@ struct TerminalBehaviourTests {
         #expect(SSHTerminalView.needsPasteConfirmation(for: "a\rb"))
     }
 
+    private final class InputRecorder: LocalProcessTerminalView {
+        var input: [String] = []
+
+        override func send(source: TerminalView, data: ArraySlice<UInt8>) {
+            input.append(String(decoding: data, as: UTF8.self))
+        }
+    }
+
+    @Test func broadcastPasteNormalizesNewlinesAndUsesEachPanesMode() {
+        let store = ConnectionStore()
+        defer { store.closeAll() }
+        store.setLayout(.sideBySide)
+        let recorders = (0..<2).map { _ in InputRecorder(frame: .zero) }
+        let views = recorders.enumerated().map { pane, recorder in
+            store.focus(pane: pane)
+            let tab = Connection(sessionID: nil, title: "Test", address: "", keyDescription: "")
+            store.add(tab)
+            let view = tab.terminalView
+            view.startProcess(executable: "/bin/cat", args: [], environment: nil, execName: "cat")
+            view.terminalDelegate = recorder
+            return view
+        }
+        store.toggleBroadcast()
+        #expect(store.isBroadcasting)
+
+        let clipboard = "  café\r\n\n\tindented\r最後\n"
+        let expected = "  café\r\r\tindented\r最後\r"
+        views[0].sendPaste("café")
+        views[0].feed(text: "\u{1b}[?2004h")
+        views[0].sendPaste(clipboard)
+        views[1].sendPaste(clipboard)
+
+        let bracketed = "\u{1b}[200~" + expected + "\u{1b}[201~"
+        #expect(recorders[0].input == ["café", bracketed, bracketed])
+        #expect(recorders[1].input == ["café", expected, expected])
+    }
+
     @Test func rightClickPastesOnlyWhenChosenAndUnmodified() {
         #expect(!SSHTerminalView.rightClickPastes(modifiers: [], setting: false))
         #expect(SSHTerminalView.rightClickPastes(modifiers: [], setting: true))

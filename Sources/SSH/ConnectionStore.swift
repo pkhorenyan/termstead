@@ -534,6 +534,12 @@ final class ConnectionStore {
             guard let self, let connection else { return }
             self.broadcast(data, from: connection)
         }
+        connection.onPaste = { [weak self, weak connection] text in
+            guard let self, let connection else { return }
+            for target in self.broadcastTargets(from: connection) {
+                target.terminalView.receivePaste(text)
+            }
+        }
         connection.pane = focusedPane
         connections.append(connection)
         activeID = connection.id
