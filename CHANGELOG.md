@@ -21,6 +21,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Clicking blank space in a file list clears the selection. Dragging a local
   selection into SFTP carries every selected file and folder as a Mac drag item.
 - File operations such as deleting and renaming use a file operations heading.
+- The file browser deletes the entire selection after confirming the number
+  of items.
 - Finder metadata alone no longer triggers the hidden-files message in the
   local browser. Folders with hidden files offer a button to reveal them.
 

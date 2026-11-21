@@ -92,7 +92,7 @@ struct FileBrowserView: View {
     @State private var renaming: RemoteFile?
     @State private var newName = ""
     @State private var creatingFolder = false
-    @State private var deleting: RemoteFile?
+    @State private var pendingDeletion: [RemoteFile]?
     @State private var dropTargeted = false
     @State private var transferConflict: FileTransferQueue.Conflict?
     @FocusState private var listFocused: Bool
@@ -137,23 +137,24 @@ struct FileBrowserView: View {
         } message: {
             Text("In \(browser.path ?? "the current folder")")
         }
-        .alert("Delete “\(deleting?.name ?? "")”?", isPresented: Binding(
-            get: { deleting != nil }, set: { if !$0 { deleting = nil } }
-        )) {
+        .alert(deleteTitle, isPresented: Binding(
+            get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }
+        ), presenting: pendingDeletion) { files in
             Button("Delete", role: .destructive) {
-                if let deleting { browser.delete(deleting) }
-                deleting = nil
+                browser.delete(files)
+                pendingDeletion = nil
             }
-            Button("Cancel", role: .cancel) { deleting = nil }
-        } message: {
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: { files in
+            let includesFolders = files.contains { $0.kind == .directory }
             if browser.isLocal {
-                Text(deleting?.kind == .directory
-                     ? "The folder and everything in it are moved to the Trash."
-                     : "The file is moved to the Trash.")
+                Text(includesFolders
+                     ? "The selected items, including the contents of any folders, will be moved to the Trash."
+                     : "The selected files will be moved to the Trash.")
             } else {
-                Text(deleting?.kind == .directory
-                     ? "The folder and everything in it are deleted from \(title). This cannot be undone."
-                     : "The file is deleted from \(title). This cannot be undone.")
+                Text(includesFolders
+                     ? "The selected items, including the contents of any folders, will be permanently deleted from \(title)."
+                     : "The selected files will be permanently deleted from \(title).")
             }
         }
     }
@@ -331,13 +332,18 @@ struct FileBrowserView: View {
                     newName = file.name
                     renaming = file
                 }
-                Button("Delete…", role: .destructive) { deleting = file }
+                Button("Delete…", role: .destructive) { pendingDeletion = browser.filesForAction(on: file) }
                 Divider()
                 Button("Copy Path") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(file.path, forType: .string)
                 }
             }
+    }
+
+    private var deleteTitle: String {
+        guard let files = pendingDeletion, let first = files.first else { return "Delete Items?" }
+        return files.count == 1 ? "Delete “\(first.name)”?" : "Delete \(files.count) items?"
     }
 
     @ViewBuilder

@@ -446,13 +446,22 @@ final class ConnectionIntegrationTests {
         #expect(try String(contentsOfFile: RemotePath.join(nested, "drag.txt"), encoding: .utf8) == "mixed drag")
         #expect(try String(contentsOfFile: RemotePath.join(nested, "pictures/image"), encoding: .utf8) == "second folder")
         let uploadedFile = try #require(browser.visibleFiles.first { $0.name == "drag.txt" })
-        browser.delete(uploadedFile)
+        let otherFile = try #require(browser.visibleFiles.first { $0.name == "other.txt" })
+        browser.select(uploadedFile)
+        browser.select(otherFile, modifiers: .command)
+        browser.selectForContextMenu(uploadedFile)
+        let toDelete = browser.filesForAction(on: uploadedFile)
+        #expect(Set(toDelete.map(\.name)) == ["drag.txt", "other.txt"])
+        browser.delete(toDelete)
         try await awaitCondition(timeout: 10) {
-            browser.activities.contains { $0.title == "Delete “drag.txt”" && $0.state == .done }
+            !browser.visibleFiles.contains { $0.name == "drag.txt" || $0.name == "other.txt" }
         }
-        let deletion = try #require(browser.activities.first { $0.title == "Delete “drag.txt”" })
-        #expect(!deletion.isTransfer)
+        let deletions = browser.activities.filter { $0.title.hasPrefix("Delete ") && $0.state == .done }
+        #expect(deletions.count == 2)
+        #expect(deletions.allSatisfy { !$0.isTransfer })
         #expect(!FileManager.default.fileExists(atPath: uploadedFile.path))
+        #expect(!FileManager.default.fileExists(atPath: otherFile.path))
+        #expect(FileManager.default.fileExists(atPath: RemotePath.join(nested, "report.txt")))
         let remoteTree = try #require(browser.visibleFiles.first { $0.name == "documents" })
         browser.download([remoteTree], into: local)
         try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }

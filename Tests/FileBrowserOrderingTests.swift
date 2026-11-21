@@ -110,6 +110,8 @@ struct FileBrowserOrderingTests {
         browser.select(files[0])
         browser.select(files[2], modifiers: .command)
         #expect(Set(browser.selectedFiles.map(\.name)) == ["alpha", "charlie"])
+        #expect(browser.filesForAction(on: files[1]).map(\.name) == ["bravo"])
+        #expect(browser.filesForAction(on: files[2]).map(\.name) == ["alpha", "charlie"])
         browser.select(files[3], modifiers: .shift)
         #expect(Set(browser.selectedFiles.map(\.name)) == ["charlie", "delta"])
         browser.select(files[2], modifiers: .command)

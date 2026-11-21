@@ -330,17 +330,20 @@ final class FileBrowser {
         }
     }
 
-    func delete(_ file: RemoteFile) {
-        guard let client else { return }
+    func delete(_ files: [RemoteFile]) {
+        guard let client, !files.isEmpty else { return }
+        let directory = path
         Task {
-            await perform("Delete “\(file.name)”") {
-                if file.kind == .directory {
-                    try await client.removeDirectory(file.path)
-                } else {
-                    try await client.removeFile(file.path)
+            for file in files {
+                await perform("Delete “\(file.name)”") {
+                    if file.kind == .directory {
+                        try await client.removeDirectory(file.path)
+                    } else {
+                        try await client.removeFile(file.path)
+                    }
                 }
             }
-            await load(path)
+            if path == directory, !isLoading { await load(directory) }
         }
     }
 
@@ -363,7 +366,7 @@ final class FileBrowser {
         return visibleFiles.filter { paths.contains($0.path) }
     }
 
-    func filesForDrag(startingAt file: RemoteFile) -> [RemoteFile] {
+    func filesForAction(on file: RemoteFile) -> [RemoteFile] {
         let selected = selectedFiles
         return selected.contains(where: { $0.path == file.path }) ? selected : [file]
     }

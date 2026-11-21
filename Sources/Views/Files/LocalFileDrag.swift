@@ -44,13 +44,13 @@ final class LocalFileDragView: NSView, NSDraggingSource {
             return
         }
         // A plain press on a selected row may start a drag of the whole group.
-        let selection = browser.filesForDrag(startingAt: file)
+        let selection = browser.filesForAction(on: file)
         if modifiers.isEmpty, selection.count > 1 {
             collapsesOnMouseUp = true
         } else {
             browser.select(file, modifiers: modifiers)
         }
-        pressedFiles = browser.filesForDrag(startingAt: file)
+        pressedFiles = browser.filesForAction(on: file)
         pressLocation = event.locationInWindow
     }
 
