@@ -114,6 +114,27 @@ struct FileBrowserOrderingTests {
         #expect(Set(browser.selectedFiles.map(\.name)) == ["charlie", "delta"])
         browser.select(files[2], modifiers: .command)
         #expect(browser.selectedFiles.map(\.name) == ["delta"])
+        browser.clearSelection()
+        #expect(browser.selectedFile == nil)
+        #expect(browser.selectedFiles.isEmpty)
+        browser.select(files[0], modifiers: .shift)
+        #expect(browser.selectedFiles.map(\.name) == ["alpha"])
+    }
+
+    @Test func localMetadataAloneLooksEmptyButHiddenUserFilesCanBeRevealed() async throws {
+        let directory = try localFile().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("config"))
+        try Data().write(to: directory.appendingPathComponent(".DS_Store"))
+        let browser = FileBrowser(localFiles: LocalFiles())
+        await browser.load(directory.path)
+        #expect(browser.visibleFiles.isEmpty)
+        #expect(!browser.hasHiddenContents)
+        try Data().write(to: directory.appendingPathComponent(".env"))
+        await browser.load(directory.path)
+        #expect(browser.hasHiddenContents)
+        browser.showHidden = true
+        #expect(browser.visibleFiles.contains { $0.name == ".env" })
     }
 
     @Test func anOldListingCannotReplaceTheNewDirectory() async throws {

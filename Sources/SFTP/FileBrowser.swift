@@ -62,10 +62,23 @@ final class FileBrowser {
         if !selectedPaths.contains(file.path) { select(file) }
     }
 
+    func clearSelection() {
+        selection = nil
+        selectedPaths = []
+        selectionAnchor = nil
+    }
+
     /// What the list shows. Stored, not computed: sorting a big folder with
     /// `localizedStandardCompare` on every read cost two full sorts per
     /// render — each click, each progress tick.
     private(set) var visibleFiles: [RemoteFile] = []
+
+    var hasHiddenContents: Bool {
+        let local = isLocal
+        return files.contains { file in
+            file.isHidden && (!local || (file.name != ".DS_Store" && file.name != ".localized"))
+        }
+    }
 
     static func sortedForDisplay(_ files: [RemoteFile], showHidden: Bool) -> [RemoteFile] {
         let shown = showHidden ? files : files.filter { !$0.isHidden }
@@ -164,9 +177,7 @@ final class FileBrowser {
         isLoading = false
         path = nil
         files = []
-        selection = nil
-        selectedPaths = []
-        selectionAnchor = nil
+        clearSelection()
         problem = nil
         if isShown { start() }
     }
@@ -349,6 +360,11 @@ final class FileBrowser {
     var selectedFiles: [RemoteFile] {
         let paths = selectedPaths.isEmpty ? Set(selection.map { [$0] } ?? []) : selectedPaths
         return visibleFiles.filter { paths.contains($0.path) }
+    }
+
+    func filesForDrag(startingAt file: RemoteFile) -> [RemoteFile] {
+        let selected = selectedFiles
+        return selected.contains(where: { $0.path == file.path }) ? selected : [file]
     }
 
     func copySelected() {

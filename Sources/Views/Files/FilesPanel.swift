@@ -224,14 +224,25 @@ struct FileBrowserView: View {
     // MARK: - List
 
     private var list: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 1) {
-                ForEach(browser.visibleFiles) { file in
-                    row(file)
+        GeometryReader { viewport in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(browser.visibleFiles) { file in
+                            row(file)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            browser.clearSelection()
+                            listFocused = true
+                        }
                 }
+                .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .topLeading)
+                .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
         }
         .frame(maxHeight: .infinity)
         .focusable()
@@ -257,13 +268,7 @@ struct FileBrowserView: View {
                 .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
-        // Files dropped from Finder go into the folder on show.
-        .dropDestination(for: URL.self) { urls, _ in
-            let local = urls.filter(\.isFileURL)
-            guard !local.isEmpty else { return false }
-            browser.upload(local)
-            return true
-        } isTargeted: { dropTargeted = $0 }
+        .onDrop(of: FileDrop.types, isTargeted: $dropTargeted) { acceptDrop($0) }
         .contextMenu {
             Button("New Folder…") { newName = ""; creatingFolder = true }
             Button(browser.isLocal ? "Copy Here…" : "Upload…") { chooseUploads() }
@@ -290,9 +295,16 @@ struct FileBrowserView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(theme.sidebar.color)
         } else if browser.visibleFiles.isEmpty && browser.path != nil {
-            Text(browser.files.isEmpty ? "Empty folder" : "Only hidden files")
-                .font(SBFont.ui(12))
-                .foregroundStyle(theme.textFaint.color)
+            VStack(spacing: 8) {
+                Text(browser.hasHiddenContents ? "This folder contains hidden files" : "Empty folder")
+                    .font(SBFont.ui(12))
+                    .foregroundStyle(theme.textFaint.color)
+                    .multilineTextAlignment(.center)
+                if browser.hasHiddenContents {
+                    Button("Show Hidden Files") { browser.showHidden = true }
+                        .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26, fontSize: 12))
+                }
+            }
         }
     }
 
@@ -307,11 +319,14 @@ struct FileBrowserView: View {
                 browser.select(file, modifiers: NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags)
                 listFocused = true
             })
-            .onDrag { Self.provider(for: file, client: browser.client) }
-            .dropDestination(for: URL.self) { urls, _ in
-                guard file.kind == .directory else { return false }
-                browser.upload(urls.filter(\.isFileURL), into: file.path)
-                return true
+            .onDrag {
+                if browser.isLocal {
+                    return FileDrop.provider(for: browser.filesForDrag(startingAt: file), leading: file)
+                }
+                return Self.remoteProvider(for: file, client: browser.client)
+            }
+            .onDrop(of: file.kind == .directory ? FileDrop.types : [], isTargeted: nil) {
+                acceptDrop($0, into: file.path)
             }
             .contextMenu {
                 Button(file.kind == .directory ? "Open" : "Open in Mac App") { browser.open(file) }
@@ -341,8 +356,7 @@ struct FileBrowserView: View {
 
     /// Dragging a row to Finder downloads it: the promise is kept only once
     /// Finder asks for the file, into a folder of the system's choosing.
-    private static func provider(for file: RemoteFile, client: (any FileSource)?) -> NSItemProvider {
-        if client?.isLocal == true { return NSItemProvider(object: URL(fileURLWithPath: file.path) as NSURL) }
+    private static func remoteProvider(for file: RemoteFile, client: (any FileSource)?) -> NSItemProvider {
         let provider = NSItemProvider()
         provider.suggestedName = file.name
         guard let client else { return provider }
@@ -367,6 +381,20 @@ struct FileBrowserView: View {
         return provider
     }
 
+    private func acceptDrop(_ providers: [NSItemProvider], into path: String? = nil) -> Bool {
+        guard let destination = path ?? browser.path, !providers.isEmpty else { return false }
+        let received = FileDrop.receive(providers)
+        Task {
+            let files = await received.value
+            if files.isEmpty {
+                _ = browser.addActivity("Drop Files", state: .failed("Could not read the dragged files."))
+            } else {
+                browser.upload(files, into: destination)
+            }
+        }
+        return true
+    }
+
     private func chooseUploads() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -378,6 +406,55 @@ struct FileBrowserView: View {
         browser.upload(panel.urls)
     }
 
+}
+
+/// SwiftUI's row drag provides one item. An internal representation carries
+/// the whole selection while the file URL remains available to Finder.
+@MainActor
+enum FileDrop {
+    private static let selectionType = "com.pavelkhorenyan.termstead.file-selection"
+    static let types = [selectionType, UTType.fileURL.identifier]
+
+    static func provider(for files: [RemoteFile], leading: RemoteFile) -> NSItemProvider {
+        let provider = NSItemProvider(object: URL(fileURLWithPath: leading.path) as NSURL)
+        guard files.count > 1,
+              let data = try? JSONEncoder().encode(files.map({ URL(fileURLWithPath: $0.path) })) else { return provider }
+        provider.registerDataRepresentation(forTypeIdentifier: selectionType, visibility: .ownProcess) { complete in
+            complete(data, nil)
+            return nil
+        }
+        return provider
+    }
+
+    static func receive(_ providers: [NSItemProvider]) -> Task<[URL], Never> {
+        // Start the reads while the drop callback still grants access to the providers.
+        let items = providers.compactMap { provider -> (String, AsyncStream<Data>)? in
+            guard let type = types.first(where: provider.hasItemConformingToTypeIdentifier) else { return nil }
+            let stream = AsyncStream<Data> { continuation in
+                _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                    if let data { continuation.yield(data) }
+                    continuation.finish()
+                }
+            }
+            return (type, stream)
+        }
+        return Task {
+            var files: [URL] = []
+            for (type, stream) in items {
+                var reader = stream.makeAsyncIterator()
+                guard let data = await reader.next() else { return [] }
+                if type == selectionType {
+                    guard let selection = try? JSONDecoder().decode([URL].self, from: data),
+                          selection.allSatisfy(\.isFileURL) else { return [] }
+                    files.append(contentsOf: selection)
+                } else {
+                    guard let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL else { return [] }
+                    files.append(url)
+                }
+            }
+            return files
+        }
+    }
 }
 
 /// Transfers in progress and their outcomes, under the list.

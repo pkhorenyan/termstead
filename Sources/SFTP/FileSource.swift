@@ -57,7 +57,7 @@ struct LocalFiles: FileSource {
             // resolving drops `/private` from `/private/var`, and following
             // the terminal would see a move on every Return.
             let resolved = URL(fileURLWithPath: Self.realPath(path) ?? path)
-            let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
+            let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isHiddenKey, .fileSizeKey,
                                           .contentModificationDateKey]
             let urls: [URL]
             do {
@@ -77,7 +77,8 @@ struct LocalFiles: FileSource {
                                   modified: values?.contentModificationDate,
                                   permissions: Self.permissions(mode),
                                   owner: attributes[.ownerAccountName] as? String ?? "",
-                                  group: attributes[.groupOwnerAccountName] as? String ?? "")
+                                  group: attributes[.groupOwnerAccountName] as? String ?? "",
+                                  hasHiddenFlag: values?.isHidden == true)
             }
             return (resolved.path, files)
         }

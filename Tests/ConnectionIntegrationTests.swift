@@ -416,8 +416,21 @@ final class ConnectionIntegrationTests {
         let tree = directory.appendingPathComponent("documents", isDirectory: true)
         try FileManager.default.createDirectory(at: tree, withIntermediateDirectories: false)
         try "inside".write(to: tree.appendingPathComponent("note"), atomically: true, encoding: .utf8)
-        browser.upload([tree])
-        try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "documents" } }
+        try "mixed drag".write(to: directory.appendingPathComponent("drag.txt"), atomically: true, encoding: .utf8)
+        await local.load(directory.path)
+        let folderRow = try #require(local.visibleFiles.first { $0.name == "documents" })
+        let fileRow = try #require(local.visibleFiles.first { $0.name == "drag.txt" })
+        local.select(folderRow)
+        local.select(fileRow, modifiers: .command)
+        let provider = FileDrop.provider(for: local.filesForDrag(startingAt: folderRow), leading: folderRow)
+        let dropped = await FileDrop.receive([provider]).value
+        #expect(dropped.map(\.lastPathComponent) == ["documents", "drag.txt"])
+        let single = FileDrop.provider(for: [fileRow], leading: fileRow)
+        let externalDrop = await FileDrop.receive([single]).value
+        #expect(externalDrop.map(\.path) == [fileRow.path])
+        browser.upload(dropped)
+        try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "drag.txt" } }
+        #expect(try String(contentsOfFile: RemotePath.join(nested, "drag.txt"), encoding: .utf8) == "mixed drag")
         let remoteTree = try #require(browser.visibleFiles.first { $0.name == "documents" })
         browser.download([remoteTree], into: local)
         try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }

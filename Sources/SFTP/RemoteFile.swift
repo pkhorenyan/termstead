@@ -19,9 +19,10 @@ struct RemoteFile: Identifiable, Hashable, Sendable {
     var permissions: String
     var owner: String
     var group: String
+    var hasHiddenFlag = false
 
     var id: String { path }
-    var isHidden: Bool { name.hasPrefix(".") }
+    var isHidden: Bool { hasHiddenFlag || name.hasPrefix(".") }
 }
 
 enum RemotePath {

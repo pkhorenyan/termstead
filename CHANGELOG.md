@@ -16,6 +16,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   become visible under their final names after a successful transfer. Choose
   how to handle a name conflict for one file or the rest of the group.
 
+### Fixed
+
+- Clicking blank space in a file list clears the selection. Dragging a local
+  selection into SFTP uploads every selected file and folder.
+- Finder metadata alone no longer triggers the hidden-files message in the
+  local browser. Folders with hidden files offer a button to reveal them.
+
 ## [0.9.1] - 2026-11-20
 
 ### Fixed
