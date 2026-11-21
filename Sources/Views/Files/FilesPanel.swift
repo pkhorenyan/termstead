@@ -89,6 +89,9 @@ struct FileBrowserView: View {
     var transfer: Transfer? = nil
     var onFocus: () -> Void = {}
 
+    private let listOutlineOutset: CGFloat = 3
+    private let panelCornerRadius: CGFloat = 8
+
     @State private var pathText = ""
     @State private var renaming: RemoteFile?
     @State private var newName = ""
@@ -217,9 +220,10 @@ struct FileBrowserView: View {
             .font(SBFont.mono(11.5))
             .foregroundStyle(theme.text.color)
             .onSubmit { browser.go(to: pathText) }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 9 + listOutlineOutset)
             .frame(height: 28)
-            .background(FieldBackground(theme: theme, cornerRadius: 7))
+            .background(FieldBackground(theme: theme, cornerRadius: panelCornerRadius))
+            .padding(.horizontal, -listOutlineOutset)
             .accessibilityLabel(browser.isLocal ? "Local folder" : "Remote folder")
     }
 
@@ -271,9 +275,9 @@ struct FileBrowserView: View {
             if browser.visibleFiles.isEmpty { dropTarget() }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                 .strokeBorder(listOutlineColor, lineWidth: 1)
-                .padding(-3)
+                .padding(-listOutlineOutset)
                 .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
