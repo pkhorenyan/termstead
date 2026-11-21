@@ -272,7 +272,8 @@ struct FileBrowserView: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 1)
+                .strokeBorder(listOutlineColor, lineWidth: 1)
+                .padding(-3)
                 .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
@@ -283,6 +284,11 @@ struct FileBrowserView: View {
             Divider()
             Button("Refresh") { browser.refresh() }
         }
+    }
+
+    private var listOutlineColor: Color {
+        if theme.id == Theme.sepia.id { return theme.ansiBlue.color }
+        return Color(nsColor: .keyboardFocusIndicatorColor)
     }
 
     @ViewBuilder

@@ -27,6 +27,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to download them through the SFTP queue using native macOS drop handling.
 - Finder metadata alone no longer triggers the hidden-files message in the
   local browser. Folders with hidden files offer a button to reveal them.
+- The SFTP focus and drop outline clears selected row corners and uses a
+  deeper blue in Sepia for better contrast.
 
 ## [0.9.1] - 2026-11-20
 
