@@ -370,6 +370,10 @@ final class ConnectionIntegrationTests {
         let file = try #require(browser.visibleFiles.first { $0.name == "report.txt" })
         try "keep me".write(to: source, atomically: true, encoding: .utf8)
         browser.download([file], into: local)
+        try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }
+        let downloadConflict = try #require(browser.transfers.conflict)
+        #expect(downloadConflict.canReplace)
+        browser.transfers.resolve(downloadConflict.id, with: .keepBoth, forBatch: false)
         try await awaitCondition(timeout: 10) { local.visibleFiles.contains { $0.name == "report 2.txt" } }
         #expect(try String(contentsOf: directory.appendingPathComponent("report 2.txt"), encoding: .utf8) == "hello")
         #expect(try String(contentsOf: source, encoding: .utf8) == "keep me")
@@ -381,6 +385,49 @@ final class ConnectionIntegrationTests {
         let copied = try #require((pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.first)
         defer { try? FileManager.default.removeItem(at: copied.deletingLastPathComponent()) }
         #expect(try String(contentsOf: copied, encoding: .utf8) == "hello")
+
+        let another = directory.appendingPathComponent("other.txt")
+        try "new other".write(to: another, atomically: true, encoding: .utf8)
+        try "old other".write(toFile: RemotePath.join(nested, "other.txt"), atomically: true, encoding: .utf8)
+        browser.upload([source, another])
+        try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }
+        let uploadConflict = try #require(browser.transfers.conflict)
+        #expect(browser.activities.contains { $0.title.contains("other.txt") && $0.state == .queued })
+        browser.transfers.resolve(uploadConflict.id, with: .replace, forBatch: true)
+        try await awaitCondition(timeout: 10) {
+            (try? String(contentsOfFile: RemotePath.join(nested, "other.txt"), encoding: .utf8)) == "new other"
+        }
+        #expect(try String(contentsOfFile: RemotePath.join(nested, "report.txt"), encoding: .utf8) == "keep me")
+
+        let missing = ["missing-a.txt", "missing-b.txt"].map { directory.appendingPathComponent($0) }
+        browser.upload(missing)
+        try await awaitCondition(timeout: 10) { browser.activities.filter(browser.transfers.canRetry).count == 2 }
+        for url in missing { try "retry".write(to: url, atomically: true, encoding: .utf8) }
+        browser.transfers.retry(browser.activities.filter(browser.transfers.canRetry).map(\.id))
+        try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "missing-b.txt" } }
+        #expect(try String(contentsOfFile: RemotePath.join(nested, "missing-a.txt"), encoding: .utf8) == "retry")
+
+        browser.upload([source, another])
+        try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }
+        let skipConflict = try #require(browser.transfers.conflict)
+        browser.transfers.resolve(skipConflict.id, with: .skip, forBatch: true)
+        try await awaitCondition(timeout: 10) { browser.activities.filter { $0.state == .skipped }.count == 2 }
+
+        let tree = directory.appendingPathComponent("documents", isDirectory: true)
+        try FileManager.default.createDirectory(at: tree, withIntermediateDirectories: false)
+        try "inside".write(to: tree.appendingPathComponent("note"), atomically: true, encoding: .utf8)
+        browser.upload([tree])
+        try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "documents" } }
+        let remoteTree = try #require(browser.visibleFiles.first { $0.name == "documents" })
+        browser.download([remoteTree], into: local)
+        try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }
+        let folderConflict = try #require(browser.transfers.conflict)
+        #expect(!folderConflict.canReplace)
+        browser.transfers.resolve(folderConflict.id, with: .keepBoth, forBatch: false)
+        try await awaitCondition(timeout: 10) { local.visibleFiles.contains { $0.name == "documents 2" } }
+        #expect(try String(contentsOf: directory.appendingPathComponent("documents 2/note"), encoding: .utf8) == "inside")
+        let remaining = try await client.list(nested).files
+        #expect(!remaining.contains { $0.name.hasPrefix(".termstead-transfer-") })
         try FileManager.default.createSymbolicLink(atPath: RemotePath.join(remote, "link"),
                                                     withDestinationPath: source.path)
         try await client.removeDirectory(remote)

@@ -15,6 +15,12 @@ private actor ControlledFiles: FileSource {
     private(set) var savedContents: Data?
     private(set) var activeSaves = 0
     private(set) var maximumActiveSaves = 0
+    private var interruptedDownloads = 0
+    private var holdsDownload = false
+    private(set) var stagedDownload: URL?
+
+    func failNextDownload() { interruptedDownloads += 1 }
+    func holdNextDownload() { holdsDownload = true }
 
     func holdHome() { waitsForHome = true }
     func hasHomeRequest() -> Bool { homeRequest != nil }
@@ -49,7 +55,21 @@ private actor ControlledFiles: FileSource {
     }
 
     func isDirectory(_ path: String) async -> Bool { false }
-    func download(_ remote: String, recursive: Bool, to localDirectory: URL, as name: String) async throws {}
+    func download(_ remote: String, recursive: Bool, to localDirectory: URL, as name: String) async throws {
+        let target = localDirectory.appendingPathComponent(name)
+        stagedDownload = target
+        if holdsDownload {
+            holdsDownload = false
+            try Data("half".utf8).write(to: target)
+            try await Task.sleep(for: .seconds(30))
+        }
+        if interruptedDownloads > 0 {
+            interruptedDownloads -= 1
+            try Data("half".utf8).write(to: target)
+            throw SFTPError.failed("Connection lost")
+        }
+        try Data("complete".utf8).write(to: target)
+    }
     func upload(_ local: URL, to remoteDirectory: String) async throws {}
     func makeDirectory(_ path: String) async throws {}
     func rename(_ path: String, to newPath: String) async throws {}
@@ -172,6 +192,36 @@ struct FileBrowserOrderingTests {
         let file = root.appendingPathComponent("config")
         try Data("first".utf8).write(to: file)
         return file
+    }
+
+    @Test func interruptedAndCancelledDownloadsNeverPublishPartialFiles() async throws {
+        let (browser, client) = browser()
+        let folder = try localFile().deletingLastPathComponent()
+        defer { browser.stop(); try? FileManager.default.removeItem(at: folder) }
+        browser.downloadsDirectory = folder
+        let file = RemoteFile(name: "report", path: "/remote/report", kind: .file, size: 8,
+                              modified: nil, permissions: "rw-r--r--", owner: "lab", group: "lab")
+        await client.failNextDownload()
+        browser.download(file)
+        try await wait { browser.activities.first?.state == .failed("Connection lost") }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["config"])
+        let failed = try #require(browser.activities.first)
+        browser.transfers.retry([failed.id])
+        try await wait { browser.activities.first?.state == .done }
+        let result = folder.appendingPathComponent(file.name)
+        #expect(try String(contentsOf: result, encoding: .utf8) == "complete")
+
+        let another = RemoteFile(name: "cancelled", path: "/remote/cancelled", kind: .file, size: 8,
+                                 modified: nil, permissions: "rw-r--r--", owner: "lab", group: "lab")
+        await client.holdNextDownload()
+        browser.download(another)
+        try await wait { await client.stagedDownload?.lastPathComponent == another.name }
+        let pending = try #require(browser.activities.last)
+        #expect(pending.state != .done)
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent(another.name).path))
+        browser.transfers.cancel(pending.id)
+        try await wait { browser.activities.last?.state == .cancelled }
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == ["config", "report"])
     }
 
     @Test func savesOfOneFileAreSerializedAndUseImmutableCopies() async throws {

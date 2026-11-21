@@ -12,6 +12,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Standalone SFTP sessions show the Mac's files on the left and the server's
   files in the connected tab. Transfer files directly between the open
   folders. Connect with a key or password, including through SSH jump hosts.
+- Queue SFTP transfers with per-file progress, cancellation and retry. Files
+  become visible under their final names after a successful transfer. Choose
+  how to handle a name conflict for one file or the rest of the group.
 
 ## [0.9.1] - 2026-11-20
 

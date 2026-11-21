@@ -362,6 +362,7 @@ final class Connection: Identifiable {
     }
 
     func configureFileAccess(_ plan: SSHLaunchPlan?, title: String? = nil, problem: String? = nil) {
+        if fileAccessPlan != plan { browser?.transfers.sourceChanged() }
         fileAccess?.close()
         fileAccess = nil
         fileAccessPlan = plan
@@ -382,6 +383,7 @@ final class Connection: Identifiable {
         fileAccessProblem = nil
         access.onLogin = { [weak self, weak access] in
             guard let self, self.fileAccess === access else { return }
+            self.browser?.transfers.sourceReady()
             if self.browser?.isShown == true { self.browser?.refresh() }
             self.onLogin?()
         }
@@ -608,6 +610,7 @@ final class Connection: Identifiable {
             openTelnetThroughTunnel()
             return
         }
+        browser?.transfers.sourceReady()
         onLogin?()
         updateLoadWatch()
     }

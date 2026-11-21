@@ -95,6 +95,17 @@ struct SFTPClient: Equatable, Sendable {
         try await run(["rename \(Self.quote(path)) \(Self.quote(newPath))"])
     }
 
+    func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws {
+        // Legacy SFTP rename refuses an existing destination. The POSIX
+        // extension can atomically replace a file when the user asks for it.
+        try await run(["rename \(replacing ? "" : "-l ")\(Self.quote(path)) \(Self.quote(destination))"])
+    }
+
+    func makeTransferStage(_ path: String) async throws {
+        let quoted = Self.quote(path)
+        try await run(["mkdir \(quoted)", "chmod 700 \(quoted)"])
+    }
+
     func removeFile(_ path: String) async throws {
         try await run(["rm \(Self.quote(path))"])
     }
@@ -103,25 +114,25 @@ struct SFTPClient: Equatable, Sendable {
     /// Terminal sessions can remove the whole tree in one remote shell command.
     func removeDirectory(_ path: String) async throws {
         if usesOnlySFTP {
-            let listing = try await list(path)
-            // Do not descend if a directory has been replaced with a symlink.
-            guard path != "/", listing.path == path,
-                  listing.files.allSatisfy({ !$0.name.contains("/") }) else {
-                throw SFTPError.failed("The directory changed. Refresh the file list and try again.")
-            }
-            for file in listing.files {
-                if file.kind == .directory {
-                    try await removeDirectory(file.path)
-                } else {
-                    try await removeFile(file.path)
-                }
-            }
-            try await run(["rmdir \(Self.quote(path))"])
+            try await discardTransferStage(path)
             return
         }
         _ = try await Self.execute(executable: SSHLaunch.executable,
                                arguments: sharedOptions + [alias, "--", "rm", "-rf", "--", Self.shellQuote(path)],
                                input: nil)
+    }
+
+    func discardTransferStage(_ path: String) async throws {
+        let listing = try await list(path)
+        guard path != "/", listing.path == path,
+              listing.files.allSatisfy({ !$0.name.contains("/") }) else {
+            throw SFTPError.failed("The directory changed. Refresh the file list and try again.")
+        }
+        for file in listing.files {
+            if file.kind == .directory { try await discardTransferStage(file.path) }
+            else { try await removeFile(file.path) }
+        }
+        try await run(["rmdir \(Self.quote(path))"])
     }
 
     /// The folder the tab's shell is in, for "follow the terminal".

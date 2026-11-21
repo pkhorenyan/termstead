@@ -94,6 +94,7 @@ struct FileBrowserView: View {
     @State private var creatingFolder = false
     @State private var deleting: RemoteFile?
     @State private var dropTargeted = false
+    @State private var transferConflict: FileTransferQueue.Conflict?
     @FocusState private var listFocused: Bool
 
     var body: some View {
@@ -103,7 +104,7 @@ struct FileBrowserView: View {
             list
             // Its own view, so a progress tick re-renders the strip and not
             // the file list above it.
-            ActivityStrip(browser: browser, theme: theme)
+            ActivityStrip(browser: browser, theme: theme) { transferConflict = browser.transfers.conflict }
         }
         .onAppear {
             browser.isShown = true
@@ -112,6 +113,13 @@ struct FileBrowserView: View {
         }
         .onDisappear { browser.isShown = false }
         .onChange(of: browser.path) { pathText = browser.path ?? "" }
+        .onChange(of: browser.transfers.conflict?.id, initial: true) {
+            transferConflict = browser.transfers.conflict
+        }
+        .sheet(item: $transferConflict) { conflict in
+            TransferConflictSheet(conflict: conflict, queue: browser.transfers)
+                .interactiveDismissDisabled()
+        }
         .alert("Rename “\(renaming?.name ?? "")”", isPresented: Binding(
             get: { renaming != nil }, set: { if !$0 { renaming = nil } }
         )) {
@@ -350,6 +358,7 @@ struct FileBrowserView: View {
                                               to: folder, as: file.name)
                     completion(folder.appendingPathComponent(file.name), false, nil)
                 } catch {
+                    try? FileManager.default.removeItem(at: folder)
                     completion(nil, false, error)
                 }
             }
@@ -372,17 +381,63 @@ struct FileBrowserView: View {
 }
 
 /// Transfers in progress and their outcomes, under the list.
+private struct TransferConflictSheet: View {
+    let conflict: FileTransferQueue.Conflict
+    let queue: FileTransferQueue
+    @State private var applyToBatch = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("“\(conflict.name)” already exists")
+                .font(.headline)
+            Text(conflict.folder)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Toggle("Apply to the remaining conflicts in this group", isOn: $applyToBatch)
+            HStack {
+                Button("Cancel Transfer", role: .cancel) { queue.cancel(conflict.id) }
+                Spacer()
+                action("Skip", .skip)
+                if conflict.canReplace { action("Replace", .replace) }
+                action("Keep Both", .keepBoth).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 480)
+    }
+
+    private func action(_ title: String, _ choice: FileTransferQueue.Choice) -> some View {
+        Button(title) { queue.resolve(conflict.id, with: choice, forBatch: applyToBatch) }
+    }
+}
+
 private struct ActivityStrip: View {
     var browser: FileBrowser
     var theme: Theme
+    var onResolve: () -> Void
 
     var body: some View {
         if !browser.activities.isEmpty {
-            VStack(spacing: 4) {
-                ForEach(browser.activities) { activity in
-                    ActivityRow(activity: activity, theme: theme,
-                                onDismiss: { browser.dismiss(activity.id) })
+            let queue = browser.transfers
+            let failed = browser.activities.filter(queue.canRetry)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Transfers").font(SBFont.ui(11, .semibold))
+                    Spacer()
+                    if failed.count > 1 {
+                        Button("Retry Failed") { queue.retry(failed.map(\.id)) }.controlSize(.small)
+                    }
                 }
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(browser.activities) { activity in
+                            ActivityRow(activity: activity, theme: theme, queue: queue, onResolve: onResolve,
+                                        onDismiss: { browser.dismiss(activity.id) })
+                        }
+                    }
+                }
+                .frame(maxHeight: min(160, CGFloat(browser.activities.count) * 68))
             }
         }
     }
@@ -443,6 +498,8 @@ private struct FileRow: View {
 private struct ActivityRow: View {
     var activity: FileBrowser.Activity
     var theme: Theme
+    var queue: FileTransferQueue
+    var onResolve: () -> Void
     var onDismiss: () -> Void
 
     var body: some View {
@@ -480,13 +537,31 @@ private struct ActivityRow: View {
                 .foregroundStyle(theme.textSecondary.color)
                 .help("Show in Finder")
             }
-            if case .running = activity.state {} else {
-                Button(action: onDismiss) {
+            if queue.canRetry(activity) {
+                Button { queue.retry([activity.id]) } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(IconButtonStyle(theme: theme, size: CGSize(width: 20, height: 20)))
+                .help("Retry Transfer")
+                .accessibilityLabel("Retry Transfer")
+            }
+            if activity.state == .waitingForChoice {
+                Button(action: onResolve) {
+                    Image(systemName: "ellipsis.circle").font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(IconButtonStyle(theme: theme, size: CGSize(width: 20, height: 20)))
+                .help("Resolve Name Conflict")
+                .accessibilityLabel("Resolve Name Conflict")
+            }
+            let label = canCancel ? "Cancel Transfer" : "Dismiss"
+            if canCancel || isFinished {
+                Button { if canCancel { queue.cancel(activity.id) } else { onDismiss() } } label: {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
                 }
                 .buttonStyle(IconButtonStyle(theme: theme, size: CGSize(width: 20, height: 20)))
                 .foregroundStyle(theme.textSecondary.color)
-                .help("Dismiss")
+                .help(label)
+                .accessibilityLabel(label)
             }
         }
         .padding(.horizontal, 8)
@@ -497,9 +572,22 @@ private struct ActivityRow: View {
         )
     }
 
+    private var canCancel: Bool { queue.finishing != activity.id && queue.canCancel(activity) }
+
+    private var isFinished: Bool {
+        switch activity.state {
+        case .queued, .waitingForChoice, .running: false
+        default: true
+        }
+    }
+
     @ViewBuilder
     private var status: some View {
         switch activity.state {
+        case .queued:
+            Image(systemName: "clock").help("Queued")
+        case .waitingForChoice:
+            Image(systemName: "questionmark.circle").help("Waiting for a choice")
         case .running: ProgressView().controlSize(.mini)
         case .done:
             Image(systemName: "checkmark.circle.fill")
@@ -509,6 +597,10 @@ private struct ActivityRow: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11))
                 .foregroundStyle(theme.ansiRed.color)
+        case .cancelled:
+            Image(systemName: "xmark.circle").help("Cancelled")
+        case .skipped:
+            Image(systemName: "forward.circle").help("Skipped")
         }
     }
 }

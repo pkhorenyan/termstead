@@ -10,10 +10,14 @@ final class FileBrowser {
     /// One line in the panel's activity strip.
     struct Activity: Identifiable, Equatable {
         enum State: Equatable {
-            /// `progress` is nil when it cannot be measured (uploads, folders).
+            case queued
+            case waitingForChoice
+            /// `progress` is nil when it cannot be measured.
             case running(progress: Double?)
             case done
             case failed(String)
+            case cancelled
+            case skipped
         }
 
         let id = UUID()
@@ -84,7 +88,7 @@ final class FileBrowser {
     @ObservationIgnored private var loadRequest = UUID()
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var copyRequest = UUID()
-    @ObservationIgnored private var reservedUploads: Set<String> = []
+    @ObservationIgnored private(set) lazy var transfers = FileTransferQueue(browser: self)
     /// Tests use a private pasteboard; the app uses the normal Finder clipboard.
     @ObservationIgnored var pasteboard: NSPasteboard = .general
     /// Clipboard files must outlive a tab: Finder may paste after it closes.
@@ -99,6 +103,13 @@ final class FileBrowser {
     /// Overridable for tests; the real one belongs to the tab.
     @ObservationIgnored var clientOverride: (any FileSource)?
     var client: (any FileSource)? { clientOverride ?? localSource ?? connection?.files }
+    var transferClient: (any FileSource)? {
+        if let connection, !connection.isLocalShell {
+            let access = connection.kind == .vnc ? connection.fileAccess : connection
+            guard access?.isLoggedIn == true else { return nil }
+        }
+        return client
+    }
     var canFollowTerminal: Bool { localSource == nil && connection?.kind != .sftp }
     /// This Mac's files, for a local terminal.
     var isLocal: Bool { client?.isLocal ?? connection?.isLocalShell ?? false }
@@ -373,6 +384,8 @@ final class FileBrowser {
             activities.append(Activity(title: "Copy", state: .failed(error.localizedDescription)))
             return
         }
+        var published = false
+        defer { if !published { try? FileManager.default.removeItem(at: folder) } }
         for file in files {
             let ready = await perform("Copy “\(file.name)”", expectedSize: file.kind == .file ? file.size : nil,
                                       growing: folder.appendingPathComponent(file.name)) {
@@ -385,7 +398,7 @@ final class FileBrowser {
             return
         }
         pasteboard.clearContents()
-        pasteboard.writeObjects(files.map { folder.appendingPathComponent($0.name) as NSURL })
+        published = pasteboard.writeObjects(files.map { folder.appendingPathComponent($0.name) as NSURL })
     }
 
     func paste(into directory: String? = nil) {
@@ -402,79 +415,26 @@ final class FileBrowser {
         try? FileManager.default.removeItem(at: clipboardDirectory)
     }
 
-    /// Into ~/Downloads, under a name that does not overwrite anything there.
     func download(_ file: RemoteFile) {
-        guard let client else { return }
-        let directory = downloadsDirectory
-        Task { await download(file, using: client, to: directory) }
+        transfers.download([file], to: downloadsDirectory)
     }
 
-    /// Copies into the folder displayed when the transfer starts.
     func download(_ files: [RemoteFile], into local: FileBrowser) {
-        guard let client, local.isLocal, let path = local.path else { return }
-        let directory = URL(fileURLWithPath: path, isDirectory: true)
-        Task {
-            for file in files { await download(file, using: client, to: directory) }
-            if local.path == path, !local.isLoading { await local.load(path) }
-        }
-    }
-
-    private func download(_ file: RemoteFile, using client: any FileSource, to directory: URL) async {
-        guard !stopped else { return }
-        guard !file.name.isEmpty, file.name != ".", file.name != "..", !file.name.contains("/"),
-              !file.name.utf8.contains(0) else {
-            activities.append(Activity(title: "Download", state: .failed("Invalid file name.")))
-            return
-        }
-        var isFolder = file.kind == .directory
-        if file.kind == .symlink { isFolder = await client.isDirectory(file.path) }
-        let name = Self.freeName(file.name, in: directory)
-        let target = directory.appendingPathComponent(name)
-        Self.pendingDownloads.insert(target.path)
-        defer { Self.pendingDownloads.remove(target.path) }
-        await perform("Download “\(file.name)”", expectedSize: isFolder ? nil : file.size,
-                      growing: isFolder ? nil : target, result: target) {
-            try await client.download(file.path, recursive: isFolder, to: directory, as: name)
-        }
+        guard local.isLocal, let path = local.path else { return }
+        transfers.download(files, to: URL(fileURLWithPath: path, isDirectory: true), refresh: local)
     }
 
     /// Files and folders dropped from Finder or picked with Upload.
     func upload(_ urls: [URL], into directory: String? = nil) {
-        guard let client, let destination = directory ?? path else { return }
-        Task {
-            let names: [String]
-            do {
-                names = try await client.list(destination).files.map(\.name)
-            } catch {
-                activities.append(Activity(title: "Upload", state: .failed(error.localizedDescription)))
-                return
-            }
-            var occupied = Set(names)
-            for url in urls {
-                let name = url.lastPathComponent
-                let reservation = destination + "\0" + name
-                guard !occupied.contains(name), !reservedUploads.contains(reservation) else {
-                    activities.append(Activity(title: "Upload “\(name)”",
-                                               state: .failed("“\(name)” already exists in the destination. Rename it before pasting.")))
-                    continue
-                }
-                reservedUploads.insert(reservation)
-                let uploaded = await perform("Upload “\(name)”", {
-                    try await client.upload(url, to: destination)
-                })
-                reservedUploads.remove(reservation)
-                if uploaded { occupied.insert(name) }
-            }
-            if destination == path { await load(path) }
-        }
+        guard let destination = directory ?? path else { return }
+        transfers.upload(urls, to: destination)
     }
 
     /// Runs one operation with a line in the activity strip; says whether it worked.
     @discardableResult
     private func perform(_ title: String, expectedSize: Int64? = nil, growing: URL? = nil,
                          result: URL? = nil, _ work: @escaping () async throws -> Void) async -> Bool {
-        let activity = Activity(title: title, state: .running(progress: expectedSize == nil ? nil : 0))
-        activities.append(activity)
+        let id = addActivity(title, state: .running(progress: expectedSize == nil ? nil : 0))
         // `sftp` only draws a progress bar on a terminal, so a download's
         // progress is read off the file growing on disk instead.
         var watcher: Task<Void, Never>?
@@ -490,7 +450,7 @@ final class FileBrowser {
                     let percent = Int(progress * 100)
                     if percent != shown {
                         shown = percent
-                        self?.update(activity.id) { $0.state = .running(progress: progress) }
+                        self?.updateActivity(id) { $0.state = .running(progress: progress) }
                     }
                     try? await Task.sleep(for: .milliseconds(200))
                 }
@@ -499,38 +459,51 @@ final class FileBrowser {
         do {
             try await work()
             watcher?.cancel()
-            update(activity.id) { $0.state = .done; $0.localURL = result }
-            // A finished line clears itself; a failure stays until dismissed.
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(result == nil ? 3 : 8))
-                self?.dismiss(activity.id)
-            }
+            completeActivity(id, state: .done, result: result)
             return true
         } catch {
             watcher?.cancel()
             let message = (error as? SFTPError)?.description ?? error.localizedDescription
-            update(activity.id) { $0.state = .failed(message) }
+            updateActivity(id) { $0.state = .failed(message) }
             return false
         }
     }
 
-    private func update(_ id: UUID, _ change: (inout Activity) -> Void) {
+    func addActivity(_ title: String, state: Activity.State) -> UUID {
+        let activity = Activity(title: title, state: state)
+        activities.append(activity)
+        return activity.id
+    }
+
+    func completeActivity(_ id: UUID, state: Activity.State, result: URL?) {
+        updateActivity(id) { $0.state = state; $0.localURL = result }
+        if state == .done || state == .skipped {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(result == nil ? 3 : 8))
+                self?.dismiss(id)
+            }
+        }
+    }
+
+    func updateActivity(_ id: UUID, _ change: (inout Activity) -> Void) {
         guard let index = activities.firstIndex(where: { $0.id == id }) else { return }
         change(&activities[index])
     }
 
     func dismiss(_ id: UUID) {
+        transfers.forget(id)
         activities.removeAll { $0.id == id }
     }
 
-    private static var pendingDownloads: Set<String> = []
-
     static func freeName(_ name: String, in directory: URL) -> String {
-        func isTaken(_ name: String) -> Bool {
-            let path = directory.appendingPathComponent(name).path
-            return pendingDownloads.contains(path) || FileManager.default.fileExists(atPath: path)
+        freeName(name) { candidate in
+            let path = directory.appendingPathComponent(candidate).path
+            return FileManager.default.fileExists(atPath: path)
                 || (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
         }
+    }
+
+    static func freeName(_ name: String, isTaken: (String) -> Bool) -> String {
         guard isTaken(name) else { return name }
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
@@ -604,6 +577,7 @@ final class FileBrowser {
 
     /// The tab is closing: stop watching and throw away the local copies.
     func stop() {
+        transfers.stop()
         stopped = true
         loadRequest = UUID()
         isLoading = false

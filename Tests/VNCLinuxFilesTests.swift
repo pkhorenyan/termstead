@@ -89,14 +89,10 @@ struct VNCLinuxFilesTests {
 
         // A second Paste must not silently overwrite an existing remote file.
         browser.paste()
-        await wait { browser.activities.contains { activity in
-            if case .failed(let message) = activity.state { return message.contains("already exists") }
-            return false
-        } }
-        #expect(browser.activities.contains { activity in
-            if case .failed(let message) = activity.state { return message.contains("already exists") }
-            return false
-        })
+        await wait { browser.transfers.conflict != nil }
+        let conflict = try #require(browser.transfers.conflict)
+        #expect(conflict.name == file.lastPathComponent)
+        browser.transfers.resolve(conflict.id, with: .skip, forBatch: false)
 
         board.clearContents()
         await browser.copyToClipboard(entry)

@@ -20,8 +20,19 @@ protocol FileSource: Sendable {
     func rename(_ path: String, to newPath: String) async throws
     func removeFile(_ path: String) async throws
     func removeDirectory(_ path: String) async throws
+    func makeTransferStage(_ path: String) async throws
+    func discardTransferStage(_ path: String) async throws
+    func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws
     /// The folder the tab's shell is in, for "follow the terminal".
     func terminalDirectory() async -> String?
+}
+
+extension FileSource {
+    func makeTransferStage(_ path: String) async throws { try await makeDirectory(path) }
+    func discardTransferStage(_ path: String) async throws { try await removeDirectory(path) }
+    func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws {
+        try await rename(path, to: destination)
+    }
 }
 
 extension SFTPClient: FileSource {
@@ -109,6 +120,25 @@ struct LocalFiles: FileSource {
 
     func removeDirectory(_ path: String) async throws {
         try await removeFile(path)
+    }
+
+    func makeTransferStage(_ path: String) async throws {
+        try await Self.offMain {
+            try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+        }
+    }
+
+    func discardTransferStage(_ path: String) async throws {
+        try await Self.offMain { try FileManager.default.removeItem(atPath: path) }
+    }
+
+    func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws {
+        try await Self.offMain {
+            guard renamex_np(path, destination, replacing ? 0 : UInt32(RENAME_EXCL)) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
     }
 
     /// The working folder of what runs in the terminal — the shell, or a
