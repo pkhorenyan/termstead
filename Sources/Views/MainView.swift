@@ -13,10 +13,14 @@ struct MainView: View {
     /// Sidebar width is user-set and remembered between launches.
     @AppStorage("sidebar.width") private var sidebarWidth: Double = Double(Metrics.sidebarWidth)
 
+    private var sidebarSide: ThemeStore.SidebarSide {
+        connectionStore.active?.kind == .sftp ? .left : themeStore.sidebarSide
+    }
+
     /// The sidebar, on whichever side Settings puts it. Its divider and the
     /// grab strip that resizes it sit on the edge facing the terminal.
     private var sidebar: some View {
-        let side = themeStore.sidebarSide
+        let side = sidebarSide
         let inner: Alignment = side == .left ? .trailing : .leading
         return SidebarView(side: side)
             .frame(width: CGFloat(sidebarWidth))
@@ -50,7 +54,7 @@ struct MainView: View {
 
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                if themeStore.sidebarSide == .left {
+                if sidebarSide == .left {
                     if !appState.isSidebarHidden && !connectionStore.presentsDesktop { sidebar }
                     mainColumn
                 } else {
@@ -95,7 +99,7 @@ struct MainView: View {
                 }
             }
             if let connection = connectionStore.active, connection.kind == .sftp, connection.isLoggedIn {
-                appState.showSFTPSidebar()
+                appState.showLocalFiles()
             }
         }
         .background(
@@ -104,7 +108,7 @@ struct MainView: View {
                                minSize: Metrics.minWindowSize,
                                titlebarTitle: "Termstead",
                                sidebarToggle: .init(isHidden: appState.isSidebarHidden,
-                                                    side: themeStore.sidebarSide,
+                                                    side: sidebarSide,
                                                     toggle: { appState.isSidebarHidden.toggle() }),
                                frameAutosaveName: "MainWindow",
                                onOpenAppearance: {

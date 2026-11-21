@@ -23,14 +23,16 @@ struct SidebarView: View {
 
     var body: some View {
         @Bindable var appState = appState
+        let rail = SidebarTabRail(selection: $appState.sidebarTab, side: side,
+                                  showsLocalFiles: connectionStore.active?.kind == .sftp)
 
         HStack(spacing: 0) {
             if side == .left {
-                SidebarTabRail(selection: $appState.sidebarTab, side: side)
+                rail
                 panel
             } else {
                 panel
-                SidebarTabRail(selection: $appState.sidebarTab, side: side)
+                rail
             }
         }
         .alert(deletionTitle, isPresented: Binding(

@@ -28,11 +28,11 @@ extension SFTPClient: FileSource {
     var isLocal: Bool { false }
 }
 
-/// A local terminal's files: this Mac's disk, through `FileManager`.
+/// This Mac's disk, optionally following the folder of a local terminal.
 struct LocalFiles: FileSource {
     /// The tab's shell, and its terminal, for "follow the terminal".
-    var shellPID: pid_t
-    var terminalFD: Int32
+    var shellPID: pid_t = -1
+    var terminalFD: Int32 = -1
 
     var isLocal: Bool { true }
 
@@ -115,6 +115,7 @@ struct LocalFiles: FileSource {
     /// shell started from it (`bash`, `sudo -s` aside: another user's process
     /// tells nothing). macOS says it directly; no prompt has to be read.
     func terminalDirectory() async -> String? {
+        guard shellPID > 0 else { return nil }
         let foreground = terminalFD >= 0 ? tcgetpgrp(terminalFD) : -1
         return Self.workingDirectory(of: foreground > 0 ? foreground : shellPID)
             ?? Self.workingDirectory(of: shellPID)

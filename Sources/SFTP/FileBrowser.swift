@@ -74,6 +74,7 @@ final class FileBrowser {
     }
 
     @ObservationIgnored private weak var connection: Connection?
+    private let localSource: LocalFiles?
     @ObservationIgnored private var retry: Task<Void, Never>?
     /// Waits between tries while the terminal is still logging in: 1, 2, 4,
     /// then 5 s. It sat at 1 s forever, a `sftp` launch a second for as long
@@ -97,8 +98,8 @@ final class FileBrowser {
 
     /// Overridable for tests; the real one belongs to the tab.
     @ObservationIgnored var clientOverride: (any FileSource)?
-    var client: (any FileSource)? { clientOverride ?? connection?.files }
-    var canFollowTerminal: Bool { connection?.kind != .sftp }
+    var client: (any FileSource)? { clientOverride ?? localSource ?? connection?.files }
+    var canFollowTerminal: Bool { localSource == nil && connection?.kind != .sftp }
     /// This Mac's files, for a local terminal.
     var isLocal: Bool { client?.isLocal ?? connection?.isLocalShell ?? false }
 
@@ -108,6 +109,11 @@ final class FileBrowser {
 
     init(connection: Connection?) {
         self.connection = connection
+        localSource = nil
+    }
+
+    init(localFiles: LocalFiles) {
+        localSource = localFiles
     }
 
     // MARK: - Browsing
@@ -131,6 +137,8 @@ final class FileBrowser {
         retryDelay = .seconds(1)
         if path == nil {
             Task { await loadFirstFolder() }
+        } else if localSource != nil {
+            refresh()
         } else {
             Task { await followTerminal() }
         }
@@ -397,15 +405,36 @@ final class FileBrowser {
     /// Into ~/Downloads, under a name that does not overwrite anything there.
     func download(_ file: RemoteFile) {
         guard let client else { return }
+        let directory = downloadsDirectory
+        Task { await download(file, using: client, to: directory) }
+    }
+
+    /// Copies into the folder displayed when the transfer starts.
+    func download(_ files: [RemoteFile], into local: FileBrowser) {
+        guard let client, local.isLocal, let path = local.path else { return }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
         Task {
-            var isFolder = file.kind == .directory
-            if file.kind == .symlink { isFolder = await client.isDirectory(file.path) }
-            let name = Self.freeName(file.name, in: downloadsDirectory)
-            let target = downloadsDirectory.appendingPathComponent(name)
-            await perform("Download “\(file.name)”", expectedSize: isFolder ? nil : file.size,
-                          growing: isFolder ? nil : target, result: target) {
-                try await client.download(file.path, recursive: isFolder, to: self.downloadsDirectory, as: name)
-            }
+            for file in files { await download(file, using: client, to: directory) }
+            if local.path == path, !local.isLoading { await local.load(path) }
+        }
+    }
+
+    private func download(_ file: RemoteFile, using client: any FileSource, to directory: URL) async {
+        guard !stopped else { return }
+        guard !file.name.isEmpty, file.name != ".", file.name != "..", !file.name.contains("/"),
+              !file.name.utf8.contains(0) else {
+            activities.append(Activity(title: "Download", state: .failed("Invalid file name.")))
+            return
+        }
+        var isFolder = file.kind == .directory
+        if file.kind == .symlink { isFolder = await client.isDirectory(file.path) }
+        let name = Self.freeName(file.name, in: directory)
+        let target = directory.appendingPathComponent(name)
+        Self.pendingDownloads.insert(target.path)
+        defer { Self.pendingDownloads.remove(target.path) }
+        await perform("Download “\(file.name)”", expectedSize: isFolder ? nil : file.size,
+                      growing: isFolder ? nil : target, result: target) {
+            try await client.download(file.path, recursive: isFolder, to: directory, as: name)
         }
     }
 
@@ -494,14 +523,20 @@ final class FileBrowser {
         activities.removeAll { $0.id == id }
     }
 
+    private static var pendingDownloads: Set<String> = []
+
     static func freeName(_ name: String, in directory: URL) -> String {
-        let manager = FileManager.default
-        guard manager.fileExists(atPath: directory.appendingPathComponent(name).path) else { return name }
+        func isTaken(_ name: String) -> Bool {
+            let path = directory.appendingPathComponent(name).path
+            return pendingDownloads.contains(path) || FileManager.default.fileExists(atPath: path)
+                || (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
+        }
+        guard isTaken(name) else { return name }
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
         for index in 2... {
             let candidate = ext.isEmpty ? "\(base) \(index)" : "\(base) \(index).\(ext)"
-            if !manager.fileExists(atPath: directory.appendingPathComponent(candidate).path) { return candidate }
+            if !isTaken(candidate) { return candidate }
         }
         return name
     }

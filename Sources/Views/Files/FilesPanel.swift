@@ -30,14 +30,12 @@ struct FilesPanel: View {
                     }
                 }
             } else if connection.kind == .sftp {
-                if connection.isLoggedIn, connection.state.isRunning {
-                    FileBrowserView(browser: connection.fileBrowser, title: connection.title)
-                        .id(connection.id)
-                } else if connection.state.isRunning {
-                    placeholder("Connecting to SFTP…", "Complete sign-in in the session tab.")
-                } else {
-                    placeholder("Not connected", "Reconnect the tab to browse its files.")
-                }
+                let remote = connection.fileBrowser
+                FileBrowserView(browser: appState.localFiles, title: "This Mac",
+                                transfer: .init(title: "Upload to Remote Folder", symbol: "arrow.right",
+                                                available: connection.isLoggedIn && remote.path != nil) { files in
+                    remote.upload(files.map { URL(fileURLWithPath: $0.path) })
+                })
             } else if connection.kind == .rdp {
                 placeholder("Remote desktop",
                             "Files are browsed over SFTP, which an RDP session does not have.")
@@ -77,10 +75,18 @@ struct FilesPanel: View {
     }
 }
 
-private struct FileBrowserView: View {
+struct FileBrowserView: View {
+    struct Transfer {
+        var title: String
+        var symbol: String
+        var available: Bool
+        var run: ([RemoteFile]) -> Void
+    }
+
     @Environment(\.theme) private var theme
     @Bindable var browser: FileBrowser
     var title: String
+    var transfer: Transfer? = nil
 
     @State private var pathText = ""
     @State private var renaming: RemoteFile?
@@ -169,8 +175,12 @@ private struct FileBrowserView: View {
                 creatingFolder = true
             }
             .disabled(browser.path == nil)
-            tool("square.and.arrow.up", help: "Upload files or folders") { chooseUploads() }
+            tool("square.and.arrow.up", help: browser.isLocal ? "Copy files or folders here" : "Upload files or folders") { chooseUploads() }
                 .disabled(browser.path == nil)
+            if let transfer {
+                tool(transfer.symbol, help: transfer.title) { transfer.run(browser.selectedFiles) }
+                    .disabled(!transfer.available || browser.selectedFiles.isEmpty)
+            }
             tool(browser.showHidden ? "eye" : "eye.slash",
                  help: browser.showHidden ? "Hide hidden files" : "Show hidden files") {
                 browser.showHidden.toggle()
@@ -200,7 +210,7 @@ private struct FileBrowserView: View {
             .padding(.horizontal, 9)
             .frame(height: 28)
             .background(FieldBackground(theme: theme, cornerRadius: 7))
-            .accessibilityLabel("Remote folder")
+            .accessibilityLabel(browser.isLocal ? "Local folder" : "Remote folder")
     }
 
     // MARK: - List
@@ -247,7 +257,7 @@ private struct FileBrowserView: View {
         } isTargeted: { dropTargeted = $0 }
         .contextMenu {
             Button("New Folder…") { newName = ""; creatingFolder = true }
-            Button("Upload…") { chooseUploads() }
+            Button(browser.isLocal ? "Copy Here…" : "Upload…") { chooseUploads() }
             Button("Paste") { browser.paste() }
             Divider()
             Button("Refresh") { browser.refresh() }
@@ -296,6 +306,10 @@ private struct FileBrowserView: View {
             }
             .contextMenu {
                 Button(file.kind == .directory ? "Open" : "Open in Mac App") { browser.open(file) }
+                if let transfer {
+                    Button(transfer.title) { transfer.run(browser.selectedFiles) }
+                        .disabled(!transfer.available)
+                }
                 Button("Download to Downloads") { browser.download(file) }
                 Button("Copy") { browser.copySelected() }
                     .disabled(file.kind == .symlink)
@@ -319,6 +333,7 @@ private struct FileBrowserView: View {
     /// Dragging a row to Finder downloads it: the promise is kept only once
     /// Finder asks for the file, into a folder of the system's choosing.
     private static func provider(for file: RemoteFile, client: (any FileSource)?) -> NSItemProvider {
+        if client?.isLocal == true { return NSItemProvider(object: URL(fileURLWithPath: file.path) as NSURL) }
         let provider = NSItemProvider()
         provider.suggestedName = file.name
         guard let client else { return provider }

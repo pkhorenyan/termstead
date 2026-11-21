@@ -139,6 +139,7 @@ final class AppState {
     }
 
     var sidebarTab: SidebarTab = .sessions
+    let localFiles = FileBrowser(localFiles: LocalFiles())
 
     /// The sidebar can be put away (View ▸ Hide Sidebar, ⌘B, or the button
     /// beside the window's name), leaving the whole window to the terminals.
@@ -159,19 +160,19 @@ final class AppState {
         isSidebarHidden = defaults.bool(forKey: Self.sidebarHiddenKey)
     }
 
-    func showSFTPSidebar() {
+    func showLocalFiles() {
         sidebarTab = .files
         if isSidebarHidden { isSidebarHidden = false }
     }
 
-    /// A standalone SFTP session uses the sidebar as its file browser.
+    /// A standalone SFTP session opens the Mac's files beside the remote tab.
     /// Other sessions switch from Sessions only if their first folder loads.
     func showFiles(afterLoginOf connection: Connection, in store: ConnectionStore,
                    opensFilesAfterLogin: Bool = true) async {
         guard store.active === connection else { return }
         if connection.kind == .sftp {
             guard connection.isLoggedIn else { return }
-            showSFTPSidebar()
+            showLocalFiles()
             return
         }
         guard opensFilesAfterLogin, sidebarTab == .sessions else { return }

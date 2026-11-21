@@ -348,7 +348,11 @@ final class ConnectionIntegrationTests {
         #expect(appState.sidebarTab == .files)
         #expect(!appState.isSidebarHidden)
         let browser = connection.fileBrowser
+        let local = appState.localFiles
         #expect(!browser.canFollowTerminal)
+        #expect(!browser.isLocal)
+        #expect(local.isLocal)
+        #expect(!local.canFollowTerminal)
 
         let client = try #require(connection.sftp)
         let listing = try await client.list(directory.path)
@@ -358,15 +362,17 @@ final class ConnectionIntegrationTests {
         try await client.makeDirectory(remote)
         let nested = RemotePath.join(remote, "nested")
         try await client.makeDirectory(nested)
-        try await client.upload(source, to: nested)
         await browser.load(nested)
+        await local.load(directory.path)
+        let sourceFile = try #require(local.visibleFiles.first { $0.name == "report.txt" })
+        browser.upload([URL(fileURLWithPath: sourceFile.path)])
+        try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "report.txt" } }
         let file = try #require(browser.visibleFiles.first { $0.name == "report.txt" })
-        let downloads = directory.appendingPathComponent("downloads", isDirectory: true)
-        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: false)
-        browser.downloadsDirectory = downloads
-        browser.download(file)
-        try await awaitCondition(timeout: 10) { browser.activities.contains { $0.state == .done } }
-        #expect(try String(contentsOf: downloads.appendingPathComponent(file.name), encoding: .utf8) == "hello")
+        try "keep me".write(to: source, atomically: true, encoding: .utf8)
+        browser.download([file], into: local)
+        try await awaitCondition(timeout: 10) { local.visibleFiles.contains { $0.name == "report 2.txt" } }
+        #expect(try String(contentsOf: directory.appendingPathComponent("report 2.txt"), encoding: .utf8) == "hello")
+        #expect(try String(contentsOf: source, encoding: .utf8) == "keep me")
 
         let pasteboard = NSPasteboard.withUniqueName()
         browser.pasteboard = pasteboard

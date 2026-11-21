@@ -7,6 +7,7 @@ struct SidebarTabRail: View {
     @Environment(\.theme) private var theme
     @Binding var selection: AppState.SidebarTab
     var side: ThemeStore.SidebarSide = .left
+    var showsLocalFiles = false
 
     static let width: CGFloat = 34
 
@@ -26,6 +27,7 @@ struct SidebarTabRail: View {
 
     private func tabButton(_ tab: AppState.SidebarTab) -> some View {
         let isOn = tab == selection
+        let label = tab == .files && showsLocalFiles ? "Local" : tab.label
         return Button { selection = tab } label: {
             VerticalLabel {
                 HStack(spacing: 7) {
@@ -34,7 +36,7 @@ struct SidebarTabRail: View {
                     Image(systemName: tab.symbol)
                         .font(.system(size: 12, weight: .medium))
                         .rotationEffect(.degrees(90))
-                    Text(tab.label)
+                    Text(label)
                         .font(SBFont.ui(13, isOn ? .semibold : .regular))
                 }
                 .padding(.horizontal, 16)
@@ -51,8 +53,8 @@ struct SidebarTabRail: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(tab.label)
-        .accessibilityLabel(tab.label)
+        .help(label)
+        .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }

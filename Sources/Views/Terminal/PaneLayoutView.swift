@@ -258,25 +258,20 @@ struct PaneView: View {
     }
 
     private func sftpContent(_ connection: Connection) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "folder")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(theme.textFaint.color)
-            Text("Connected to \(connection.title)")
-                .font(SBFont.ui(13, .medium))
-                .foregroundStyle(theme.text.color)
-            if !isFocused || appState.isSidebarHidden || appState.sidebarTab != .files {
-                Button("Show SFTP") {
-                    connectionStore.focus(pane: pane)
-                    appState.showSFTPSidebar()
-                }
-                .buttonStyle(SecondaryButtonStyle(theme: theme, height: 28, fontSize: 12.5, filled: true))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.terminal.color)
-        .contentShape(Rectangle())
-        .onTapGesture { connectionStore.focus(pane: pane) }
+        let remote = connection.fileBrowser
+        let local = appState.localFiles
+        return FileBrowserView(browser: remote, title: connection.title,
+                               transfer: .init(title: "Download to Local Folder", symbol: "arrow.left",
+                                               available: local.path != nil) { files in
+            connectionStore.focus(pane: pane)
+            appState.showLocalFiles()
+            remote.download(files, into: local)
+        })
+            .id(connection.id)
+            .padding(12)
+            .background(theme.sidebar.color)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { connectionStore.focus(pane: pane) })
     }
 }
 

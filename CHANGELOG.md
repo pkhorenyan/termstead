@@ -9,9 +9,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Standalone SFTP sessions open the SFTP sidebar after sign-in. Connect with a key
-  or password, directly or through SSH jump hosts, including servers that
-  allow SFTP only.
+- Standalone SFTP sessions show the Mac's files on the left and the server's
+  files in the connected tab. Transfer files directly between the open
+  folders. Connect with a key or password, including through SSH jump hosts.
 
 ## [0.9.1] - 2026-11-20
 
