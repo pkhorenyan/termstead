@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Termstead
@@ -252,18 +253,17 @@ final class ConnectionIntegrationTests {
 
     /// A tab in a store whose logins are reported, the way `MainView` wires
     /// them to the sidebar.
-    private func loggingIn(_ session: Session) throws
+    private func loggingIn(_ session: Session, appState: AppState = AppState(), opensFilesAfterLogin: Bool = true) throws
         -> (Connection, AppState, ConnectionStore, LoginLog) {
         let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: false)
         let connection = Connection(sessionID: session.id, title: session.id, address: "",
-                                    keyDescription: "", keychain: keychain)
+                                    keyDescription: "", keychain: keychain, kind: session.kind)
         let store = ConnectionStore()
-        let appState = AppState()
         let log = LoginLog()
         store.onLogin = { connection in
             log.logins += 1
             Task {
-                await appState.showFiles(afterLoginOf: connection, in: store)
+                await appState.showFiles(afterLoginOf: connection, in: store, opensFilesAfterLogin: opensFilesAfterLogin)
                 log.handled += 1
             }
         }
@@ -335,15 +335,20 @@ final class ConnectionIntegrationTests {
         try await startServer(sftpOnly: true)
         var session = directSession()
         session.kind = .sftp
-        let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: true)
-        let connection = Connection(sessionID: session.id, title: session.id, address: session.address,
-                                    keyDescription: "", keychain: keychain, kind: session.kind)
-        connection.start(plan)
+        let domain = "termstead-sftp-sidebar-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let appState = AppState(defaults: defaults)
+        appState.sidebarTab = .snippets
+        appState.isSidebarHidden = true
+        let (connection, _, store, log) = try loggingIn(session, appState: appState, opensFilesAfterLogin: false)
         defer { connection.close() }
-        try await awaitCondition(timeout: 10) { connection.isLoggedIn }
-        #expect(!connection.fileBrowser.canFollowTerminal)
-        let loaded = await connection.fileBrowser.loadAfterLogin()
-        #expect(loaded)
+        try await awaitCondition(timeout: 10) { log.handled == 1 }
+        #expect(store.active === connection)
+        #expect(appState.sidebarTab == .files)
+        #expect(!appState.isSidebarHidden)
+        let browser = connection.fileBrowser
+        #expect(!browser.canFollowTerminal)
 
         let client = try #require(connection.sftp)
         let listing = try await client.list(directory.path)
@@ -354,9 +359,22 @@ final class ConnectionIntegrationTests {
         let nested = RemotePath.join(remote, "nested")
         try await client.makeDirectory(nested)
         try await client.upload(source, to: nested)
-        let target = RemotePath.join(nested, "report.txt")
-        try await client.download(target, recursive: false, to: directory, as: "received.txt")
-        #expect(try String(contentsOfFile: path("received.txt"), encoding: .utf8) == "hello")
+        await browser.load(nested)
+        let file = try #require(browser.visibleFiles.first { $0.name == "report.txt" })
+        let downloads = directory.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: false)
+        browser.downloadsDirectory = downloads
+        browser.download(file)
+        try await awaitCondition(timeout: 10) { browser.activities.contains { $0.state == .done } }
+        #expect(try String(contentsOf: downloads.appendingPathComponent(file.name), encoding: .utf8) == "hello")
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        browser.pasteboard = pasteboard
+        defer { pasteboard.releaseGlobally() }
+        await browser.copyToClipboard(file)
+        let copied = try #require((pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.first)
+        defer { try? FileManager.default.removeItem(at: copied.deletingLastPathComponent()) }
+        #expect(try String(contentsOf: copied, encoding: .utf8) == "hello")
         try FileManager.default.createSymbolicLink(atPath: RemotePath.join(remote, "link"),
                                                     withDestinationPath: source.path)
         try await client.removeDirectory(remote)

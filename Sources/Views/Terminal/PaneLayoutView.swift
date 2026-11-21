@@ -227,12 +227,7 @@ struct PaneView: View {
                     .overlay { VNCQuestionView(desktop: desktop) }
             } else if let connection = connectionStore.active(in: pane),
                       connection.kind == .sftp, connection.isLoggedIn {
-                FileBrowserView(browser: connection.fileBrowser, title: connection.title)
-                    .id(connection.id)
-                    .padding(12)
-                    .background(theme.sidebar.color)
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(TapGesture().onEnded { connectionStore.focus(pane: pane) })
+                sftpContent(connection)
             } else if let connection = connectionStore.active(in: pane) {
                 TerminalPane(connection: connection, theme: theme,
                              font: themeStore.terminalFont(size: connection.fontSize),
@@ -260,6 +255,28 @@ struct PaneView: View {
             } else {
                 EmptyPaneView(pane: pane)
             }
+    }
+
+    private func sftpContent(_ connection: Connection) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(theme.textFaint.color)
+            Text("Connected to \(connection.title)")
+                .font(SBFont.ui(13, .medium))
+                .foregroundStyle(theme.text.color)
+            if !isFocused || appState.isSidebarHidden || appState.sidebarTab != .files {
+                Button("Show SFTP") {
+                    connectionStore.focus(pane: pane)
+                    appState.showSFTPSidebar()
+                }
+                .buttonStyle(SecondaryButtonStyle(theme: theme, height: 28, fontSize: 12.5, filled: true))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.terminal.color)
+        .contentShape(Rectangle())
+        .onTapGesture { connectionStore.focus(pane: pane) }
     }
 }
 

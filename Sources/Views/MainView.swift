@@ -94,6 +94,9 @@ struct MainView: View {
                     window.toggleFullScreen(nil)
                 }
             }
+            if let connection = connectionStore.active, connection.kind == .sftp, connection.isLoggedIn {
+                appState.showSFTPSidebar()
+            }
         }
         .background(
             WindowConfigurator(theme: theme,
@@ -188,8 +191,10 @@ struct MainView: View {
         }
         .onAppear {
             connectionStore.onLogin = { [appState, themeStore, connectionStore] connection in
-                guard themeStore.showFilesAfterLogin else { return }
-                Task { await appState.showFiles(afterLoginOf: connection, in: connectionStore) }
+                Task {
+                    await appState.showFiles(afterLoginOf: connection, in: connectionStore,
+                                             opensFilesAfterLogin: themeStore.showFilesAfterLogin)
+                }
             }
             if appState.applyLaunchRoute() == "appearance" {
                 openWindow(id: TermsteadApp.appearanceWindowID)

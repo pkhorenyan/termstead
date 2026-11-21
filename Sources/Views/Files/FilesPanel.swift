@@ -30,7 +30,14 @@ struct FilesPanel: View {
                     }
                 }
             } else if connection.kind == .sftp {
-                placeholder("SFTP session", "Browse and transfer files in the session’s tab.")
+                if connection.isLoggedIn, connection.state.isRunning {
+                    FileBrowserView(browser: connection.fileBrowser, title: connection.title)
+                        .id(connection.id)
+                } else if connection.state.isRunning {
+                    placeholder("Connecting to SFTP…", "Complete sign-in in the session tab.")
+                } else {
+                    placeholder("Not connected", "Reconnect the tab to browse its files.")
+                }
             } else if connection.kind == .rdp {
                 placeholder("Remote desktop",
                             "Files are browsed over SFTP, which an RDP session does not have.")
@@ -70,7 +77,7 @@ struct FilesPanel: View {
     }
 }
 
-struct FileBrowserView: View {
+private struct FileBrowserView: View {
     @Environment(\.theme) private var theme
     @Bindable var browser: FileBrowser
     var title: String

@@ -159,12 +159,22 @@ final class AppState {
         isSidebarHidden = defaults.bool(forKey: Self.sidebarHiddenKey)
     }
 
-    /// After a tab logs in the sidebar turns to its files, as MobaXterm's
-    /// does — once the first folder has loaded, so it opens on folders, and
-    /// not at all for a server without SFTP. Only for the tab in front, and
-    /// only from Sessions: someone already in another tab's files keeps them.
-    func showFiles(afterLoginOf connection: Connection, in store: ConnectionStore) async {
-        guard connection.kind != .sftp, sidebarTab == .sessions, store.active === connection else { return }
+    func showSFTPSidebar() {
+        sidebarTab = .files
+        if isSidebarHidden { isSidebarHidden = false }
+    }
+
+    /// A standalone SFTP session uses the sidebar as its file browser.
+    /// Other sessions switch from Sessions only if their first folder loads.
+    func showFiles(afterLoginOf connection: Connection, in store: ConnectionStore,
+                   opensFilesAfterLogin: Bool = true) async {
+        guard store.active === connection else { return }
+        if connection.kind == .sftp {
+            guard connection.isLoggedIn else { return }
+            showSFTPSidebar()
+            return
+        }
+        guard opensFilesAfterLogin, sidebarTab == .sessions else { return }
         guard await connection.fileBrowser.loadAfterLogin(),
               sidebarTab == .sessions, store.active === connection else { return }
         sidebarTab = .files
