@@ -552,10 +552,12 @@ final class ConnectionStore {
         case (.rdp, _): "RDP"
         case (.vnc, _): "VNC"
         case (.telnet, _): "not encrypted"
+        case (.sftp, .password): "SFTP · password"
         case (.ssh, .password): "password"
-        case (.ssh, .key):
+        case (.ssh, .key), (.sftp, .key):
             // An empty path leaves the choice to ssh: agent and default keys.
-            session.keyPath.isEmpty ? "key: ssh default" : "key: " + (session.keyPath as NSString).lastPathComponent
+            (session.kind == .sftp ? "SFTP · " : "")
+                + (session.keyPath.isEmpty ? "key: ssh default" : "key: " + (session.keyPath as NSString).lastPathComponent)
         }
     }
 }

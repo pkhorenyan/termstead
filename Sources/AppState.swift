@@ -164,7 +164,7 @@ final class AppState {
     /// not at all for a server without SFTP. Only for the tab in front, and
     /// only from Sessions: someone already in another tab's files keeps them.
     func showFiles(afterLoginOf connection: Connection, in store: ConnectionStore) async {
-        guard sidebarTab == .sessions, store.active === connection else { return }
+        guard connection.kind != .sftp, sidebarTab == .sessions, store.active === connection else { return }
         guard await connection.fileBrowser.loadAfterLogin(),
               sidebarTab == .sessions, store.active === connection else { return }
         sidebarTab = .files

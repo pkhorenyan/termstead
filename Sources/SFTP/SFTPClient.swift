@@ -26,6 +26,7 @@ struct SFTPClient: Equatable, Sendable {
     var configPath: String
     var controlPath: String
     var alias: String
+    var usesOnlySFTP = false
 
     static let executable = "/usr/bin/sftp"
 
@@ -39,6 +40,8 @@ struct SFTPClient: Equatable, Sendable {
          // A user's config may name tunnels; a client joining the master
          // would ask it for them again.
          "-o", "ClearAllForwardings=yes"]
+            // Reuse the socket or fail if it disappears during an operation.
+            + (usesOnlySFTP ? ["-o", "ProxyCommand=/usr/bin/false"] : [])
     }
 
     // MARK: - Operations
@@ -96,9 +99,26 @@ struct SFTPClient: Equatable, Sendable {
         try await run(["rm \(Self.quote(path))"])
     }
 
-    /// The SFTP protocol only removes empty directories, so a folder goes with
-    /// `rm -rf` over the same connection instead of one request per file.
+    /// A standalone session removes children over SFTP before `rmdir`.
+    /// Terminal sessions can remove the whole tree in one remote shell command.
     func removeDirectory(_ path: String) async throws {
+        if usesOnlySFTP {
+            let listing = try await list(path)
+            // Do not descend if a directory has been replaced with a symlink.
+            guard path != "/", listing.path == path,
+                  listing.files.allSatisfy({ !$0.name.contains("/") }) else {
+                throw SFTPError.failed("The directory changed. Refresh the file list and try again.")
+            }
+            for file in listing.files {
+                if file.kind == .directory {
+                    try await removeDirectory(file.path)
+                } else {
+                    try await removeFile(file.path)
+                }
+            }
+            try await run(["rmdir \(Self.quote(path))"])
+            return
+        }
         _ = try await Self.execute(executable: SSHLaunch.executable,
                                arguments: sharedOptions + [alias, "--", "rm", "-rf", "--", Self.shellQuote(path)],
                                input: nil)
@@ -150,6 +170,9 @@ struct SFTPClient: Equatable, Sendable {
 
     /// The output, and what sftp said on stderr even when it exited 0.
     private func runReportingErrors(_ commands: [String]) async throws -> (output: String, errors: [String]) {
+        guard commands.allSatisfy({ !$0.utf8.contains(10) && !$0.utf8.contains(13) }) else {
+            throw SFTPError.failed("SFTP paths containing line breaks are unsupported.")
+        }
         let batch = commands.joined(separator: "\n") + "\n"
         return try await Self.executeReportingErrors(executable: Self.executable,
                                                      arguments: sharedOptions + ["-b", "-", alias],

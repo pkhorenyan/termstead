@@ -46,7 +46,7 @@ final class ConnectionIntegrationTests {
         return process.terminationStatus
     }
 
-    private func startServer(passphrase: String = "", sftp: Bool = true) async throws {
+    private func startServer(passphrase: String = "", sftp: Bool = true, sftpOnly: Bool = false) async throws {
         try run("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path("hostkey")])
         try run("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", passphrase, "-C", "termstead-test", "-f", path("clientkey")])
         try FileManager.default.copyItem(atPath: path("clientkey.pub"), toPath: path("authorized_keys"))
@@ -64,6 +64,7 @@ final class ConnectionIntegrationTests {
             PasswordAuthentication no
             KbdInteractiveAuthentication no
             \(sftp ? "Subsystem sftp /usr/libexec/sftp-server" : "")
+            \(sftpOnly ? "ForceCommand internal-sftp\nPermitTTY no" : "")
             """
             try config.write(toFile: path("sshd_config"), atomically: true, encoding: .utf8)
             let process = Process()
@@ -327,6 +328,40 @@ final class ConnectionIntegrationTests {
         #expect(log.logins == 1)
         #expect(appState.sidebarTab == .sessions)
         #expect(connection.fileBrowser.problem != nil)
+    }
+
+    @Test func standaloneSFTPSessionWorksWithShellAccessDisabled() async throws {
+        try #require(FileManager.default.isExecutableFile(atPath: "/usr/sbin/sshd"))
+        try await startServer(sftpOnly: true)
+        var session = directSession()
+        session.kind = .sftp
+        let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: true)
+        let connection = Connection(sessionID: session.id, title: session.id, address: session.address,
+                                    keyDescription: "", keychain: keychain, kind: session.kind)
+        connection.start(plan)
+        defer { connection.close() }
+        try await awaitCondition(timeout: 10) { connection.isLoggedIn }
+        #expect(!connection.fileBrowser.canFollowTerminal)
+        let loaded = await connection.fileBrowser.loadAfterLogin()
+        #expect(loaded)
+
+        let client = try #require(connection.sftp)
+        let listing = try await client.list(directory.path)
+        let remote = RemotePath.join(listing.path, "sftp folder")
+        let source = directory.appendingPathComponent("report.txt")
+        try "hello".write(to: source, atomically: true, encoding: .utf8)
+        try await client.makeDirectory(remote)
+        let nested = RemotePath.join(remote, "nested")
+        try await client.makeDirectory(nested)
+        try await client.upload(source, to: nested)
+        let target = RemotePath.join(nested, "report.txt")
+        try await client.download(target, recursive: false, to: directory, as: "received.txt")
+        #expect(try String(contentsOfFile: path("received.txt"), encoding: .utf8) == "hello")
+        try FileManager.default.createSymbolicLink(atPath: RemotePath.join(remote, "link"),
+                                                    withDestinationPath: source.path)
+        try await client.removeDirectory(remote)
+        #expect(!FileManager.default.fileExists(atPath: remote))
+        #expect(FileManager.default.fileExists(atPath: source.path))
     }
 
     /// The Files panel rides on the terminal's connection. The key has a

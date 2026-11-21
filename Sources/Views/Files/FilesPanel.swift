@@ -29,6 +29,8 @@ struct FilesPanel: View {
                         }
                     }
                 }
+            } else if connection.kind == .sftp {
+                placeholder("SFTP session", "Browse and transfer files in the session’s tab.")
             } else if connection.kind == .rdp {
                 placeholder("Remote desktop",
                             "Files are browsed over SFTP, which an RDP session does not have.")
@@ -68,7 +70,7 @@ struct FilesPanel: View {
     }
 }
 
-private struct FileBrowserView: View {
+struct FileBrowserView: View {
     @Environment(\.theme) private var theme
     @Bindable var browser: FileBrowser
     var title: String
@@ -146,11 +148,13 @@ private struct FileBrowserView: View {
                 .disabled(browser.path == nil || browser.path == "/")
             tool("house", help: "Home folder") { browser.goHome() }
             tool("arrow.clockwise", help: "Refresh") { browser.refresh() }
-            tool("link", help: browser.followsTerminal
-                    ? "Following the terminal's folder — click to stop"
-                    : "Follow the terminal's folder",
-                 isOn: browser.followsTerminal) {
-                browser.followsTerminal.toggle()
+            if browser.canFollowTerminal {
+                tool("link", help: browser.followsTerminal
+                        ? "Following the terminal's folder — click to stop"
+                        : "Follow the terminal's folder",
+                     isOn: browser.followsTerminal) {
+                    browser.followsTerminal.toggle()
+                }
             }
             Spacer(minLength: 4)
             tool("folder.badge.plus", help: "New folder") {

@@ -344,9 +344,10 @@ final class Connection: Identifiable {
     /// terminal's own connection. `nil` while ssh is not running.
     var sftp: SFTPClient? {
         guard state.isRunning, let workDirectory, let plan else { return nil }
+        if kind == .sftp, !isLoggedIn { return nil }
         return SFTPClient(configPath: workDirectory.appendingPathComponent("ssh_config").path,
                           controlPath: workDirectory.appendingPathComponent("cm").path,
-                          alias: plan.target.alias)
+                          alias: plan.target.alias, usesOnlySFTP: kind == .sftp)
     }
 
     /// What the Files panel browses: the server over SFTP, or this Mac for
@@ -597,8 +598,8 @@ final class Connection: Identifiable {
         isLoggedIn = true
         didLogIn = true
         if kind != .vnc { reconnectAttempts = 0 }
-        // An RDP tab's ssh is only its tunnel: no Files tab, no server load.
-        if !kind.hasTerminal {
+        // Remote desktops use ssh only for their tunnel.
+        if kind == .rdp || kind == .vnc {
             openDesktopThroughTunnel()
             return
         }
@@ -688,6 +689,7 @@ final class Connection: Identifiable {
         state = .exited(code: exitCode)
         if kind == .vnc { stopFileAccess() }
         isLoggedIn = false
+        if kind == .sftp { browser?.resetForNewSource() }
         onEnded?()
         stopLoadWatch()
         serverLoad = nil
@@ -706,7 +708,7 @@ final class Connection: Identifiable {
         if reconnectsAutomatically, desktopEndReason == nil,
            Self.shouldReconnect(exitCode: exitCode, didLogIn: didLogIn, attempts: reconnectAttempts,
                                 isLocalShell: isLocalShell, isTunnelOnly: isTunnelOnly,
-                                isDesktopOrTelnet: kind != .ssh) {
+                                isDesktopOrTelnet: !kind.usesSSHAuthentication) {
             scheduleReconnect()
             return
         }

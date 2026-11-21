@@ -225,6 +225,14 @@ struct PaneView: View {
                         onFocus: { connectionStore.focus(pane: pane) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay { VNCQuestionView(desktop: desktop) }
+            } else if let connection = connectionStore.active(in: pane),
+                      connection.kind == .sftp, connection.isLoggedIn {
+                FileBrowserView(browser: connection.fileBrowser, title: connection.title)
+                    .id(connection.id)
+                    .padding(12)
+                    .background(theme.sidebar.color)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(TapGesture().onEnded { connectionStore.focus(pane: pane) })
             } else if let connection = connectionStore.active(in: pane) {
                 TerminalPane(connection: connection, theme: theme,
                              font: themeStore.terminalFont(size: connection.fontSize),

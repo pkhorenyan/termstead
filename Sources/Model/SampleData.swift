@@ -81,7 +81,11 @@ extension SessionStore {
     ///                     bastion ─▶ rdp:3389         (lab-rdp-via-bastion)
     static func testLab() -> (group: SessionGroup, sessions: [Session]) {
         let key = "~/.ssh/termstead-lab"
+        var sftp = Session(id: "lab-sftp", user: "lab", host: "127.0.0.1", port: 2201,
+                           icon: .drive, auth: .key, keyPath: key)
+        sftp.kind = .sftp
         let sessions = [
+            sftp,
             Session(id: "lab-direct", user: "lab", host: "127.0.0.1", port: 2201,
                     icon: .server, auth: .key, keyPath: key),
             Session(id: "lab-direct-password", user: "lab", host: "127.0.0.1", port: 2201,
@@ -145,7 +149,7 @@ extension SessionStore {
         ]
         let group = SessionGroup(id: "testlab", name: "Test lab", colorID: nil, children: [
             .group(SessionGroup(id: "testlab-direct", name: "Direct", colorID: "mint", children: [
-                .session("lab-direct"), .session("lab-direct-password"), .session("lab-direct-passphrase"),
+                .session("lab-direct"), .session("lab-direct-password"), .session("lab-direct-passphrase"), .session("lab-sftp"),
                 .session("lab-rdp"), .session("lab-vnc"), .session("lab-vnc-ssh"), .session("lab-vnc-tls"), .session("lab-telnet"), .session("lab-telnet-via-bastion"),
             ])),
             .group(SessionGroup(id: "testlab-jump", name: "Through jump hosts", colorID: "blue", children: [

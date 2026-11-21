@@ -775,7 +775,7 @@ struct SessionSheet: View {
     /// session's, for a hop named after one — rather than "the same as this
     /// session".
     private func hopAuthLabel(_ auth: JumpHost.Auth) -> String {
-        kind != .ssh && auth == .session ? "Default" : auth.shortLabel
+        !kind.usesSSHAuthentication && auth == .session ? "Default" : auth.shortLabel
     }
 
     private static let hopNumberSize: CGFloat = 22
@@ -1009,10 +1009,10 @@ struct SessionSheet: View {
         }
         guard saveToKeychain else { return }
 
-        if authMode == .password || !kind.hasTerminal, !password.isEmpty {
+        if authMode == .password || (!kind.hasTerminal && !kind.usesSSHAuthentication), !password.isEmpty {
             keychain.set(password, for: SSHLaunch.sessionPasswordAccount(sessionID))
         }
-        if kind == .ssh, authMode == .key, !passphrase.isEmpty, let passphraseAccount {
+        if kind.usesSSHAuthentication, authMode == .key, !passphrase.isEmpty, let passphraseAccount {
             keychain.set(passphrase, for: passphraseAccount)
         }
         if kind == .vnc, vncFileAccessEnabled, vncFileAccess.auth == .password,
@@ -1040,7 +1040,7 @@ struct SessionSheet: View {
             port: Int(port) ?? kind.defaultPort,
             icon: icon,
             // A remote desktop always logs in with a password.
-            auth: !kind.hasTerminal ? .password : authMode,
+            auth: kind.usesSSHAuthentication || kind.hasTerminal ? authMode : .password,
             keyPath: keyPath.trimmingCharacters(in: .whitespaces).isEmpty
                 ? Session.defaultKeyPath
                 : keyPath.trimmingCharacters(in: .whitespaces),
@@ -1065,7 +1065,7 @@ struct SessionSheet: View {
             session.vnc = vnc
         case .ssh:
             session.forwards = forwards
-        case .telnet:
+        case .sftp, .telnet:
             break
         }
 

@@ -120,15 +120,15 @@ struct PortForward: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
-/// What a session opens: a shell over ssh, a remote desktop, or Telnet —
-/// switches, routers and other gear that speaks nothing newer.
+/// What a session opens: a terminal, a file browser, or a remote desktop.
 enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
-    case ssh, rdp, telnet, vnc
+    case ssh, sftp, rdp, telnet, vnc
 
     var id: String { rawValue }
     var label: String {
         switch self {
         case .ssh: "SSH"
+        case .sftp: "SFTP"
         case .rdp: "RDP"
         case .telnet: "Telnet"
         case .vnc: "VNC"
@@ -136,7 +136,7 @@ enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
     }
     var defaultPort: Int {
         switch self {
-        case .ssh: 22
+        case .ssh, .sftp: 22
         case .rdp: 3389
         case .telnet: 23
         case .vnc: 5900
@@ -146,12 +146,15 @@ enum SessionKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
     var defaultIcon: SessionIcon {
         switch self {
         case .ssh: .server
+        case .sftp: .drive
         case .rdp, .vnc: .monitor
         case .telnet: .router
         }
     }
     /// A terminal tab: typing, Find, broadcast input and snippets apply.
     var hasTerminal: Bool { self == .ssh || self == .telnet }
+
+    var usesSSHAuthentication: Bool { self == .ssh || self == .sftp }
 }
 
 /// Optional SSH login used only by the SFTP panel beside a VNC desktop.

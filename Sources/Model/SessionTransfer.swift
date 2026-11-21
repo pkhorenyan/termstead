@@ -113,7 +113,7 @@ enum SessionTransfer {
             if session.kind != .telnet {
                 wanted.append(.init(sessionID: identity, role: "password", value: ""))
             }
-            if session.kind == .ssh && session.auth == .key && !session.keyPath.isEmpty {
+            if session.kind.usesSSHAuthentication && session.auth == .key && !session.keyPath.isEmpty {
                 wanted.append(.init(sessionID: identity, role: "keyPassphrase", value: ""))
             }
             if session.kind == .vnc && session.vnc.fileAccess?.auth == .password {

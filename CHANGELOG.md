@@ -7,6 +7,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Standalone SFTP sessions open a file browser in a tab. Connect with a key
+  or password, directly or through SSH jump hosts, including servers that
+  allow SFTP only.
+
 ## [0.9.1] - 2026-11-20
 
 ### Fixed

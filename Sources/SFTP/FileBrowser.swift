@@ -98,6 +98,7 @@ final class FileBrowser {
     /// Overridable for tests; the real one belongs to the tab.
     @ObservationIgnored var clientOverride: (any FileSource)?
     var client: (any FileSource)? { clientOverride ?? connection?.files }
+    var canFollowTerminal: Bool { connection?.kind != .sftp }
     /// This Mac's files, for a local terminal.
     var isLocal: Bool { client?.isLocal ?? connection?.isLocalShell ?? false }
 
@@ -156,7 +157,7 @@ final class FileBrowser {
         let request = beginLoad()
         defer { if request == loadRequest { isLoading = false } }
         let directory: String?
-        if followsTerminal { directory = await client?.terminalDirectory() } else { directory = nil }
+        if canFollowTerminal && followsTerminal { directory = await client?.terminalDirectory() } else { directory = nil }
         guard isCurrent(request) else { return }
         await load(directory, request: request)
     }
@@ -184,7 +185,7 @@ final class FileBrowser {
     private func followTerminal() async {
         guard !stopped, !Task.isCancelled else { return }
         let request = loadRequest
-        guard followsTerminal, let client, let directory = await client.terminalDirectory(),
+        guard canFollowTerminal, followsTerminal, let client, let directory = await client.terminalDirectory(),
               isCurrent(request), followsTerminal, directory != path else { return }
         await load(directory)
     }
