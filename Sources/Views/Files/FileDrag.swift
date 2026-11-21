@@ -23,6 +23,7 @@ final class FileDragView: NSView, NSDraggingSource {
     private var pressLocation: NSPoint?
     private var collapsesOnMouseUp = false
     private(set) var pressedFiles: [RemoteFile] = []
+    private(set) var draggedFiles: FileDrop.Payload?
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -58,12 +59,24 @@ final class FileDragView: NSView, NSDraggingSource {
         let dx = event.locationInWindow.x - start.x
         let dy = event.locationInWindow.y - start.y
         guard dx * dx + dy * dy > 9 else { return }
-        guard let browser else { return }
-        let items = Self.draggingItems(for: pressedFiles, from: browser, at: convert(start, from: nil))
+        let items = prepareDrag(at: convert(start, from: nil))
         resetPress()
         guard !items.isEmpty else { return }
         let session = beginDraggingSession(with: items, event: event, source: self)
         session.draggingFormation = .stack
+    }
+
+    func prepareDrag(at point: NSPoint) -> [NSDraggingItem] {
+        draggedFiles = nil
+        guard let browser else { return [] }
+        let items = Self.draggingItems(for: pressedFiles, from: browser, at: point)
+        guard !items.isEmpty else { return [] }
+        if browser.isLocal {
+            draggedFiles = .local(pressedFiles.map { URL(fileURLWithPath: $0.path) })
+        } else if let reference = (items.first?.item as? RemoteFileDragWriter)?.reference {
+            draggedFiles = .remote(reference)
+        }
+        return items
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -90,7 +103,8 @@ final class FileDragView: NSView, NSDraggingSource {
             let type: UTType = file.kind == .directory ? .folder : .data
             let writer = RemoteFileDragWriter(fileType: type.identifier, delegate: promise)
             writer.userInfo = promise // The provider's delegate is weak.
-            writer.reference = data
+            writer.reference = reference
+            writer.referenceData = data
             return writer
         }
     }
@@ -109,25 +123,121 @@ final class FileDragView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        draggedFiles = nil
+    }
 }
 
 struct RemoteFileDragReference: Codable, Equatable, Sendable {
     static let type = UTType(exportedAs: "com.pavelkhorenyan.termstead.remote-file-drag", conformingTo: .data)
+    static let pasteboardType = NSPasteboard.PasteboardType(type.identifier)
     let connectionID: UUID
     let token: UUID
 }
 
 private final class RemoteFileDragWriter: NSFilePromiseProvider {
-    static let pasteboardType = NSPasteboard.PasteboardType(RemoteFileDragReference.type.identifier)
-    var reference: Data?
+    var reference: RemoteFileDragReference?
+    var referenceData: Data?
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        super.writableTypes(for: pasteboard) + [Self.pasteboardType]
+        super.writableTypes(for: pasteboard) + [RemoteFileDragReference.pasteboardType]
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.pasteboardType { return reference }
+        if type == RemoteFileDragReference.pasteboardType { return referenceData }
         return super.pasteboardPropertyList(forType: type)
+    }
+
+    override func writingOptions(forType type: NSPasteboard.PasteboardType,
+                                 pasteboard: NSPasteboard) -> NSPasteboard.WritingOptions {
+        if type == RemoteFileDragReference.pasteboardType { return [] }
+        return super.writingOptions(forType: type, pasteboard: pasteboard)
+    }
+}
+
+/// AppKit supplies the drag source and its pasteboard directly to this target.
+struct FileDropTarget: NSViewRepresentable {
+    var acceptsRemoteFiles: Bool
+    var onTargeted: (Bool) -> Void
+    var onDrop: (FileDrop.Payload) -> Bool
+
+    func makeNSView(context: Context) -> FileDropTargetView { FileDropTargetView() }
+
+    func updateNSView(_ view: FileDropTargetView, context: Context) {
+        view.acceptsRemoteFiles = acceptsRemoteFiles
+        view.onTargeted = onTargeted
+        view.onDrop = onDrop
+    }
+}
+
+final class FileDropTargetView: NSView {
+    var acceptsRemoteFiles = false {
+        didSet { if oldValue != acceptsRemoteFiles { updateDropTypes() } }
+    }
+    var onTargeted: (Bool) -> Void = { _ in }
+    var onDrop: (FileDrop.Payload) -> Bool = { _ in false }
+    private var operation: NSDragOperation = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        updateDropTypes()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not loaded from a nib") }
+
+    private func updateDropTypes() {
+        var types: [NSPasteboard.PasteboardType] = [.fileURL]
+        if acceptsRemoteFiles {
+            types.append(RemoteFileDragReference.pasteboardType)
+            // The native source can supply the remote selection even if the
+            // system advertises only the standard file promise types.
+            types += NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        }
+        unregisterDraggedTypes()
+        registerForDraggedTypes(types)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        switch NSApp.currentEvent?.type {
+        case .leftMouseUp where operation.isEmpty: return nil
+        case .leftMouseDown, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp,
+             .mouseMoved, .scrollWheel: return nil
+        default: return super.hitTest(point)
+        }
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let accepted: Bool
+        switch (sender.draggingSource as? FileDragView)?.draggedFiles {
+        case .local: accepted = true
+        case .remote: accepted = acceptsRemoteFiles
+        case nil:
+            let types = sender.draggingPasteboard.types ?? []
+            accepted = types.contains(.fileURL)
+                || (acceptsRemoteFiles && types.contains(RemoteFileDragReference.pasteboardType))
+        }
+        operation = accepted && sender.draggingSourceOperationMask.contains(.copy) ? .copy : []
+        onTargeted(!operation.isEmpty)
+        return operation
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { operation }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) { clearTarget() }
+
+    private func clearTarget() {
+        operation = []
+        onTargeted(false)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        defer { clearTarget() }
+        let source = sender.draggingSource as? FileDragView
+        guard let payload = source?.draggedFiles ?? FileDrop.read(sender.draggingPasteboard) else { return false }
+        if case .remote = payload, !acceptsRemoteFiles { return false }
+        return onDrop(payload)
     }
 }
 

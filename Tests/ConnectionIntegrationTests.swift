@@ -435,13 +435,23 @@ final class ConnectionIntegrationTests {
                                                    clickCount: 1, pressure: 1))
         dragView.mouseDown(with: press)
         #expect(local.selectedFiles.count == 3)
-        let dragItems = FileDragView.draggingItems(for: dragView.pressedFiles, from: local, at: .zero)
-        let providers = try dragItems.map { item in NSItemProvider(object: try #require(item.item as? NSURL)) }
-        let dropped = await FileDrop.receive(providers).value
-        #expect(dropped.map(\.lastPathComponent) == ["documents", "pictures", "drag.txt"])
+        let dragItems = dragView.prepareDrag(at: .zero)
+        let dragBoard = NSPasteboard.withUniqueName()
+        defer { dragBoard.releaseGlobally() }
+        let localWriters = try dragItems.map { item in try #require(item.item as? NSURL) }
+        #expect(dragBoard.writeObjects(localWriters))
+        let ofLocalFiles = FileDropTargetView()
+        ofLocalFiles.onDrop = { payload in
+            guard case .local(let dropped) = payload else { return false }
+            #expect(dropped.map(\.lastPathComponent) == ["documents", "pictures", "drag.txt"])
+            browser.upload(dropped)
+            return true
+        }
+        let localDrop = TestFileDrop(pasteboard: dragBoard)
+        #expect(ofLocalFiles.draggingEntered(localDrop) == .copy)
+        #expect(ofLocalFiles.performDragOperation(localDrop))
         dragView.mouseUp(with: press)
         #expect(local.selectedFiles.map(\.name) == ["pictures"])
-        browser.upload(dropped)
         try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "drag.txt" } }
         #expect(try String(contentsOfFile: RemotePath.join(nested, "drag.txt"), encoding: .utf8) == "mixed drag")
         #expect(try String(contentsOfFile: RemotePath.join(nested, "pictures/image"), encoding: .utf8) == "second folder")
@@ -477,24 +487,28 @@ final class ConnectionIntegrationTests {
         dragView.file = remoteFile
         dragView.browser = browser
         dragView.mouseDown(with: press)
-        let remoteItems = FileDragView.draggingItems(for: dragView.pressedFiles, from: browser, at: .zero)
+        let remoteItems = dragView.prepareDrag(at: .zero)
         #expect(remoteItems.count == 2)
-        let type = RemoteFileDragReference.type.identifier
         let writer = try #require(remoteItems.first?.item as? NSFilePromiseProvider)
-        let pasteboardType = NSPasteboard.PasteboardType(type)
-        #expect(writer.writableTypes(for: .general).contains(pasteboardType))
-        let data = try #require(writer.pasteboardPropertyList(forType: pasteboardType) as? Data)
-        let remoteProvider = NSItemProvider()
-        remoteProvider.registerDataRepresentation(forTypeIdentifier: type, visibility: .all) { complete in
-            complete(data, nil)
-            return nil
-        }
-        let received = try #require(FileDrop.receiveRemote([remoteProvider]))
-        let reference = try #require(await received.value)
+        dragBoard.clearContents()
+        #expect(dragBoard.writeObjects([writer]))
+        #expect(FileDrop.read(dragBoard) == dragView.draggedFiles)
+        // The destination still copies the whole selection when the drag board
+        // lacks the custom type and contains only an unreadable file URL.
+        dragBoard.clearContents()
+        #expect(dragBoard.setString("not a file URL", forType: .fileURL))
         let incoming = directory.appendingPathComponent("incoming", isDirectory: true)
         try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: false)
-        #expect(FileDrop.download(reference, into: local, directory: incoming.path, in: store))
-        #expect(!FileDrop.download(reference, into: local, directory: directory.path, in: store))
+        let ofRemoteFiles = FileDropTargetView()
+        ofRemoteFiles.acceptsRemoteFiles = true
+        ofRemoteFiles.onDrop = { payload in
+            guard case .remote(let reference) = payload else { return false }
+            return FileDrop.download(reference, into: local, directory: incoming.path, in: store)
+        }
+        let remoteDrop = TestFileDrop(pasteboard: dragBoard, source: dragView)
+        #expect(ofRemoteFiles.draggingEntered(remoteDrop) == .copy)
+        #expect(ofRemoteFiles.performDragOperation(remoteDrop))
+        #expect(!ofRemoteFiles.performDragOperation(remoteDrop))
         try await awaitCondition(timeout: 10) {
             FileManager.default.fileExists(atPath: incoming.appendingPathComponent("report.txt").path)
         }
@@ -587,4 +601,32 @@ final class ConnectionIntegrationTests {
         #expect(connection.sftp == nil)
         await #expect(throws: SFTPError.self) { try await stale.list(remote.path) }
     }
+}
+
+@MainActor
+private final class TestFileDrop: NSObject, NSDraggingInfo {
+    let draggingPasteboard: NSPasteboard
+    let draggingSource: Any?
+    let draggingDestinationWindow: NSWindow? = nil
+    let draggingSourceOperationMask: NSDragOperation = .copy
+    let draggingLocation: NSPoint = .zero
+    let draggedImageLocation: NSPoint = .zero
+    nonisolated var draggedImage: NSImage? { nil }
+    let draggingSequenceNumber = 1
+    var draggingFormation: NSDraggingFormation = .default
+    var animatesToDestination = false
+    var numberOfValidItemsForDrop = 0
+    let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+    init(pasteboard: NSPasteboard, source: FileDragView? = nil) {
+        draggingPasteboard = pasteboard
+        draggingSource = source
+    }
+
+    func slideDraggedImage(to screenPoint: NSPoint) {}
+    func resetSpringLoading() {}
+
+    func enumerateDraggingItems(options: NSDraggingItemEnumerationOptions, for view: NSView?,
+                                classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any],
+                                using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
 }

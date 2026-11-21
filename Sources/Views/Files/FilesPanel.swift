@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The sidebar's Files tab: the active tab's server, browsed over SFTP, or
 /// this Mac's disk for a local terminal.
@@ -242,6 +241,9 @@ struct FileBrowserView: View {
                             browser.clearSelection()
                             listFocused = true
                         }
+                        .overlay {
+                            if !browser.visibleFiles.isEmpty { dropTarget() }
+                        }
                 }
                 .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .topLeading)
                 .background(ThinScroller(isDark: theme.isDark, alwaysVisible: true))
@@ -266,12 +268,14 @@ struct FileBrowserView: View {
         }
         .overlay { listOverlay }
         .overlay {
+            if browser.visibleFiles.isEmpty { dropTarget() }
+        }
+        .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 1)
                 .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
-        .onDrop(of: dropTypes, isTargeted: $dropTargeted) { acceptDrop($0) }
         .contextMenu {
             Button("New Folder…") { newName = ""; creatingFolder = true }
             Button(browser.isLocal ? "Copy Here…" : "Upload…") { chooseUploads() }
@@ -315,9 +319,7 @@ struct FileBrowserView: View {
         FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
             .overlay(FileDrag(file: file, browser: browser, onFocus: focusList))
             .overlay(ContextClickDetector { browser.selectForContextMenu(file); focusList() })
-            .onDrop(of: file.kind == .directory ? dropTypes : [], isTargeted: nil) {
-                acceptDrop($0, into: file.path)
-            }
+            .overlay { dropTarget(into: file.kind == .directory ? file.path : nil) }
             .contextMenu {
                 Button(file.kind == .directory ? "Open" : "Open in Mac App") { browser.open(file) }
                 if let transfer {
@@ -354,32 +356,21 @@ struct FileBrowserView: View {
         onFocus()
     }
 
-    private var dropTypes: [String] {
-        browser.isLocal ? [RemoteFileDragReference.type.identifier, UTType.fileURL.identifier] : [UTType.fileURL.identifier]
-    }
-
-    private func acceptDrop(_ providers: [NSItemProvider], into path: String? = nil) -> Bool {
-        guard let destination = path ?? browser.path, !providers.isEmpty else { return false }
-        if browser.isLocal, let received = FileDrop.receiveRemote(providers) {
-            Task {
-                guard let reference = await received.value,
-                      FileDrop.download(reference, into: browser, directory: destination, in: connectionStore) else {
-                    _ = browser.addActivity("Drop Files", state: .failed("The dragged files are no longer available."))
-                    return
+    private func dropTarget(into folder: String? = nil) -> some View {
+        FileDropTarget(acceptsRemoteFiles: browser.isLocal, onTargeted: { dropTargeted = $0 }) { payload in
+            guard let destination = folder ?? browser.path else { return false }
+            switch payload {
+            case .local(let urls):
+                browser.upload(urls, into: destination)
+                return true
+            case .remote(let reference):
+                if FileDrop.download(reference, into: browser, directory: destination, in: connectionStore) {
+                    return true
                 }
-            }
-            return true
-        }
-        let received = FileDrop.receive(providers)
-        Task {
-            let files = await received.value
-            if files.isEmpty {
-                _ = browser.addActivity("Drop Files", state: .failed("Could not read the dragged files."))
-            } else {
-                browser.upload(files, into: destination)
+                _ = browser.addActivity("Drop Files", state: .failed("The dragged files are no longer available."))
+                return false
             }
         }
-        return true
     }
 
     private func chooseUploads() {
@@ -398,49 +389,25 @@ struct FileBrowserView: View {
 /// Standard file URLs from Finder and the local browser use the same drop path.
 @MainActor
 enum FileDrop {
-    static func receive(_ providers: [NSItemProvider]) -> Task<[URL], Never> {
-        let type = UTType.fileURL.identifier
-        let items = providers.compactMap { provider -> AsyncStream<Data>? in
-            guard provider.hasItemConformingToTypeIdentifier(type) else { return nil }
-            return load(type, from: provider)
-        }
-        return Task {
-            var files: [URL] = []
-            for stream in items {
-                var reader = stream.makeAsyncIterator()
-                guard let data = await reader.next(),
-                      let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL else { return [] }
-                files.append(url)
-            }
-            return files
-        }
+    enum Payload: Equatable {
+        case local([URL])
+        case remote(RemoteFileDragReference)
     }
 
-    static func receiveRemote(_ providers: [NSItemProvider]) -> Task<RemoteFileDragReference?, Never>? {
-        let type = RemoteFileDragReference.type.identifier
-        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(type) }) else { return nil }
-        let item = load(type, from: provider)
-        return Task {
-            var reader = item.makeAsyncIterator()
-            guard let data = await reader.next() else { return nil }
-            return try? JSONDecoder().decode(RemoteFileDragReference.self, from: data)
+    static func read(_ pasteboard: NSPasteboard) -> Payload? {
+        if let data = pasteboard.data(forType: RemoteFileDragReference.pasteboardType),
+           let reference = try? JSONDecoder().decode(RemoteFileDragReference.self, from: data) {
+            return .remote(reference)
         }
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.isEmpty ? nil : .local(urls)
     }
 
     static func download(_ reference: RemoteFileDragReference, into local: FileBrowser,
                          directory: String, in store: ConnectionStore) -> Bool {
         guard let connection = store.connections.first(where: { $0.id == reference.connectionID }) else { return false }
         return connection.fileBrowser.downloadDrag(reference, into: local, directory: directory)
-    }
-
-    private static func load(_ type: String, from provider: NSItemProvider) -> AsyncStream<Data> {
-        // Start the read while the drop callback grants access to the provider.
-        AsyncStream { continuation in
-            _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
-                if let data { continuation.yield(data) }
-                continuation.finish()
-            }
-        }
     }
 }
 

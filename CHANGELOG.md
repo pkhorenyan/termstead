@@ -24,7 +24,7 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The file browser deletes the entire selection after confirming the number
   of items.
 - Drop remote files and folders onto the local browser or a local folder
-  to download them through the SFTP queue.
+  to download them through the SFTP queue using native macOS drop handling.
 - Finder metadata alone no longer triggers the hidden-files message in the
   local browser. Folders with hidden files offer a button to reveal them.
 
