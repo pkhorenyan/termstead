@@ -61,6 +61,14 @@
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.pavelkhorenyan.termstead.remote-file-drag</string>
+			<key>UTTypeDescription</key>
+			<string>Termstead remote file drag</string>
+			<key>UTTypeConformsTo</key>
+			<array><string>public.data</string></array>
+		</dict>
 	</array>
 </dict>
 </plist>

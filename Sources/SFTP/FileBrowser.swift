@@ -102,6 +102,7 @@ final class FileBrowser {
     @ObservationIgnored private var loadRequest = UUID()
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var copyRequest = UUID()
+    @ObservationIgnored private var remoteDrag: (token: UUID, files: [RemoteFile])?
     @ObservationIgnored private(set) lazy var transfers = FileTransferQueue(browser: self)
     /// Tests use a private pasteboard; the app uses the normal Finder clipboard.
     @ObservationIgnored var pasteboard: NSPasteboard = .general
@@ -172,6 +173,7 @@ final class FileBrowser {
     /// A VNC tab may switch to another saved SSH account while it stays open.
     /// Its old remote path must not be reused on the new host.
     func resetForNewSource() {
+        remoteDrag = nil
         retry?.cancel()
         follow?.cancel()
         loadRequest = UUID()
@@ -371,6 +373,22 @@ final class FileBrowser {
         return selected.contains(where: { $0.path == file.path }) ? selected : [file]
     }
 
+    func beginRemoteDrag(_ files: [RemoteFile]) -> RemoteFileDragReference? {
+        guard !stopped, let connection, !files.isEmpty,
+              files.allSatisfy({ Self.validName($0.name) != nil && !$0.name.utf8.contains(0) }) else { return nil }
+        let token = UUID()
+        remoteDrag = (token, files)
+        return RemoteFileDragReference(connectionID: connection.id, token: token)
+    }
+
+    func downloadDrag(_ reference: RemoteFileDragReference, into local: FileBrowser, directory: String) -> Bool {
+        guard reference.connectionID == connection?.id, let remoteDrag, remoteDrag.token == reference.token,
+              !stopped, local.isLocal else { return false }
+        self.remoteDrag = nil
+        download(remoteDrag.files, into: local, directory: directory)
+        return true
+    }
+
     func copySelected() {
         let files = selectedFiles
         guard !files.isEmpty else { return }
@@ -439,8 +457,8 @@ final class FileBrowser {
         transfers.download([file], to: downloadsDirectory)
     }
 
-    func download(_ files: [RemoteFile], into local: FileBrowser) {
-        guard local.isLocal, let path = local.path else { return }
+    func download(_ files: [RemoteFile], into local: FileBrowser, directory: String? = nil) {
+        guard local.isLocal, let path = directory ?? local.path else { return }
         transfers.download(files, to: URL(fileURLWithPath: path, isDirectory: true), refresh: local)
     }
 
@@ -598,6 +616,7 @@ final class FileBrowser {
     /// The tab is closing: stop watching and throw away the local copies.
     func stop() {
         transfers.stop()
+        remoteDrag = nil
         stopped = true
         loadRequest = UUID()
         isLoading = false

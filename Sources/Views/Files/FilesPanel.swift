@@ -84,9 +84,11 @@ struct FileBrowserView: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(ConnectionStore.self) private var connectionStore
     @Bindable var browser: FileBrowser
     var title: String
     var transfer: Transfer? = nil
+    var onFocus: () -> Void = {}
 
     @State private var pathText = ""
     @State private var renaming: RemoteFile?
@@ -269,7 +271,7 @@ struct FileBrowserView: View {
                 .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
-        .onDrop(of: FileDrop.types, isTargeted: $dropTargeted) { acceptDrop($0) }
+        .onDrop(of: dropTypes, isTargeted: $dropTargeted) { acceptDrop($0) }
         .contextMenu {
             Button("New Folder…") { newName = ""; creatingFolder = true }
             Button(browser.isLocal ? "Copy Here…" : "Upload…") { chooseUploads() }
@@ -310,9 +312,10 @@ struct FileBrowserView: View {
     }
 
     private func row(_ file: RemoteFile) -> some View {
-        interactiveRow(file)
-            .overlay(ContextClickDetector { browser.selectForContextMenu(file); listFocused = true })
-            .onDrop(of: file.kind == .directory ? FileDrop.types : [], isTargeted: nil) {
+        FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
+            .overlay(FileDrag(file: file, browser: browser, onFocus: focusList))
+            .overlay(ContextClickDetector { browser.selectForContextMenu(file); focusList() })
+            .onDrop(of: file.kind == .directory ? dropTypes : [], isTargeted: nil) {
                 acceptDrop($0, into: file.path)
             }
             .contextMenu {
@@ -346,50 +349,27 @@ struct FileBrowserView: View {
         return files.count == 1 ? "Delete “\(first.name)”?" : "Delete \(files.count) items?"
     }
 
-    @ViewBuilder
-    private func interactiveRow(_ file: RemoteFile) -> some View {
-        let row = FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
-        if browser.isLocal {
-            row.overlay(LocalFileDrag(file: file, browser: browser) { listFocused = true })
-        } else {
-            row.onTapGesture(count: 2) { browser.open(file) }
-                .simultaneousGesture(TapGesture().onEnded {
-                    browser.select(file, modifiers: NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags)
-                    listFocused = true
-                })
-                .onDrag { Self.remoteProvider(for: file, client: browser.client) }
-        }
+    private func focusList() {
+        listFocused = true
+        onFocus()
     }
 
-    /// Dragging a row to Finder downloads it: the promise is kept only once
-    /// Finder asks for the file, into a folder of the system's choosing.
-    private static func remoteProvider(for file: RemoteFile, client: (any FileSource)?) -> NSItemProvider {
-        let provider = NSItemProvider()
-        provider.suggestedName = file.name
-        guard let client else { return provider }
-        let type = file.kind == .directory ? UTType.folder : UTType.data
-        provider.registerFileRepresentation(forTypeIdentifier: type.identifier, fileOptions: [],
-                                            visibility: .all) { completion in
-            let folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent("sb-drag-" + UUID().uuidString.prefix(8).lowercased(), isDirectory: true)
-            Task {
-                do {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    try await client.download(file.path, recursive: file.kind == .directory,
-                                              to: folder, as: file.name)
-                    completion(folder.appendingPathComponent(file.name), false, nil)
-                } catch {
-                    try? FileManager.default.removeItem(at: folder)
-                    completion(nil, false, error)
-                }
-            }
-            return nil
-        }
-        return provider
+    private var dropTypes: [String] {
+        browser.isLocal ? [RemoteFileDragReference.type.identifier, UTType.fileURL.identifier] : [UTType.fileURL.identifier]
     }
 
     private func acceptDrop(_ providers: [NSItemProvider], into path: String? = nil) -> Bool {
         guard let destination = path ?? browser.path, !providers.isEmpty else { return false }
+        if browser.isLocal, let received = FileDrop.receiveRemote(providers) {
+            Task {
+                guard let reference = await received.value,
+                      FileDrop.download(reference, into: browser, directory: destination, in: connectionStore) else {
+                    _ = browser.addActivity("Drop Files", state: .failed("The dragged files are no longer available."))
+                    return
+                }
+            }
+            return true
+        }
         let received = FileDrop.receive(providers)
         Task {
             let files = await received.value
@@ -418,19 +398,11 @@ struct FileBrowserView: View {
 /// Standard file URLs from Finder and the local browser use the same drop path.
 @MainActor
 enum FileDrop {
-    static let types = [UTType.fileURL.identifier]
-
     static func receive(_ providers: [NSItemProvider]) -> Task<[URL], Never> {
-        // Start the reads while the drop callback still grants access to the providers.
         let type = UTType.fileURL.identifier
         let items = providers.compactMap { provider -> AsyncStream<Data>? in
             guard provider.hasItemConformingToTypeIdentifier(type) else { return nil }
-            return AsyncStream<Data> { continuation in
-                _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
-                    if let data { continuation.yield(data) }
-                    continuation.finish()
-                }
-            }
+            return load(type, from: provider)
         }
         return Task {
             var files: [URL] = []
@@ -441,6 +413,33 @@ enum FileDrop {
                 files.append(url)
             }
             return files
+        }
+    }
+
+    static func receiveRemote(_ providers: [NSItemProvider]) -> Task<RemoteFileDragReference?, Never>? {
+        let type = RemoteFileDragReference.type.identifier
+        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(type) }) else { return nil }
+        let item = load(type, from: provider)
+        return Task {
+            var reader = item.makeAsyncIterator()
+            guard let data = await reader.next() else { return nil }
+            return try? JSONDecoder().decode(RemoteFileDragReference.self, from: data)
+        }
+    }
+
+    static func download(_ reference: RemoteFileDragReference, into local: FileBrowser,
+                         directory: String, in store: ConnectionStore) -> Bool {
+        guard let connection = store.connections.first(where: { $0.id == reference.connectionID }) else { return false }
+        return connection.fileBrowser.downloadDrag(reference, into: local, directory: directory)
+    }
+
+    private static func load(_ type: String, from provider: NSItemProvider) -> AsyncStream<Data> {
+        // Start the read while the drop callback grants access to the provider.
+        AsyncStream { continuation in
+            _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                if let data { continuation.yield(data) }
+                continuation.finish()
+            }
         }
     }
 }

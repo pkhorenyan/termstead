@@ -427,7 +427,7 @@ final class ConnectionIntegrationTests {
         local.select(folderRow)
         local.select(otherFolder, modifiers: .command)
         local.select(fileRow, modifiers: .command)
-        let dragView = LocalFileDragView()
+        let dragView = FileDragView()
         dragView.file = otherFolder
         dragView.browser = local
         let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [],
@@ -435,7 +435,7 @@ final class ConnectionIntegrationTests {
                                                    clickCount: 1, pressure: 1))
         dragView.mouseDown(with: press)
         #expect(local.selectedFiles.count == 3)
-        let dragItems = LocalFileDragView.draggingItems(for: dragView.pressedFiles, at: .zero)
+        let dragItems = FileDragView.draggingItems(for: dragView.pressedFiles, from: local, at: .zero)
         let providers = try dragItems.map { item in NSItemProvider(object: try #require(item.item as? NSURL)) }
         let dropped = await FileDrop.receive(providers).value
         #expect(dropped.map(\.lastPathComponent) == ["documents", "pictures", "drag.txt"])
@@ -470,6 +470,45 @@ final class ConnectionIntegrationTests {
         browser.transfers.resolve(folderConflict.id, with: .keepBoth, forBatch: false)
         try await awaitCondition(timeout: 10) { local.visibleFiles.contains { $0.name == "documents 2" } }
         #expect(try String(contentsOf: directory.appendingPathComponent("documents 2/note"), encoding: .utf8) == "inside")
+
+        let remoteFile = try #require(browser.visibleFiles.first { $0.name == "report.txt" })
+        browser.select(remoteTree)
+        browser.select(remoteFile, modifiers: .command)
+        dragView.file = remoteFile
+        dragView.browser = browser
+        dragView.mouseDown(with: press)
+        let remoteItems = FileDragView.draggingItems(for: dragView.pressedFiles, from: browser, at: .zero)
+        #expect(remoteItems.count == 2)
+        let type = RemoteFileDragReference.type.identifier
+        let writer = try #require(remoteItems.first?.item as? NSFilePromiseProvider)
+        let pasteboardType = NSPasteboard.PasteboardType(type)
+        #expect(writer.writableTypes(for: .general).contains(pasteboardType))
+        let data = try #require(writer.pasteboardPropertyList(forType: pasteboardType) as? Data)
+        let remoteProvider = NSItemProvider()
+        remoteProvider.registerDataRepresentation(forTypeIdentifier: type, visibility: .all) { complete in
+            complete(data, nil)
+            return nil
+        }
+        let received = try #require(FileDrop.receiveRemote([remoteProvider]))
+        let reference = try #require(await received.value)
+        let incoming = directory.appendingPathComponent("incoming", isDirectory: true)
+        try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: false)
+        #expect(FileDrop.download(reference, into: local, directory: incoming.path, in: store))
+        #expect(!FileDrop.download(reference, into: local, directory: directory.path, in: store))
+        try await awaitCondition(timeout: 10) {
+            FileManager.default.fileExists(atPath: incoming.appendingPathComponent("report.txt").path)
+        }
+        #expect(try String(contentsOf: incoming.appendingPathComponent("documents/note"), encoding: .utf8) == "inside")
+        #expect(try String(contentsOf: incoming.appendingPathComponent("report.txt"), encoding: .utf8) == "keep me")
+        let promise = try #require(writer.delegate)
+        let promised = incoming.appendingPathComponent("promised documents", isDirectory: true)
+        try await withCheckedThrowingContinuation { (finished: CheckedContinuation<Void, any Error>) in
+            promise.filePromiseProvider(writer, writePromiseTo: promised) { error in
+                if let error { finished.resume(throwing: error) }
+                else { finished.resume() }
+            }
+        }
+        #expect(try String(contentsOf: promised.appendingPathComponent("note"), encoding: .utf8) == "inside")
         let remaining = try await client.list(nested).files
         #expect(!remaining.contains { $0.name.hasPrefix(".termstead-transfer-") })
         try FileManager.default.createSymbolicLink(atPath: RemotePath.join(remote, "link"),
