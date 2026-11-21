@@ -227,6 +227,7 @@ struct FileBrowserView: View {
         }
         .frame(maxHeight: .infinity)
         .focusable()
+        .focusEffectDisabled()
         .focused($listFocused)
         .onKeyPress(phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
@@ -244,8 +245,8 @@ struct FileBrowserView: View {
         .overlay { listOverlay }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(theme.accent.color, lineWidth: 2)
-                .opacity(dropTargeted ? 1 : 0)
+                .strokeBorder(theme.accent.color, lineWidth: 1)
+                .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
         // Files dropped from Finder go into the folder on show.
