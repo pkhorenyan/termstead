@@ -97,7 +97,7 @@ final class ConnectionIntegrationTests {
     /// win, so these go first. The target runs a plain `/bin/sh`: the "remote"
     /// is this Mac's own account, and the user's interactive shell setup (a
     /// heavy zsh prompt, here) made typed commands depend on timing.
-    private func testConfig(_ plan: SSHLaunchPlan, batch: Bool) -> SSHLaunchPlan {
+    private func testConfig(_ plan: SSHLaunchPlan, batch: Bool, confirmHostKey: Bool = false) -> SSHLaunchPlan {
         var plan = plan
         plan.config = """
         Host \(plan.target.alias)
@@ -105,7 +105,7 @@ final class ConnectionIntegrationTests {
           RequestTTY yes
 
         Host *
-          StrictHostKeyChecking accept-new
+          StrictHostKeyChecking \(confirmHostKey ? "ask" : "accept-new")
           UserKnownHostsFile \(path("known_hosts"))
           IdentityAgent none
           BatchMode \(batch ? "yes" : "no")
@@ -249,6 +249,27 @@ final class ConnectionIntegrationTests {
         guard await run("echo TERMSTEAD_$((4*4))_TYPED", in: connection, until: "TERMSTEAD_16_TYPED") else { return }
         // Typed input is not echoed while a secret is asked for.
         #expect(!screen(connection).contains("correct horse"))
+    }
+
+    @Test func standaloneSFTPWaitsForTheHostKeyToBeConfirmed() async throws {
+        try #require(FileManager.default.isExecutableFile(atPath: "/usr/sbin/sshd"))
+        try await startServer(passphrase: "correct horse", sftpOnly: true)
+        store("correct horse", for: SSHLaunch.passphraseAccount(forKey: path("clientkey")))
+        var session = directSession()
+        session.kind = .sftp
+        let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: false, confirmHostKey: true)
+        let connection = Connection(sessionID: session.id, title: session.id, address: session.address,
+                                    keyDescription: "", keychain: keychain, kind: session.kind)
+        connection.start(plan)
+        defer { connection.close() }
+
+        guard await expectScreen(connection, contains: "Are you sure you want to continue connecting") else { return }
+        #expect(!connection.isLoggedIn)
+        connection.terminalView.send(txt: "yes\r")
+        try await awaitCondition(timeout: 10) { connection.isLoggedIn }
+        let client = try #require(connection.sftp)
+        #expect(try await client.home().hasPrefix("/"))
+        #expect(FileManager.default.fileExists(atPath: path("known_hosts")))
     }
 
     /// A tab in a store whose logins are reported, the way `MainView` wires
