@@ -245,7 +245,7 @@ struct FileBrowserView: View {
         .overlay { listOverlay }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(theme.accent.color, lineWidth: 1)
+                .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 1)
                 .opacity(listFocused || dropTargeted ? 1 : 0)
                 .allowsHitTesting(false)
         }
