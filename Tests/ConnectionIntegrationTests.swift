@@ -416,21 +416,43 @@ final class ConnectionIntegrationTests {
         let tree = directory.appendingPathComponent("documents", isDirectory: true)
         try FileManager.default.createDirectory(at: tree, withIntermediateDirectories: false)
         try "inside".write(to: tree.appendingPathComponent("note"), atomically: true, encoding: .utf8)
+        let secondTree = directory.appendingPathComponent("pictures", isDirectory: true)
+        try FileManager.default.createDirectory(at: secondTree, withIntermediateDirectories: false)
+        try "second folder".write(to: secondTree.appendingPathComponent("image"), atomically: true, encoding: .utf8)
         try "mixed drag".write(to: directory.appendingPathComponent("drag.txt"), atomically: true, encoding: .utf8)
         await local.load(directory.path)
         let folderRow = try #require(local.visibleFiles.first { $0.name == "documents" })
+        let otherFolder = try #require(local.visibleFiles.first { $0.name == "pictures" })
         let fileRow = try #require(local.visibleFiles.first { $0.name == "drag.txt" })
         local.select(folderRow)
+        local.select(otherFolder, modifiers: .command)
         local.select(fileRow, modifiers: .command)
-        let provider = FileDrop.provider(for: local.filesForDrag(startingAt: folderRow), leading: folderRow)
-        let dropped = await FileDrop.receive([provider]).value
-        #expect(dropped.map(\.lastPathComponent) == ["documents", "drag.txt"])
-        let single = FileDrop.provider(for: [fileRow], leading: fileRow)
-        let externalDrop = await FileDrop.receive([single]).value
-        #expect(externalDrop.map(\.path) == [fileRow.path])
+        let dragView = LocalFileDragView()
+        dragView.file = otherFolder
+        dragView.browser = local
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [],
+                                                   timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1,
+                                                   clickCount: 1, pressure: 1))
+        dragView.mouseDown(with: press)
+        #expect(local.selectedFiles.count == 3)
+        let dragItems = LocalFileDragView.draggingItems(for: dragView.pressedFiles, at: .zero)
+        let providers = try dragItems.map { item in NSItemProvider(object: try #require(item.item as? NSURL)) }
+        let dropped = await FileDrop.receive(providers).value
+        #expect(dropped.map(\.lastPathComponent) == ["documents", "pictures", "drag.txt"])
+        dragView.mouseUp(with: press)
+        #expect(local.selectedFiles.map(\.name) == ["pictures"])
         browser.upload(dropped)
         try await awaitCondition(timeout: 10) { browser.visibleFiles.contains { $0.name == "drag.txt" } }
         #expect(try String(contentsOfFile: RemotePath.join(nested, "drag.txt"), encoding: .utf8) == "mixed drag")
+        #expect(try String(contentsOfFile: RemotePath.join(nested, "pictures/image"), encoding: .utf8) == "second folder")
+        let uploadedFile = try #require(browser.visibleFiles.first { $0.name == "drag.txt" })
+        browser.delete(uploadedFile)
+        try await awaitCondition(timeout: 10) {
+            browser.activities.contains { $0.title == "Delete “drag.txt”" && $0.state == .done }
+        }
+        let deletion = try #require(browser.activities.first { $0.title == "Delete “drag.txt”" })
+        #expect(!deletion.isTransfer)
+        #expect(!FileManager.default.fileExists(atPath: uploadedFile.path))
         let remoteTree = try #require(browser.visibleFiles.first { $0.name == "documents" })
         browser.download([remoteTree], into: local)
         try await awaitCondition(timeout: 10) { browser.transfers.conflict != nil }

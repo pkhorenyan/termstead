@@ -23,6 +23,7 @@ final class FileBrowser {
         let id = UUID()
         var title: String
         var state: State
+        var isTransfer = false
         /// Where a finished download landed, for "Show in Finder".
         var localURL: URL?
     }
@@ -403,7 +404,7 @@ final class FileBrowser {
         var published = false
         defer { if !published { try? FileManager.default.removeItem(at: folder) } }
         for file in files {
-            let ready = await perform("Copy “\(file.name)”", expectedSize: file.kind == .file ? file.size : nil,
+            let ready = await perform("Copy “\(file.name)”", isTransfer: true, expectedSize: file.kind == .file ? file.size : nil,
                                       growing: folder.appendingPathComponent(file.name)) {
                 try await client.download(file.path, recursive: file.kind == .directory, to: folder, as: file.name)
             }
@@ -448,9 +449,9 @@ final class FileBrowser {
 
     /// Runs one operation with a line in the activity strip; says whether it worked.
     @discardableResult
-    private func perform(_ title: String, expectedSize: Int64? = nil, growing: URL? = nil,
+    private func perform(_ title: String, isTransfer: Bool = false, expectedSize: Int64? = nil, growing: URL? = nil,
                          result: URL? = nil, _ work: @escaping () async throws -> Void) async -> Bool {
-        let id = addActivity(title, state: .running(progress: expectedSize == nil ? nil : 0))
+        let id = addActivity(title, state: .running(progress: expectedSize == nil ? nil : 0), isTransfer: isTransfer)
         // `sftp` only draws a progress bar on a terminal, so a download's
         // progress is read off the file growing on disk instead.
         var watcher: Task<Void, Never>?
@@ -485,8 +486,8 @@ final class FileBrowser {
         }
     }
 
-    func addActivity(_ title: String, state: Activity.State) -> UUID {
-        let activity = Activity(title: title, state: state)
+    func addActivity(_ title: String, state: Activity.State, isTransfer: Bool = false) -> UUID {
+        let activity = Activity(title: title, state: state, isTransfer: isTransfer)
         activities.append(activity)
         return activity.id
     }

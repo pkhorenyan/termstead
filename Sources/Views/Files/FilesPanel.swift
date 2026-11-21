@@ -309,22 +309,8 @@ struct FileBrowserView: View {
     }
 
     private func row(_ file: RemoteFile) -> some View {
-        FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
-            // The row the menu is for is highlighted before the menu opens.
+        interactiveRow(file)
             .overlay(ContextClickDetector { browser.selectForContextMenu(file); listFocused = true })
-            // Both taps, simultaneously: selection must not wait out the
-            // double-click interval (see CLAUDE.md, the 357 ms lesson).
-            .onTapGesture(count: 2) { browser.open(file) }
-            .simultaneousGesture(TapGesture().onEnded {
-                browser.select(file, modifiers: NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags)
-                listFocused = true
-            })
-            .onDrag {
-                if browser.isLocal {
-                    return FileDrop.provider(for: browser.filesForDrag(startingAt: file), leading: file)
-                }
-                return Self.remoteProvider(for: file, client: browser.client)
-            }
             .onDrop(of: file.kind == .directory ? FileDrop.types : [], isTargeted: nil) {
                 acceptDrop($0, into: file.path)
             }
@@ -352,6 +338,21 @@ struct FileBrowserView: View {
                     NSPasteboard.general.setString(file.path, forType: .string)
                 }
             }
+    }
+
+    @ViewBuilder
+    private func interactiveRow(_ file: RemoteFile) -> some View {
+        let row = FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
+        if browser.isLocal {
+            row.overlay(LocalFileDrag(file: file, browser: browser) { listFocused = true })
+        } else {
+            row.onTapGesture(count: 2) { browser.open(file) }
+                .simultaneousGesture(TapGesture().onEnded {
+                    browser.select(file, modifiers: NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags)
+                    listFocused = true
+                })
+                .onDrag { Self.remoteProvider(for: file, client: browser.client) }
+        }
     }
 
     /// Dragging a row to Finder downloads it: the promise is kept only once
@@ -408,49 +409,30 @@ struct FileBrowserView: View {
 
 }
 
-/// SwiftUI's row drag provides one item. An internal representation carries
-/// the whole selection while the file URL remains available to Finder.
+/// Standard file URLs from Finder and the local browser use the same drop path.
 @MainActor
 enum FileDrop {
-    private static let selectionType = "com.pavelkhorenyan.termstead.file-selection"
-    static let types = [selectionType, UTType.fileURL.identifier]
-
-    static func provider(for files: [RemoteFile], leading: RemoteFile) -> NSItemProvider {
-        let provider = NSItemProvider(object: URL(fileURLWithPath: leading.path) as NSURL)
-        guard files.count > 1,
-              let data = try? JSONEncoder().encode(files.map({ URL(fileURLWithPath: $0.path) })) else { return provider }
-        provider.registerDataRepresentation(forTypeIdentifier: selectionType, visibility: .ownProcess) { complete in
-            complete(data, nil)
-            return nil
-        }
-        return provider
-    }
+    static let types = [UTType.fileURL.identifier]
 
     static func receive(_ providers: [NSItemProvider]) -> Task<[URL], Never> {
         // Start the reads while the drop callback still grants access to the providers.
-        let items = providers.compactMap { provider -> (String, AsyncStream<Data>)? in
-            guard let type = types.first(where: provider.hasItemConformingToTypeIdentifier) else { return nil }
-            let stream = AsyncStream<Data> { continuation in
+        let type = UTType.fileURL.identifier
+        let items = providers.compactMap { provider -> AsyncStream<Data>? in
+            guard provider.hasItemConformingToTypeIdentifier(type) else { return nil }
+            return AsyncStream<Data> { continuation in
                 _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
                     if let data { continuation.yield(data) }
                     continuation.finish()
                 }
             }
-            return (type, stream)
         }
         return Task {
             var files: [URL] = []
-            for (type, stream) in items {
+            for stream in items {
                 var reader = stream.makeAsyncIterator()
-                guard let data = await reader.next() else { return [] }
-                if type == selectionType {
-                    guard let selection = try? JSONDecoder().decode([URL].self, from: data),
-                          selection.allSatisfy(\.isFileURL) else { return [] }
-                    files.append(contentsOf: selection)
-                } else {
-                    guard let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL else { return [] }
-                    files.append(url)
-                }
+                guard let data = await reader.next(),
+                      let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL else { return [] }
+                files.append(url)
             }
             return files
         }
@@ -500,7 +482,8 @@ private struct ActivityStrip: View {
             let failed = browser.activities.filter(queue.canRetry)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Transfers").font(SBFont.ui(11, .semibold))
+                    Text(browser.activities.allSatisfy(\.isTransfer) ? "Transfers" : "File Operations")
+                        .font(SBFont.ui(11, .semibold))
                     Spacer()
                     if failed.count > 1 {
                         Button("Retry Failed") { queue.retry(failed.map(\.id)) }.controlSize(.small)

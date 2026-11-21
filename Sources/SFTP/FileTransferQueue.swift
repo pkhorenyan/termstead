@@ -66,7 +66,7 @@ final class FileTransferQueue {
         guard let browser, !stopped else { return }
         let batch = UUID()
         for operation in operations {
-            let id = browser.addActivity(operation.title, state: .queued)
+            let id = browser.addActivity(operation.title, state: .queued, isTransfer: true)
             jobs[id] = Job(operation: operation, batch: batch)
             pending.append(id)
         }
