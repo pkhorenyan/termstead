@@ -58,6 +58,7 @@ final class Connection: Identifiable {
     @ObservationIgnored let terminalView: SSHTerminalView
     @ObservationIgnored private var relay: ProcessRelay?
     @ObservationIgnored private var workDirectory: URL?
+    @ObservationIgnored private var sftpStageJournal: SFTPStageJournal?
     @ObservationIgnored private var askpass: AskpassServer?
     @ObservationIgnored private let keychain: KeychainStore
     @ObservationIgnored private var exitWatch: (any DispatchSourceProcess)?
@@ -303,6 +304,7 @@ final class Connection: Identifiable {
             workDirectory = directory
             let configURL = directory.appendingPathComponent("ssh_config")
             try Self.writePrivate(plan.config, to: configURL)
+            sftpStageJournal = SFTPStageJournal(config: plan.config)
 
             // The helper is only brought in when there is something stored to
             // give it; otherwise ssh prompts exactly as it always would.
@@ -347,7 +349,8 @@ final class Connection: Identifiable {
         if kind == .sftp, !isLoggedIn { return nil }
         return SFTPClient(configPath: workDirectory.appendingPathComponent("ssh_config").path,
                           controlPath: workDirectory.appendingPathComponent("cm").path,
-                          alias: plan.target.alias, usesOnlySFTP: kind == .sftp)
+                          alias: plan.target.alias, usesOnlySFTP: kind == .sftp, stageJournal: sftpStageJournal,
+                          requiresMaster: true)
     }
 
     /// What the Files panel browses: the server over SFTP, or this Mac for
@@ -362,7 +365,7 @@ final class Connection: Identifiable {
     }
 
     func configureFileAccess(_ plan: SSHLaunchPlan?, title: String? = nil, problem: String? = nil) {
-        if fileAccessPlan != plan { browser?.transfers.sourceChanged() }
+        if fileAccessPlan != plan { browser?.sourceChanged() }
         fileAccess?.close()
         fileAccess = nil
         fileAccessPlan = plan
@@ -610,6 +613,9 @@ final class Connection: Identifiable {
             openTelnetThroughTunnel()
             return
         }
+        if let client = sftp, let journal = client.stageJournal {
+            Task { await journal.recover(using: client) }
+        }
         browser?.transfers.sourceReady()
         onLogin?()
         updateLoadWatch()
@@ -794,6 +800,7 @@ final class Connection: Identifiable {
         guard let workDirectory else { return }
         try? FileManager.default.removeItem(at: workDirectory)
         self.workDirectory = nil
+        sftpStageJournal = nil
     }
 
     /// The app's own environment — which is where `SSH_AUTH_SOCK` comes from,

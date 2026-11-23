@@ -553,6 +553,63 @@ final class ConnectionIntegrationTests {
         #expect(FileManager.default.fileExists(atPath: source.path))
     }
 
+    @Test func sftpRejectsIncompleteFoldersAndCleansAbandonedUploadsAfterReconnect() async throws {
+        try await startServer(sftpOnly: true)
+        var session = directSession()
+        session.kind = .sftp
+        let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: true)
+        func connection() -> Connection {
+            let connection = Connection(sessionID: session.id, title: session.id, address: "",
+                                        keyDescription: "", keychain: keychain, kind: .sftp)
+            connection.start(plan)
+            return connection
+        }
+
+        let original = connection()
+        var originalClosed = false
+        defer { if !originalClosed { original.close() } }
+        try await awaitCondition(timeout: 10) { original.isLoggedIn }
+        let client = try #require(original.sftp)
+        let listing = try await client.list(directory.path)
+        let remote = RemotePath.join(listing.path, "remote")
+        try await client.makeDirectory(remote)
+        let tree = directory.appendingPathComponent("tree", isDirectory: true)
+        try FileManager.default.createDirectory(at: tree, withIntermediateDirectories: false)
+        try Data("file".utf8).write(to: tree.appendingPathComponent("data"))
+        try FileManager.default.createSymbolicLink(atPath: tree.appendingPathComponent("link").path,
+                                                   withDestinationPath: "data")
+        let browser = original.fileBrowser
+        browser.upload([tree], into: remote)
+        try await awaitCondition(timeout: 10) { browser.activities.contains(where: browser.transfers.canRetry) }
+        #expect(try await client.list(remote).files.isEmpty)
+
+        let treeEntry = try #require(try await client.list(listing.path).files.first { $0.name == "tree" })
+        let downloads = directory.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: false)
+        browser.downloadsDirectory = downloads
+        browser.download(treeEntry)
+        try await awaitCondition(timeout: 10) { browser.activities.filter(browser.transfers.canRetry).count == 2 }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: downloads.path).isEmpty)
+
+        let journal = try #require(client.stageJournal)
+        let stage = RemotePath.join(remote, SFTPStageJournal.prefix + UUID().uuidString.lowercased())
+        let record = try journal.register(stage)
+        defer { record.close() }
+        try await client.makeTransferStage(stage)
+        try Data("unfinished".utf8).write(to: URL(fileURLWithPath: RemotePath.join(stage, "data")))
+        await journal.recover(using: client)
+        #expect(FileManager.default.fileExists(atPath: stage))
+        original.close()
+        originalClosed = true
+        record.close()
+
+        let reopened = connection()
+        defer { reopened.close() }
+        try await awaitCondition(timeout: 10) { reopened.isLoggedIn && !FileManager.default.fileExists(atPath: record.url.path) }
+        #expect(!FileManager.default.fileExists(atPath: stage))
+        #expect(FileManager.default.fileExists(atPath: remote))
+    }
+
     /// The Files panel rides on the terminal's connection. The key has a
     /// passphrase that only the terminal is given (from the Keychain), and
     /// `sftp` runs with `BatchMode=yes`, so each operation below can only work
@@ -601,6 +658,12 @@ final class ConnectionIntegrationTests {
         try await client.upload(upload, to: listing.path)
         #expect(FileManager.default.fileExists(atPath: remote.appendingPathComponent("up load.txt").path))
 
+        await #expect(throws: SFTPError.self) {
+            try await client.rename(RemotePath.join(listing.path, "up load.txt"),
+                                    to: RemotePath.join(listing.path, odd))
+        }
+        #expect(try String(contentsOf: remote.appendingPathComponent(odd), encoding: .utf8) == "hello")
+        #expect(try String(contentsOf: remote.appendingPathComponent("up load.txt"), encoding: .utf8) == "up")
         try await client.rename(RemotePath.join(listing.path, "up load.txt"),
                                 to: RemotePath.join(listing.path, "renamed.txt"))
         try await client.makeDirectory(RemotePath.join(listing.path, "new dir"))
@@ -610,9 +673,19 @@ final class ConnectionIntegrationTests {
         #expect(Set(after.files.map(\.name)) == [odd, "new dir"])
 
         // Editing writes the local copy back over the remote file.
+        let originalFile = remote.appendingPathComponent(odd)
+        try FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: originalFile.path)
         try "edited".write(to: local.appendingPathComponent(odd), atomically: true, encoding: .utf8)
         try await client.replace(RemotePath.join(listing.path, odd), with: local.appendingPathComponent(odd))
-        #expect(try String(contentsOf: remote.appendingPathComponent(odd), encoding: .utf8) == "edited")
+        #expect(try String(contentsOf: originalFile, encoding: .utf8) == "edited")
+        let attributes = try FileManager.default.attributesOfItem(atPath: originalFile.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o640)
+        try FileManager.default.setAttributes([.posixPermissions: 0o440], ofItemAtPath: originalFile.path)
+        try "another version".write(to: local.appendingPathComponent(odd), atomically: true, encoding: .utf8)
+        await #expect(throws: SFTPError.self) {
+            try await client.replace(RemotePath.join(listing.path, odd), with: local.appendingPathComponent(odd))
+        }
+        #expect(try String(contentsOf: originalFile, encoding: .utf8) == "edited")
 
         // Once the terminal's ssh ends, sftp has nothing to ride on and does
         // not try to log in by itself.

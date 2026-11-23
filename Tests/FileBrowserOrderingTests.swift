@@ -16,11 +16,11 @@ private actor ControlledFiles: FileSource {
     private(set) var activeSaves = 0
     private(set) var maximumActiveSaves = 0
     private var interruptedDownloads = 0
-    private var holdsDownload = false
+    private var downloadDelay: Duration?
     private(set) var stagedDownload: URL?
 
     func failNextDownload() { interruptedDownloads += 1 }
-    func holdNextDownload() { holdsDownload = true }
+    func holdNextDownload(for delay: Duration = .seconds(30)) { downloadDelay = delay }
 
     func holdHome() { waitsForHome = true }
     func hasHomeRequest() -> Bool { homeRequest != nil }
@@ -58,10 +58,10 @@ private actor ControlledFiles: FileSource {
     func download(_ remote: String, recursive: Bool, to localDirectory: URL, as name: String) async throws {
         let target = localDirectory.appendingPathComponent(name)
         stagedDownload = target
-        if holdsDownload {
-            holdsDownload = false
+        if let downloadDelay {
+            self.downloadDelay = nil
             try Data("half".utf8).write(to: target)
-            try await Task.sleep(for: .seconds(30))
+            try await Task.sleep(for: downloadDelay)
         }
         if interruptedDownloads > 0 {
             interruptedDownloads -= 1
@@ -266,6 +266,49 @@ struct FileBrowserOrderingTests {
         #expect(await client.savedContents == Data("second".utf8))
         try await wait { browser.activities.allSatisfy { $0.state == .done } }
         #expect(try FileManager.default.contentsOfDirectory(atPath: local.deletingLastPathComponent().path) == ["config"])
+    }
+
+    @Test func aChangedDestinationNeedsAnotherChoiceEvenWithBatchReplace() async throws {
+        let (browser, client) = browser()
+        let destination = try localFile()
+        defer { browser.stop(); try? FileManager.default.removeItem(at: destination.deletingLastPathComponent()) }
+        browser.downloadsDirectory = destination.deletingLastPathComponent()
+        let file = RemoteFile(name: "config", path: "/remote/config", kind: .file, size: 8,
+                              modified: nil, permissions: "rw-r--r--", owner: "lab", group: "lab")
+        await client.holdNextDownload(for: .milliseconds(500))
+        browser.download(file)
+        try await wait { browser.transfers.conflict != nil }
+        let firstConflict = try #require(browser.transfers.conflict)
+        browser.transfers.resolve(firstConflict.id, with: .replace, forBatch: true)
+        try await wait { await client.stagedDownload != nil }
+        let external = Data("changed elsewhere".utf8)
+        try external.write(to: destination, options: .atomic)
+        try await wait { browser.activities.first.map(browser.transfers.canRetry) == true }
+        browser.transfers.retry([firstConflict.id])
+        try await wait { browser.transfers.conflict != nil }
+        #expect(browser.transfers.conflict?.id == firstConflict.id)
+        #expect(try Data(contentsOf: destination) == external)
+        browser.transfers.resolve(firstConflict.id, with: .skip, forBatch: false)
+        try await wait { browser.activities.first?.state == .skipped }
+    }
+
+    @Test func changingHostsDropsPendingEditorSaves() async throws {
+        let (browser, previous) = browser()
+        let replacement = ControlledFiles()
+        let local = try localFile()
+        defer { browser.stop(); try? FileManager.default.removeItem(at: local.deletingLastPathComponent()) }
+        browser.saveBack("config", local: local, remote: "/config")
+        try await wait { await previous.saveContents.count == 1 }
+        browser.saveBack("config", local: local, remote: "/config")
+        browser.sourceChanged()
+        browser.clientOverride = replacement
+        await previous.finishSave(0)
+        try await wait { await previous.activeSaves == 0 }
+        browser.saveBack("config", local: local, remote: "/config")
+        try await wait { await replacement.saveContents.count == 1 }
+        #expect(await previous.saveContents.count == 1)
+        await replacement.finishSave(0)
+        try await wait { await replacement.activeSaves == 0 }
     }
 
     @Test func aFailedSaveDoesNotPreventTheNextVersionFromBeingUploaded() async throws {

@@ -27,6 +27,8 @@ struct SFTPClient: Equatable, Sendable {
     var controlPath: String
     var alias: String
     var usesOnlySFTP = false
+    var stageJournal: SFTPStageJournal?
+    var requiresMaster = false
 
     static let executable = "/usr/bin/sftp"
 
@@ -41,7 +43,13 @@ struct SFTPClient: Equatable, Sendable {
          // would ask it for them again.
          "-o", "ClearAllForwardings=yes"]
             // Reuse the socket or fail if it disappears during an operation.
-            + (usesOnlySFTP ? ["-o", "ProxyCommand=/usr/bin/false"] : [])
+            + (usesOnlySFTP || requiresMaster ? ["-o", "ProxyCommand=/usr/bin/false"] : [])
+    }
+
+    func requiringMaster() -> Self {
+        var client = self
+        client.requiresMaster = true
+        return client
     }
 
     // MARK: - Operations
@@ -73,18 +81,44 @@ struct SFTPClient: Equatable, Sendable {
 
     func download(_ remote: String, recursive: Bool, to localDirectory: URL, as name: String) async throws {
         let target = localDirectory.appendingPathComponent(name).path
-        try await run(["get \(recursive ? "-r " : "")\(Self.quote(remote)) \(Self.quote(target))"])
+        try await transfer("get \(recursive ? "-r " : "")\(Self.quote(remote)) \(Self.quote(target))")
     }
 
     func upload(_ local: URL, to remoteDirectory: String) async throws {
         let recursive = (try? local.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         let target = RemotePath.join(remoteDirectory, local.lastPathComponent)
-        try await run(["put \(recursive ? "-r " : "")\(Self.quote(local.path)) \(Self.quote(target))"])
+        try await transfer("put \(recursive ? "-r " : "")\(Self.quote(local.path)) \(Self.quote(target))")
     }
 
     /// Writes a local file over a remote one, for Open and Edit.
     func replace(_ remote: String, with local: URL) async throws {
-        try await run(["put \(Self.quote(local.path)) \(Self.quote(remote))"])
+        let folder = RemotePath.parent(of: remote)
+        let name = RemotePath.name(of: remote)
+        let listing = try await list(folder)
+        let destination = RemotePath.join(listing.path, name)
+        guard let original = listing.files.first(where: { $0.name == name }), original.kind == .file else {
+            throw SFTPError.failed("The original file is missing or is no longer a regular file.")
+        }
+        try await withTransferStage(in: listing.path) { stage in
+            let staged = RemotePath.join(stage, name)
+            try await transfer("put \(Self.quote(local.path)) \(Self.quote(staged))")
+            let uploaded = try await list(stage).files.first { $0.name == name }
+            guard let uploaded, uploaded.owner == original.owner, uploaded.group == original.group else {
+                throw SFTPError.failed("Cannot save without changing the file’s owner or group.")
+            }
+            guard original.permissions.dropFirst().first == "w" else {
+                throw SFTPError.failed("The original file is read-only.")
+            }
+            let mode = original.permissions.prefix(9).reduce(0) { mode, bit in
+                (mode << 1) | ("rwxst".contains(bit) ? 1 : 0)
+            }
+            try await run(["chmod \(String(mode, radix: 8)) \(Self.quote(staged))"])
+            guard try await list(listing.path).files.first(where: { $0.name == name }) == original else {
+                throw SFTPError.failed("The original file changed during the save. Reopen it before editing again.")
+            }
+            try Task.checkCancellation()
+            try await Task { try await finishTransfer(staged, at: destination, replacing: true) }.value
+        }
     }
 
     func makeDirectory(_ path: String) async throws {
@@ -92,7 +126,15 @@ struct SFTPClient: Equatable, Sendable {
     }
 
     func rename(_ path: String, to newPath: String) async throws {
-        try await run(["rename \(Self.quote(path)) \(Self.quote(newPath))"])
+        do {
+            try await finishTransfer(path, at: newPath, replacing: false)
+        } catch {
+            if let listing = try? await list(RemotePath.parent(of: newPath)),
+               listing.files.contains(where: { $0.name == RemotePath.name(of: newPath) }) {
+                throw SFTPError.failed("An item named “\(RemotePath.name(of: newPath))” already exists.")
+            }
+            throw error
+        }
     }
 
     func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws {
@@ -177,6 +219,17 @@ struct SFTPClient: Equatable, Sendable {
     @discardableResult
     func run(_ commands: [String]) async throws -> String {
         try await runReportingErrors(commands).output
+    }
+
+    private func transfer(_ command: String) async throws {
+        let result = try await runReportingErrors([command])
+        // OpenSSH reports skipped links and special files on stderr even when
+        // the recursive operation exits successfully.
+        if let skipped = result.errors.first(where: {
+            $0.hasSuffix(": not a regular file") || $0.hasSuffix(" is not a regular file")
+        }) {
+            throw SFTPError.failed(skipped)
+        }
     }
 
     /// The output, and what sftp said on stderr even when it exited 0.

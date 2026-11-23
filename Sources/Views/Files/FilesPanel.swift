@@ -117,6 +117,11 @@ struct FileBrowserView: View {
         }
         .onDisappear { browser.isShown = false }
         .onChange(of: browser.path) { pathText = browser.path ?? "" }
+        .onChange(of: browser.sourceRevision) {
+            renaming = nil
+            creatingFolder = false
+            pendingDeletion = nil
+        }
         .onChange(of: browser.transfers.conflict?.id, initial: true) {
             transferConflict = browser.transfers.conflict
         }

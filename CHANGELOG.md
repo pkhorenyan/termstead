@@ -29,6 +29,12 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   local browser. Folders with hidden files offer a button to reveal them.
 - The SFTP focus and drop outline clears selected row corners, aligns with
   the path field, and uses a deeper blue in Sepia for better contrast.
+- SFTP rename preserves existing files. Saves from external editors publish
+  atomically, and changing a VNC session's SSH host ends its editor watches.
+- Folder transfers report skipped links or special files, and retry asks
+  again when the destination changed after a replacement was approved.
+- SFTP cleans up abandoned upload folders when the same SSH connection is
+  opened again, including after a tab closes or the app restarts.
 
 ## [0.9.1] - 2026-11-20
 

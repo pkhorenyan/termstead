@@ -14,6 +14,7 @@ final class FileTransferQueue {
         let name: String
         let folder: String
         let canReplace: Bool
+        fileprivate let existing: RemoteFile
     }
 
     private enum Operation {
@@ -39,6 +40,8 @@ final class FileTransferQueue {
         let operation: Operation
         let batch: UUID
         var choice: Choice?
+        var confirmedDestination: RemoteFile?
+        var needsNewChoice = false
     }
 
     private(set) var conflict: Conflict?
@@ -48,7 +51,6 @@ final class FileTransferQueue {
     @ObservationIgnored private var pending: [UUID] = []
     @ObservationIgnored private var choices: [UUID: Choice] = [:]
     @ObservationIgnored private var active: (id: UUID, task: Task<Void, Never>)?
-    @ObservationIgnored private var remoteStages: Set<String> = []
     @ObservationIgnored private var sourceRevision = UUID()
     @ObservationIgnored private var stopped = false
 
@@ -91,6 +93,7 @@ final class FileTransferQueue {
         let wanted = Set(ids)
         for activity in browser.activities where wanted.contains(activity.id) && canRetry(activity) {
             jobs[activity.id]?.choice = nil
+            jobs[activity.id]?.confirmedDestination = nil
             browser.updateActivity(activity.id) { $0.state = .queued }
             pending.append(activity.id)
         }
@@ -102,6 +105,7 @@ final class FileTransferQueue {
         guard choice != .replace || conflict.canReplace else { return }
         if forBatch { choices[job.batch] = choice }
         jobs[id]?.choice = choice
+        jobs[id]?.confirmedDestination = choice == .replace ? conflict.existing : nil
         self.conflict = nil
         browser?.updateActivity(id) { $0.state = .queued }
         pending.insert(id, at: 0)
@@ -137,7 +141,6 @@ final class FileTransferQueue {
     /// A VNC session can be reconfigured to browse a different SSH host.
     func sourceChanged() {
         sourceRevision = UUID()
-        remoteStages.removeAll()
         pending.removeAll()
         conflict = nil
         active?.task.cancel()
@@ -145,16 +148,12 @@ final class FileTransferQueue {
     }
 
     func sourceReady() {
-        if let client = browser?.transferClient, !remoteStages.isEmpty { cleanRemoteStages(using: client) }
         startNext()
     }
 
     private func startNext() {
         guard !stopped, active == nil, conflict == nil, let client = browser?.transferClient else { return }
-        guard let id = pending.first, let job = jobs[id] else {
-            if !remoteStages.isEmpty { cleanRemoteStages(using: client) }
-            return
-        }
+        guard let id = pending.first, let job = jobs[id] else { return }
         pending.removeFirst()
         browser?.updateActivity(id) { $0.state = .running(progress: nil) }
         let revision = sourceRevision
@@ -216,7 +215,8 @@ final class FileTransferQueue {
         var finalName = name
         var replacing = false
         if let existing {
-            let choice = job.choice ?? choices[job.batch]
+            let confirmationChanged = job.confirmedDestination.map { $0 != existing } ?? false
+            let choice = confirmationChanged ? nil : job.choice ?? (job.needsNewChoice ? nil : choices[job.batch])
             switch choice {
             case .skip:
                 finish(id, state: .skipped)
@@ -229,21 +229,21 @@ final class FileTransferQueue {
                 finalName = existing.name
                 replacing = true
             default:
-                conflict = Conflict(id: id, name: name, folder: destination.path, canReplace: canReplace)
+                if confirmationChanged { jobs[id]?.needsNewChoice = true }
+                conflict = Conflict(id: id, name: name, folder: destination.path, canReplace: canReplace, existing: existing)
                 browser?.updateActivity(id) { $0.state = .waitingForChoice }
                 return
             }
         }
-        let stage = RemotePath.join(destination.path, ".termstead-transfer-\(UUID().uuidString.lowercased())")
-        let stagedFile = RemotePath.join(stage, name)
         let finalPath = RemotePath.join(destination.path, finalName)
         if target.isLocal, case .upload(let url, _) = operation, kind == .directory,
-           let original = LocalFiles.realPath(url.path), stage.hasPrefix(original + "/") {
+           let original = LocalFiles.realPath(url.path),
+           destination.path == original || destination.path.hasPrefix(original + "/") {
             throw SFTPError.failed("A folder cannot be copied into itself.")
         }
         let browser = self.browser
-        do {
-            try await target.makeTransferStage(stage)
+        try await target.withTransferStage(in: destination.path) { stage in
+            let stagedFile = RemotePath.join(stage, name)
             try await withProgress(id, size: kind == .file ? size : nil, target: target, stage: stage, name: name) {
                 switch operation {
                 case .upload(let url, _): try await client.upload(url, to: stage)
@@ -257,6 +257,7 @@ final class FileTransferQueue {
             if replacing {
                 let current = try await target.list(destination.path).files.first { sameName($0.name, finalName) }
                 guard current == existing else {
+                    jobs[id]?.needsNewChoice = true
                     throw SFTPError.failed("The destination changed during the transfer. Retry to choose again.")
                 }
             }
@@ -265,11 +266,7 @@ final class FileTransferQueue {
             let shouldReplace = replacing
             // Once this starts, finish the rename even if the user closes the view.
             try await Task { try await target.finishTransfer(stagedFile, at: finalPath, replacing: shouldReplace) }.value
-        } catch {
-            await discard(stage, using: target, revision: revision)
-            throw error
         }
-        await discard(stage, using: target, revision: revision)
         guard revision == sourceRevision else { return }
         finish(id, state: .done, result: target.isLocal ? URL(fileURLWithPath: finalPath) : nil)
         switch operation {
@@ -305,33 +302,4 @@ final class FileTransferQueue {
         try await work()
     }
 
-    private func discard(_ stage: String, using target: any FileSource, revision: UUID) async {
-        do {
-            // Cleanup still runs when the transfer task was cancelled.
-            try await Task { try await target.discardTransferStage(stage) }.value
-            remoteStages.remove(stage)
-        } catch where !target.isLocal && revision == sourceRevision {
-            remoteStages.insert(stage)
-            if let previous = target as? SFTPClient,
-               let current = browser?.transferClient as? SFTPClient, current != previous {
-                cleanRemoteStages(using: current)
-            }
-        } catch {}
-    }
-
-    private func cleanRemoteStages(using client: any FileSource) {
-        let paths = remoteStages
-        let revision = sourceRevision
-        remoteStages.removeAll()
-        Task { [weak self] in
-            for stage in paths {
-                guard let self, self.sourceRevision == revision, !self.stopped else { return }
-                let parent = RemotePath.parent(of: stage)
-                if let listing = try? await client.list(parent), !listing.files.contains(where: { $0.path == stage }) {
-                    continue
-                }
-                await self.discard(stage, using: client, revision: revision)
-            }
-        }
-    }
 }

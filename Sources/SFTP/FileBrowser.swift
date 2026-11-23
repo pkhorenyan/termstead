@@ -102,6 +102,7 @@ final class FileBrowser {
     @ObservationIgnored private var loadRequest = UUID()
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var copyRequest = UUID()
+    private(set) var sourceRevision = UUID()
     @ObservationIgnored private var remoteDrag: (token: UUID, files: [RemoteFile])?
     @ObservationIgnored private(set) lazy var transfers = FileTransferQueue(browser: self)
     /// Tests use a private pasteboard; the app uses the normal Finder clipboard.
@@ -170,8 +171,14 @@ final class FileBrowser {
         }
     }
 
-    /// A VNC tab may switch to another saved SSH account while it stays open.
-    /// Its old remote path must not be reused on the new host.
+    /// A VNC tab may switch SSH accounts while its file browser stays open.
+    func sourceChanged() {
+        sourceRevision = UUID()
+        copyRequest = UUID()
+        stopEditing()
+        transfers.sourceChanged()
+    }
+
     func resetForNewSource() {
         remoteDrag = nil
         retry?.cancel()
@@ -295,12 +302,16 @@ final class FileBrowser {
     /// Double-click: a folder opens in the panel, a file in its Mac app.
     /// A symlink is whichever it turns out to point at.
     func open(_ file: RemoteFile) {
+        let revision = sourceRevision
         Task {
+            guard !stopped, revision == sourceRevision else { return }
             switch file.kind {
             case .directory:
                 await load(file.path)
             case .symlink:
-                if let client, await client.isDirectory(file.path) {
+                let isDirectory = await client?.isDirectory(file.path) ?? false
+                guard !stopped, revision == sourceRevision else { return }
+                if isDirectory {
                     await load(file.path)
                 } else {
                     await edit(file)
@@ -558,6 +569,7 @@ final class FileBrowser {
     /// and uploads it again each time that app saves it.
     private func edit(_ file: RemoteFile) async {
         guard let client else { return }
+        let revision = sourceRevision
         if client.isLocal {
             // Already on this Mac: opened where it is, nothing to send back.
             RemoteEdit.open(URL(fileURLWithPath: file.path))
@@ -581,10 +593,14 @@ final class FileBrowser {
                                       growing: folder.appendingPathComponent(file.name)) {
             try await client.download(file.path, recursive: false, to: folder, as: file.name)
         }
-        guard succeeded else { return }
+        guard succeeded, !stopped, revision == sourceRevision else {
+            try? FileManager.default.removeItem(at: folder)
+            return
+        }
         let local = folder.appendingPathComponent(file.name)
         let edit = RemoteEdit(local: local, remote: file.path) { [weak self] in
-            self?.saveBack(file.name, local: local, remote: file.path)
+            guard let self, self.sourceRevision == revision else { return }
+            self.saveBack(file.name, local: local, remote: file.path)
         }
         edits[file.path] = edit
         edit.open()
@@ -594,9 +610,10 @@ final class FileBrowser {
         guard !stopped, let client else { return }
         let previous = pendingSaves[remote]?.task
         let id = UUID()
+        let revision = sourceRevision
         let task = Task { [weak self] in
             await previous?.value
-            guard let self, !Task.isCancelled, !stopped else { return }
+            guard let self, !Task.isCancelled, !stopped, revision == sourceRevision else { return }
             defer { if pendingSaves[remote]?.id == id { pendingSaves[remote] = nil } }
             let snapshot = local.deletingLastPathComponent().appendingPathComponent(".upload-\(id)")
             await perform("Save “\(name)” to the server") {
@@ -622,11 +639,15 @@ final class FileBrowser {
         isLoading = false
         retry?.cancel()
         follow?.cancel()
+        stopEditing()
+        try? FileManager.default.removeItem(at: editDirectory)
+    }
+
+    private func stopEditing() {
         for save in pendingSaves.values { save.task.cancel() }
         pendingSaves.removeAll()
         edits.values.forEach { $0.stop() }
         edits.removeAll()
-        try? FileManager.default.removeItem(at: editDirectory)
     }
 }
 

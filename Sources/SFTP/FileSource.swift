@@ -33,6 +33,36 @@ extension FileSource {
     func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws {
         try await rename(path, to: destination)
     }
+
+    func withTransferStage(in folder: String, isolation: isolated (any Actor)? = #isolation,
+                           _ work: (String) async throws -> Void) async throws {
+        let stage = RemotePath.join(folder, SFTPStageJournal.prefix + UUID().uuidString.lowercased())
+        let remote = self as? SFTPClient
+        let record: SFTPStageJournal.Record?
+        if let journal = remote?.stageJournal {
+            record = try await BlockingWork.run { try journal.register(stage) }
+        } else {
+            record = nil
+        }
+        defer { record?.close() }
+        let cleanupSource: any FileSource = remote?.requiringMaster() ?? self
+        func clean() async {
+            // Cleanup must still run after the transfer task has been cancelled.
+            let removed = await Task {
+                (try? await cleanupSource.discardTransferStage(stage)) != nil
+            }.value
+            if removed { record?.remove() }
+        }
+        do {
+            try Task.checkCancellation()
+            try await makeTransferStage(stage)
+            try await work(stage)
+        } catch {
+            await clean()
+            throw error
+        }
+        await clean()
+    }
 }
 
 extension SFTPClient: FileSource {
