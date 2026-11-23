@@ -408,7 +408,6 @@ open class Terminal {
     var refreshEnd = -1
     var scrollInvariantRefreshStart = Int.max
     var scrollInvariantRefreshEnd = -1
-    var userScrolling = false
     var lineFeedMode = false
     
     // We do not implement smooth scrolling here, dubious value, but
@@ -4995,6 +4994,8 @@ open class Terminal {
     public func scroll (isWrapped: Bool = false)
     {
         let buffer = self.buffer
+        // Capture the viewport before appending output changes the live position.
+        let isReadingScrollback = buffer.yDisp < buffer.yBase
         let lines = buffer.lines
         let scrollTop = buffer.scrollTop
         let scrollBottom = buffer.scrollBottom
@@ -5067,13 +5068,8 @@ open class Terminal {
                                      change: { line in updateRange (line)})
             }
 
-            // Only adjust ybase and ydisp when the buffer is not trimmed
             if !willBufferBeTrimmed {
                 buffer.yBase += 1
-                // Only scroll the ydisp with ybase if the user has not scrolled up
-                if !userScrolling {
-                    buffer.yDisp += 1
-                }
             } else {
                 if hasScrollback {
                     buffer.linesTop += 1
@@ -5081,7 +5077,7 @@ open class Terminal {
 
                 // When the buffer is full and the user has scrolled up, keep the text
                 // stable unless ydisp is right at the top
-                if userScrolling {
+                if isReadingScrollback {
                     buffer.yDisp = max (buffer.yDisp - 1, 0)
                 }
             }
@@ -5105,9 +5101,7 @@ open class Terminal {
             lines [bottomRow] = BufferLine (from: newLine)
         }
 
-        // Move the viewport to the bottom of the buffer unless the user is
-        // scrolling.
-        if !userScrolling {
+        if !isReadingScrollback {
             buffer.yDisp = buffer.yBase
         }
 

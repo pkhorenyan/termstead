@@ -80,4 +80,48 @@ struct TerminalBehaviourTests {
         view.applyCursor(shape: .bar, blinks: false)
         #expect(view.getTerminal().options.cursorStyle == .steadyBar)
     }
+
+    private func terminalWithHistory(scrollback: Int) -> SSHTerminalView {
+        let view = SSHTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 200))
+        view.scrollbackLines = scrollback
+        view.feed(text: (1...200).map { "line \($0)\r\n" }.joined())
+        return view
+    }
+
+    @Test func theWheelHoldsScrollbackUntilReturningToLiveOutput() throws {
+        let view = terminalWithHistory(scrollback: 1000)
+        let terminal = view.getTerminal()
+        let bottom = terminal.getTopVisibleRow()
+        let event = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+                                        wheel1: 3, wheel2: 0, wheel3: 0).flatMap(NSEvent.init(cgEvent:)))
+        view.scrollWheel(with: event)
+        let readingRow = terminal.getTopVisibleRow()
+        try #require(readingRow < bottom)
+        view.feed(text: "new output\r\n")
+        #expect(terminal.getTopVisibleRow() == readingRow)
+
+        view.scrollDown(lines: 1000)
+        let liveRow = terminal.getTopVisibleRow()
+        #expect(liveRow == bottom + 1)
+        view.feed(text: "live again\r\n")
+        #expect(terminal.getTopVisibleRow() == liveRow + 1)
+    }
+
+    @Test func theScrollbarKeepsTheSameTextWhenFullHistoryRollsOver() throws {
+        let view = terminalWithHistory(scrollback: 40)
+        let terminal = view.getTerminal()
+        view.scroll(toPosition: 0.5)
+        let readingRow = terminal.getTopVisibleRow()
+        try #require(readingRow > 0)
+        let firstLine = try #require(terminal.getLine(row: 0)).translateToString(trimRight: true)
+        view.feed(text: "new output\r\n")
+        #expect(terminal.getTopVisibleRow() == readingRow - 1)
+        #expect(terminal.getLine(row: 0)?.translateToString(trimRight: true) == firstLine)
+
+        view.scroll(toPosition: 0)
+        let oldest = terminal.getLine(row: 0)?.translateToString(trimRight: true)
+        view.feed(text: "one more line\r\n")
+        #expect(terminal.getTopVisibleRow() == 0)
+        #expect(terminal.getLine(row: 0)?.translateToString(trimRight: true) != oldest)
+    }
 }

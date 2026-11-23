@@ -18,6 +18,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- New terminal output keeps the current scrollback in view. Automatic
+  scrolling resumes when the viewport returns to the bottom.
 - Clicking blank space in a file list clears the selection. Dragging a local
   selection into SFTP carries every selected file and folder as a Mac drag item.
 - File operations such as deleting and renaming use a file operations heading.

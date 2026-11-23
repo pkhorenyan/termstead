@@ -7,6 +7,14 @@ need Xcode's separately downloaded Metal Toolchain to build.
 Only `Sources/SwiftTerm` is kept (without `Documentation.docc`), and
 `Package.swift` declares the library alone.
 
+## Keep the scrollback viewport on new output
+
+`Terminal.scroll` now derives whether to follow new output from the active
+buffer's viewport and live position before it appends a line. Wheel and
+scrollbar movements already update the viewport. If the buffer is full, the
+viewport index moves back as old lines are discarded to keep the same text
+visible for as long as that text is retained. See Termstead issue #7.
+
 ## LocalProcess: one read at a time
 
 `LocalProcess.childProcessRead` re-armed `io.read` on every call of its
