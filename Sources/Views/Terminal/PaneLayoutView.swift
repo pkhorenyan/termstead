@@ -254,7 +254,7 @@ struct PaneView: View {
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if connection.kind == .sftp {
-                            sftpConnectionFooter(connection)
+                            sftpTransferFooter(connection.fileBrowser)
                         }
                     }
             } else {
@@ -280,31 +280,13 @@ struct PaneView: View {
     }
 
     @ViewBuilder
-    private func sftpConnectionFooter(_ connection: Connection) -> some View {
-        let remote = connection.fileBrowser
-        let canReconnect = !connection.state.isRunning && connection.plan != nil
-        if canReconnect || !remote.activities.isEmpty {
+    private func sftpTransferFooter(_ browser: FileBrowser) -> some View {
+        if !browser.activities.isEmpty {
             VStack(spacing: 0) {
                 Divider1(theme.border)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(connection.state.isRunning ? "Connecting…" : "Disconnected")
-                            .font(SBFont.ui(12, .medium))
-                            .foregroundStyle(theme.textSecondary.color)
-                        Spacer()
-                        if canReconnect {
-                            Button("Reconnect") {
-                                connectionStore.focus(pane: pane)
-                                connection.restart()
-                                connection.terminalView.window?.makeFirstResponder(connection.terminalView)
-                            }
-                            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26, fontSize: 12))
-                        }
-                    }
-                    FileActivityStrip(browser: remote, theme: theme)
-                }
-                .padding(12)
-                .background(theme.sidebar.color)
+                FileActivityStrip(browser: browser, theme: theme)
+                    .padding(12)
+                    .background(theme.sidebar.color)
             }
         }
     }

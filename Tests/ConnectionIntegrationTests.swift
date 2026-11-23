@@ -587,14 +587,17 @@ final class ConnectionIntegrationTests {
             }
         }
 
-        func disconnectAndRetry(destination: URL, keepRecentResults: Bool = false) async throws {
+        func disconnectAndRetry(destination: URL, keepRecentResults: Bool = false,
+                                enqueueRemaining: () -> Void) async throws {
             try await awaitCondition(timeout: 15) { browser.activities.contains { $0.state == .done } }
             let completed = Set(browser.activities.filter { $0.state == .done }.map(\.id))
             let pid = connection.terminalView.process.shellPid
             try #require(pid > 0)
-            // Stop just this test's SSH master so a channel is still busy when it exits.
+            // Hold this test's SSH master before submitting the remaining files.
+            // This guarantees a transfer is interrupted even on a fast loopback.
             try #require(kill(pid, SIGSTOP) == 0)
             defer { if connection.state.isRunning, connection.terminalView.process.shellPid == pid { _ = kill(pid, SIGCONT) } }
+            enqueueRemaining()
             try await awaitCondition(timeout: 10, hasActiveTransfer)
             try #require(kill(pid, SIGKILL) == 0)
             try await awaitCondition(timeout: 10) {
@@ -606,7 +609,9 @@ final class ConnectionIntegrationTests {
             let failed = browser.activities.filter(browser.transfers.canRetry).map(\.id)
             browser.transfers.retry(failed)
             #expect(browser.activities.filter { failed.contains($0.id) }.allSatisfy { $0.state == .queued })
-            connection.restart()
+            let terminalWasRunning = connection.terminalView.process.running
+            connection.terminalView.send(txt: "\r")
+            try #require(connection.state.isRunning, "Return must restart SSH (PTY still running: \(terminalWasRunning))")
             try await awaitCondition(timeout: 10) { connection.isLoggedIn }
             try await awaitCondition(timeout: 60) {
                 if let conflict = browser.transfers.conflict,
@@ -626,14 +631,18 @@ final class ConnectionIntegrationTests {
 
         let client = try #require(connection.sftp)
         let remotePath = try await client.list(remote.path).path
-        browser.upload(files, into: remotePath)
-        try await disconnectAndRetry(destination: remote, keepRecentResults: true)
+        browser.upload([try #require(files.first)], into: remotePath)
+        try await disconnectAndRetry(destination: remote, keepRecentResults: true) {
+            browser.upload(Array(files.dropFirst()), into: remotePath)
+        }
 
         let reconnected = try #require(connection.sftp)
         let listing = try await reconnected.list(remotePath)
         let local = FileBrowser(localFiles: LocalFiles())
-        browser.download(listing.files, into: local, directory: downloads.path)
-        try await disconnectAndRetry(destination: downloads)
+        browser.download([try #require(listing.files.first)], into: local, directory: downloads.path)
+        try await disconnectAndRetry(destination: downloads) {
+            browser.download(Array(listing.files.dropFirst()), into: local, directory: downloads.path)
+        }
     }
 
     @Test func sftpRejectsIncompleteFoldersAndCleansAbandonedUploadsAfterReconnect() async throws {
