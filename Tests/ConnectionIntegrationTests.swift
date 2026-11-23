@@ -470,9 +470,7 @@ final class ConnectionIntegrationTests {
             return true
         }
         let localDrop = TestFileDrop(pasteboard: dragBoard, source: dragView)
-        #expect(ofLocalFiles.draggingEntered(localDrop).isEmpty)
-        #expect(!ofLocalFiles.performDragOperation(localDrop))
-        ofLocalFiles.folder = nested
+        // Dropping across panels onto blank space copies into the open folder.
         #expect(ofLocalFiles.draggingEntered(localDrop) == .copy)
         #expect(ofLocalFiles.performDragOperation(localDrop))
         dragView.mouseUp(with: press)

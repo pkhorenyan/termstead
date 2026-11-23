@@ -180,7 +180,9 @@ struct FileDropTarget: NSViewRepresentable {
 }
 
 final class FileDropTargetView: NSView {
-    weak var browser: FileBrowser?
+    weak var browser: FileBrowser? {
+        didSet { if oldValue !== browser { updateDropTypes() } }
+    }
     var folder: String? {
         didSet { if oldValue != folder { updateDropTypes() } }
     }
@@ -198,7 +200,7 @@ final class FileDropTargetView: NSView {
 
     private func updateDropTypes() {
         var types: [NSPasteboard.PasteboardType] = [.fileURL]
-        if folder != nil {
+        if folder != nil || browser?.isLocal == true {
             types.append(RemoteFileDragReference.pasteboardType)
             // The native source can supply the remote selection even if the
             // system advertises only the standard file promise types.
@@ -219,21 +221,19 @@ final class FileDropTargetView: NSView {
 
     private func dropOperation(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let source = sender.draggingSource as? FileDragView
-        if let selection = source?.draggedSelection, let browser {
+        if let selection = source?.draggedSelection, selection.browser === browser {
             guard let folder else { return [] }
-            if selection.browser === browser {
-                return browser.canMove(selection.files, into: folder) && sender.draggingSourceOperationMask.contains(.move)
-                    ? .move : []
-            }
+            return selection.browser.canMove(selection.files, into: folder) && sender.draggingSourceOperationMask.contains(.move)
+                ? .move : []
         }
         guard sender.draggingSourceOperationMask.contains(.copy) else { return [] }
         switch source?.draggedFiles {
         case .local: return .copy
-        case .remote: return browser?.isLocal == true && folder != nil ? .copy : []
+        case .remote: return browser?.isLocal == true ? .copy : []
         case nil:
             let types = sender.draggingPasteboard.types ?? []
             if types.contains(RemoteFileDragReference.pasteboardType) {
-                return browser?.isLocal == true && folder != nil ? .copy : []
+                return browser?.isLocal == true ? .copy : []
             }
             return types.contains(.fileURL) ? .copy : []
         }

@@ -39,9 +39,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   opened again, including after a tab closes or the app restarts.
 - SFTP keeps the transfer queue visible while disconnected so failed
   transfers can be queued for retry before reconnecting.
-- Drag files onto folders to move them within a file panel or copy them
-  between the Mac and server. Drops on files or blank space within Termstead
-  leave the selection in place.
+- Drag files onto folders to move them within a file panel. Between the Mac
+  and server, drop onto a folder or into blank space in the destination panel
+  to copy. Drops onto files leave the selection in place.
 
 ## [0.9.1] - 2026-11-20
 
