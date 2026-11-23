@@ -141,10 +141,9 @@
 
 ![A remote desktop in a tab, reached through a jump host, next to ssh sessions](docs/images/rdp.png)
 
-![Standalone SFTP with Mac files on the left and server files in the connected tab](docs/images/sftp.png)
-
 <p align="center">
-  <img src="docs/images/session-settings.png" alt="Session settings with SFTP selected and key authentication configured" width="76%">
+  <img src="docs/images/sftp.png" alt="Standalone SFTP with Mac files on the left and server files in the connected tab" width="56%">
+  <img src="docs/images/session-settings.png" alt="Session settings with SFTP selected and key authentication configured" width="42%">
 </p>
 
 ## Install
