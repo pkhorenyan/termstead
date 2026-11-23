@@ -343,6 +343,30 @@ final class FileBrowser {
         }
     }
 
+    func canMove(_ files: [RemoteFile], into folder: String) -> Bool {
+        !stopped && transferClient != nil && !files.isEmpty && files.allSatisfy { file in
+            RemotePath.parent(of: file.path) != folder &&
+                file.path != folder && !folder.hasPrefix(file.path + "/")
+        }
+    }
+
+    @discardableResult
+    func move(_ files: [RemoteFile], into folder: String) -> Bool {
+        guard canMove(files, into: folder), let client = transferClient else { return false }
+        let directory = path
+        let revision = sourceRevision
+        Task {
+            for file in files {
+                guard !stopped, revision == sourceRevision else { return }
+                await perform("Move “\(file.name)”") {
+                    try await client.rename(file.path, to: RemotePath.join(folder, file.name))
+                }
+            }
+            if revision == sourceRevision, path == directory, !isLoading { await load(directory) }
+        }
+        return true
+    }
+
     func delete(_ files: [RemoteFile]) {
         guard let client, !files.isEmpty else { return }
         let directory = path

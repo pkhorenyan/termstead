@@ -462,13 +462,17 @@ final class ConnectionIntegrationTests {
         let localWriters = try dragItems.map { item in try #require(item.item as? NSURL) }
         #expect(dragBoard.writeObjects(localWriters))
         let ofLocalFiles = FileDropTargetView()
+        ofLocalFiles.browser = browser
         ofLocalFiles.onDrop = { payload in
             guard case .local(let dropped) = payload else { return false }
             #expect(dropped.map(\.lastPathComponent) == ["documents", "pictures", "drag.txt"])
             browser.upload(dropped)
             return true
         }
-        let localDrop = TestFileDrop(pasteboard: dragBoard)
+        let localDrop = TestFileDrop(pasteboard: dragBoard, source: dragView)
+        #expect(ofLocalFiles.draggingEntered(localDrop).isEmpty)
+        #expect(!ofLocalFiles.performDragOperation(localDrop))
+        ofLocalFiles.folder = nested
         #expect(ofLocalFiles.draggingEntered(localDrop) == .copy)
         #expect(ofLocalFiles.performDragOperation(localDrop))
         dragView.mouseUp(with: press)
@@ -521,7 +525,8 @@ final class ConnectionIntegrationTests {
         let incoming = directory.appendingPathComponent("incoming", isDirectory: true)
         try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: false)
         let ofRemoteFiles = FileDropTargetView()
-        ofRemoteFiles.acceptsRemoteFiles = true
+        ofRemoteFiles.browser = local
+        ofRemoteFiles.folder = incoming.path
         ofRemoteFiles.onDrop = { payload in
             guard case .remote(let reference) = payload else { return false }
             return FileDrop.download(reference, into: local, directory: incoming.path, in: store)
@@ -551,6 +556,39 @@ final class ConnectionIntegrationTests {
         try await client.removeDirectory(remote)
         #expect(!FileManager.default.fileExists(atPath: remote))
         #expect(FileManager.default.fileExists(atPath: source.path))
+
+        for (index, panel) in [local, browser].enumerated() {
+            let root = directory.appendingPathComponent("move-\(index)", isDirectory: true)
+            let folder = root.appendingPathComponent("target", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let names = ["first.txt", "second.txt"]
+            for name in names { try Data(name.utf8).write(to: root.appendingPathComponent(name)) }
+            await panel.load(root.path)
+            let first = try #require(panel.visibleFiles.first { $0.name == names[0] })
+            let second = try #require(panel.visibleFiles.first { $0.name == names[1] })
+            let target = try #require(panel.visibleFiles.first { $0.name == "target" })
+            panel.select(first)
+            panel.select(second, modifiers: .command)
+            dragView.browser = panel
+            dragView.file = first
+            dragView.mouseDown(with: press)
+            #expect(dragView.prepareDrag(at: .zero).count == 2)
+            let drop = TestFileDrop(pasteboard: dragBoard, source: dragView)
+            let destination = FileDropTargetView()
+            destination.browser = panel
+            #expect(destination.draggingEntered(drop).isEmpty)
+            #expect(!destination.performDragOperation(drop))
+            #expect(!panel.canMove([target], into: target.path))
+            #expect(!panel.canMove([target], into: RemotePath.join(target.path, "child")))
+            destination.folder = target.path
+            #expect(destination.draggingEntered(drop) == .move)
+            #expect(destination.performDragOperation(drop))
+            try await awaitCondition(timeout: 10) { panel.visibleFiles.map(\.name) == ["target"] }
+            for name in names {
+                #expect(try Data(contentsOf: folder.appendingPathComponent(name)) == Data(name.utf8))
+                #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path))
+            }
+        }
     }
 
     @Test func sftpKeepsTheQueueAndRetriesOnTheSameTabAfterDisconnect() async throws {
@@ -794,7 +832,7 @@ private final class TestFileDrop: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     let draggingSource: Any?
     let draggingDestinationWindow: NSWindow? = nil
-    let draggingSourceOperationMask: NSDragOperation = .copy
+    let draggingSourceOperationMask: NSDragOperation
     let draggingLocation: NSPoint = .zero
     let draggedImageLocation: NSPoint = .zero
     nonisolated var draggedImage: NSImage? { nil }
@@ -807,6 +845,7 @@ private final class TestFileDrop: NSObject, NSDraggingInfo {
     init(pasteboard: NSPasteboard, source: FileDragView? = nil) {
         draggingPasteboard = pasteboard
         draggingSource = source
+        draggingSourceOperationMask = source == nil ? .copy : [.copy, .move]
     }
 
     func slideDraggedImage(to screenPoint: NSPoint) {}

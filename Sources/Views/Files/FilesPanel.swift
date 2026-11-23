@@ -98,6 +98,7 @@ struct FileBrowserView: View {
     @State private var creatingFolder = false
     @State private var pendingDeletion: [RemoteFile]?
     @State private var dropTargeted = false
+    @State private var targetedFolder: String?
     @State private var transferConflict: FileTransferQueue.Conflict?
     @FocusState private var listFocused: Bool
 
@@ -332,9 +333,17 @@ struct FileBrowserView: View {
 
     private func row(_ file: RemoteFile) -> some View {
         FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
+            .overlay {
+                if targetedFolder == file.path {
+                    RoundedRectangle(cornerRadius: 6).strokeBorder(listOutlineColor, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(FileDrag(file: file, browser: browser, onFocus: focusList))
             .overlay(ContextClickDetector { browser.selectForContextMenu(file); focusList() })
-            .overlay { dropTarget(into: file.kind == .directory ? file.path : nil) }
+            .overlay {
+                if file.kind == .directory { dropTarget(into: file.path) }
+            }
             .contextMenu {
                 Button(file.kind == .directory ? "Open" : "Open in Mac App") { browser.open(file) }
                 if let transfer {
@@ -372,7 +381,14 @@ struct FileBrowserView: View {
     }
 
     private func dropTarget(into folder: String? = nil) -> some View {
-        FileDropTarget(acceptsRemoteFiles: browser.isLocal, onTargeted: { dropTargeted = $0 }) { payload in
+        FileDropTarget(browser: browser, folder: folder, onTargeted: { targeted in
+            if let folder {
+                if targeted { targetedFolder = folder }
+                else if targetedFolder == folder { targetedFolder = nil }
+            } else {
+                dropTargeted = targeted
+            }
+        }) { payload in
             guard let destination = folder ?? browser.path else { return false }
             switch payload {
             case .local(let urls):
