@@ -553,6 +553,89 @@ final class ConnectionIntegrationTests {
         #expect(FileManager.default.fileExists(atPath: source.path))
     }
 
+    @Test func sftpKeepsTheQueueAndRetriesOnTheSameTabAfterDisconnect() async throws {
+        try await startServer(sftpOnly: true)
+        var session = directSession()
+        session.kind = .sftp
+        let plan = try testConfig(SSHLaunch.plan(for: session, sessions: [:]), batch: true)
+        let connection = Connection(sessionID: session.id, title: session.id, address: "",
+                                    keyDescription: "", keychain: keychain, kind: .sftp)
+        connection.start(plan)
+        defer { connection.close() }
+        try await awaitCondition(timeout: 10) { connection.isLoggedIn }
+        let browser = connection.fileBrowser
+        let folders = try ["source", "remote", "downloads"].map { name in
+            let url = directory.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            return url
+        }
+        let source = folders[0], remote = folders[1], downloads = folders[2]
+        let fixtures = (1...50).map { index in
+            ("file-\(index).bin", Data(repeating: UInt8(index), count: index * 1024))
+        }
+        let contents = Dictionary(uniqueKeysWithValues: fixtures)
+        let files = try fixtures.map { name, data in
+            let url = source.appendingPathComponent(name)
+            try data.write(to: url)
+            return url
+        }
+
+        func hasActiveTransfer() -> Bool {
+            browser.activities.contains { activity in
+                if case .running = activity.state { return true }
+                return false
+            }
+        }
+
+        func disconnectAndRetry(destination: URL, keepRecentResults: Bool = false) async throws {
+            try await awaitCondition(timeout: 15) { browser.activities.contains { $0.state == .done } }
+            let completed = Set(browser.activities.filter { $0.state == .done }.map(\.id))
+            let pid = connection.terminalView.process.shellPid
+            try #require(pid > 0)
+            // Stop just this test's SSH master so a channel is still busy when it exits.
+            try #require(kill(pid, SIGSTOP) == 0)
+            defer { if connection.state.isRunning, connection.terminalView.process.shellPid == pid { _ = kill(pid, SIGCONT) } }
+            try await awaitCondition(timeout: 10, hasActiveTransfer)
+            try #require(kill(pid, SIGKILL) == 0)
+            try await awaitCondition(timeout: 10) {
+                !connection.state.isRunning && !hasActiveTransfer() &&
+                    browser.activities.contains(where: browser.transfers.canRetry)
+            }
+            if keepRecentResults { try await Task.sleep(for: .milliseconds(3200)) }
+            #expect(browser.activities.contains { completed.contains($0.id) && $0.state == .done })
+            let failed = browser.activities.filter(browser.transfers.canRetry).map(\.id)
+            browser.transfers.retry(failed)
+            #expect(browser.activities.filter { failed.contains($0.id) }.allSatisfy { $0.state == .queued })
+            connection.restart()
+            try await awaitCondition(timeout: 10) { connection.isLoggedIn }
+            try await awaitCondition(timeout: 60) {
+                if let conflict = browser.transfers.conflict,
+                   (try? Data(contentsOf: destination.appendingPathComponent(conflict.name))) == contents[conflict.name] {
+                    // The final rename can succeed before the lost SSH reply reaches the sender.
+                    browser.transfers.resolve(conflict.id, with: .skip, forBatch: false)
+                }
+                return browser.activities.allSatisfy { $0.state == .done || $0.state == .skipped }
+            }
+            let names = try FileManager.default.contentsOfDirectory(atPath: destination.path)
+            #expect(Set(names) == Set(contents.keys))
+            for (name, expected) in contents {
+                #expect(try Data(contentsOf: destination.appendingPathComponent(name)) == expected)
+            }
+            for item in browser.activities { browser.dismiss(item.id) }
+        }
+
+        let client = try #require(connection.sftp)
+        let remotePath = try await client.list(remote.path).path
+        browser.upload(files, into: remotePath)
+        try await disconnectAndRetry(destination: remote, keepRecentResults: true)
+
+        let reconnected = try #require(connection.sftp)
+        let listing = try await reconnected.list(remotePath)
+        let local = FileBrowser(localFiles: LocalFiles())
+        browser.download(listing.files, into: local, directory: downloads.path)
+        try await disconnectAndRetry(destination: downloads)
+    }
+
     @Test func sftpRejectsIncompleteFoldersAndCleansAbandonedUploadsAfterReconnect() async throws {
         try await startServer(sftpOnly: true)
         var session = directSession()

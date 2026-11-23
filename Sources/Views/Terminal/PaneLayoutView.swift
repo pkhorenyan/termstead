@@ -252,6 +252,11 @@ struct PaneView: View {
                                 .padding(.trailing, 20)
                         }
                     }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if connection.kind == .sftp {
+                            sftpConnectionFooter(connection)
+                        }
+                    }
             } else {
                 EmptyPaneView(pane: pane)
             }
@@ -272,6 +277,36 @@ struct PaneView: View {
             .background(theme.sidebar.color)
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture().onEnded { connectionStore.focus(pane: pane) })
+    }
+
+    @ViewBuilder
+    private func sftpConnectionFooter(_ connection: Connection) -> some View {
+        let remote = connection.fileBrowser
+        let canReconnect = !connection.state.isRunning && connection.plan != nil
+        if canReconnect || !remote.activities.isEmpty {
+            VStack(spacing: 0) {
+                Divider1(theme.border)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(connection.state.isRunning ? "Connecting…" : "Disconnected")
+                            .font(SBFont.ui(12, .medium))
+                            .foregroundStyle(theme.textSecondary.color)
+                        Spacer()
+                        if canReconnect {
+                            Button("Reconnect") {
+                                connectionStore.focus(pane: pane)
+                                connection.restart()
+                                connection.terminalView.window?.makeFirstResponder(connection.terminalView)
+                            }
+                            .buttonStyle(SecondaryButtonStyle(theme: theme, height: 26, fontSize: 12))
+                        }
+                    }
+                    FileActivityStrip(browser: remote, theme: theme)
+                }
+                .padding(12)
+                .background(theme.sidebar.color)
+            }
+        }
     }
 }
 

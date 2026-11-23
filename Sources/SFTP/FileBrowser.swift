@@ -529,7 +529,9 @@ final class FileBrowser {
         if state == .done || state == .skipped {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(result == nil ? 3 : 8))
-                self?.dismiss(id)
+                // Keep recent results alongside the SFTP reconnect controls.
+                guard let self, connection?.kind != .sftp || connection?.isLoggedIn == true else { return }
+                dismiss(id)
             }
         }
     }

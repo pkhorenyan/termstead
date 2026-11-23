@@ -108,7 +108,7 @@ struct FileBrowserView: View {
             list
             // Its own view, so a progress tick re-renders the strip and not
             // the file list above it.
-            ActivityStrip(browser: browser, theme: theme) { transferConflict = browser.transfers.conflict }
+            FileActivityStrip(browser: browser, theme: theme) { transferConflict = browser.transfers.conflict }
         }
         .onAppear {
             browser.isShown = true
@@ -458,10 +458,10 @@ private struct TransferConflictSheet: View {
     }
 }
 
-private struct ActivityStrip: View {
+struct FileActivityStrip: View {
     var browser: FileBrowser
     var theme: Theme
-    var onResolve: () -> Void
+    var onResolve: (() -> Void)? = nil
 
     var body: some View {
         if !browser.activities.isEmpty {
@@ -546,7 +546,7 @@ private struct ActivityRow: View {
     var activity: FileBrowser.Activity
     var theme: Theme
     var queue: FileTransferQueue
-    var onResolve: () -> Void
+    var onResolve: (() -> Void)?
     var onDismiss: () -> Void
 
     var body: some View {
@@ -592,7 +592,7 @@ private struct ActivityRow: View {
                 .help("Retry Transfer")
                 .accessibilityLabel("Retry Transfer")
             }
-            if activity.state == .waitingForChoice {
+            if activity.state == .waitingForChoice, let onResolve {
                 Button(action: onResolve) {
                     Image(systemName: "ellipsis.circle").font(.system(size: 11, weight: .semibold))
                 }

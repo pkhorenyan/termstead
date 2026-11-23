@@ -37,6 +37,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   again when the destination changed after a replacement was approved.
 - SFTP cleans up abandoned upload folders when the same SSH connection is
   opened again, including after a tab closes or the app restarts.
+- SFTP keeps the transfer queue visible while disconnected and offers a
+  Reconnect button beside it.
 
 ## [0.9.1] - 2026-11-20
 
