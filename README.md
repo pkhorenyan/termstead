@@ -5,7 +5,7 @@
 <h1 align="center">Termstead</h1>
 
 <p align="center">
-  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.9.1-2F6FB5" alt="Version 0.9.1"></a>
+  <a href="https://github.com/pkhorenyan/termstead/releases/latest"><img src="https://img.shields.io/badge/version-0.10.0-2F6FB5" alt="Version 0.10.0"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-2F6FB5?logo=apple&logoColor=white" alt="macOS 14 or later">
   <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution"><img src="https://img.shields.io/badge/Apple-Notarized-3DA639?logo=apple&logoColor=white" alt="Notarized by Apple"></a>
   <img src="https://img.shields.io/badge/universal-Apple%20Silicon%20%2B%20Intel-2F6FB5" alt="Universal: Apple Silicon and Intel">
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  A native macOS SSH, RDP, VNC and Telnet client for people who keep a lot of servers
+  A native macOS SSH, SFTP, RDP, VNC and Telnet client for people who keep a lot of servers
   in their head — sessions in a tree, jump hosts, SFTP next to the terminal,
   remote desktops in tabs, your Mac's own shell beside them, and passwords in
   the macOS Keychain. Built for anyone coming
@@ -105,6 +105,11 @@
   network of the Linux server in front, read over the connection already open.
 - **Passwords and key passphrases in the Keychain**, entered for you when ssh
   asks — and only for the host they were saved for.
+- **Standalone SFTP sessions.** Choose SFTP when setting up a session. Your
+  Mac's files open on the left and the server's files open in the connected
+  tab. Drag files and folders between the panels to copy them. The transfer
+  queue shows progress, supports cancellation and retry, and stays visible
+  if the connection drops.
 - **SFTP beside the terminal and VNC desktop.** The SFTP tab reuses an SSH
   terminal's connection. A VNC tab opens its configured SSH file connection in
   the background, with separate credentials. When enabled, the sidebar opens on
@@ -136,9 +141,10 @@
 
 ![A remote desktop in a tab, reached through a jump host, next to ssh sessions](docs/images/rdp.png)
 
+![Standalone SFTP with Mac files on the left and server files in the connected tab](docs/images/sftp.png)
+
 <p align="center">
-  <img src="docs/images/sftp.png" alt="The SFTP tab next to a session" width="56%">
-  <img src="docs/images/session-settings.png" alt="VNC session settings with connection, keyboard and picture controls" width="42%">
+  <img src="docs/images/session-settings.png" alt="Session settings with SFTP selected and key authentication configured" width="76%">
 </p>
 
 ## Install

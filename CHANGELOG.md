@@ -7,6 +7,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-23
+
 ### Added
 
 - Standalone SFTP sessions show the Mac's files on the left and the server's
