@@ -1157,6 +1157,14 @@ final class SSHTerminalView: LocalProcessTerminalView {
     private var isReplying = false
     private var isSendingSnippet = false
     private var isSendingPaste = false
+    private var isScrolling = false
+
+    override func scrollWheel(with event: NSEvent) {
+        isScrolling = true
+        defer { isScrolling = false }
+        super.scrollWheel(with: event)
+    }
+
     /// The event being handled; replaceable so a test can hand it one.
     var eventInProgress: () -> NSEvent? = { NSApp.currentEvent }
 
@@ -1181,7 +1189,7 @@ final class SSHTerminalView: LocalProcessTerminalView {
     /// Typed or pasted: not a reply, and not a mouse report — a click or the
     /// wheel in vim or htop is sent too, and means nothing to another pane.
     private var isUserInput: Bool {
-        if isReplying || isSendingPaste { return false }
+        if isReplying || isSendingPaste || isScrolling { return false }
         if isSendingSnippet { return true }
         switch eventInProgress()?.type {
         case .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,

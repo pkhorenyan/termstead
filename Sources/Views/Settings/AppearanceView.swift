@@ -253,6 +253,11 @@ struct AppearanceView: View {
             }
             section("Mouse & Clipboard") {
                 settingsGroup {
+                    settingsRow("Scroll full-screen apps with arrow keys",
+                                caption: "For apps without mouse support. Scrolling may move the cursor.") {
+                        settingSwitch($themeStore.scrollWithArrowKeys, label: "Scroll full-screen apps with arrow keys")
+                    }
+                    divider
                     settingsRow("Right click",
                                 caption: themeStore.rightClickPastes
                                     ? "Pastes — ⌃-click still opens the menu."

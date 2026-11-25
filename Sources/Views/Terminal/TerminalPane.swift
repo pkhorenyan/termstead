@@ -16,6 +16,7 @@ struct TerminalPane: NSViewRepresentable {
     var cursorShape: ThemeStore.CursorShape
     var cursorBlinks: Bool
     var rightClickPastes: Bool
+    var scrollWithArrowKeys: Bool
     var confirmMultilinePaste: Bool
     var bell: ThemeStore.BellMode
     var optionAsMeta: Bool
@@ -46,6 +47,7 @@ struct TerminalPane: NSViewRepresentable {
         terminal.copyOnSelect = copyOnSelect
         terminal.applyCursor(shape: cursorShape, blinks: cursorBlinks)
         terminal.rightClickPastes = rightClickPastes
+        terminal.scrollWithArrowKeys = scrollWithArrowKeys
         terminal.confirmMultilinePaste = confirmMultilinePaste
         terminal.bellMode = bell
         terminal.optionAsMetaKey = optionAsMeta

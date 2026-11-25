@@ -7,6 +7,13 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Scroll full-screen terminal apps with the mouse wheel or trackpad. Apps
+  with mouse support receive wheel events. Other full-screen apps receive
+  arrow keys, controlled by a new Terminal setting enabled by default.
+  Scrolling stays in the pane under the pointer when Broadcast Input is on.
+
 ## [0.10.0] - 2026-11-23
 
 ### Added

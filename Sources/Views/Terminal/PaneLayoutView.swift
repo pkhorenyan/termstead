@@ -235,6 +235,7 @@ struct PaneView: View {
                              cursorShape: themeStore.cursorShape,
                              cursorBlinks: themeStore.cursorBlinks,
                              rightClickPastes: themeStore.rightClickPastes,
+                             scrollWithArrowKeys: themeStore.scrollWithArrowKeys,
                              confirmMultilinePaste: themeStore.confirmMultilinePaste,
                              bell: themeStore.bell,
                              optionAsMeta: themeStore.optionAsMeta,

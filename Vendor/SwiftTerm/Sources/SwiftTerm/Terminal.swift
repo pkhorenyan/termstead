@@ -609,6 +609,9 @@ open class Terminal {
         }
     }
 
+    /// DEC private mode 1007 allows wheel input to send cursor keys in the alternate buffer.
+    public private(set) var alternateScrollMode = true
+
     // The next four variables determine whether setting/querying should be done using utf8 or latin1
     // and whether the values should be set or queried using hex digits, rather than actual byte streams
     var xtermTitleSetUtf = false
@@ -835,6 +838,7 @@ open class Terminal {
         curAttr = CharData.defaultAttr
         
         mouseMode = .off
+        alternateScrollMode = true
         
         buffer.scrollTop = 0
         buffer.scrollBottom = rows-1
@@ -3162,6 +3166,8 @@ open class Terminal {
                 res = mouseProtocol == .utf8 ? modeSet : modeReset
             case 1006:
                 res = mouseProtocol == .sgr ? modeSet : modeReset
+            case 1007:
+                res = alternateScrollMode ? modeSet : modeReset
             case 1015:
                 res = mouseProtocol == .urxvt ? modeSet : modeReset
             case 1016:
@@ -3912,6 +3918,8 @@ open class Terminal {
             case 1006: // sgr ext mode mouse
                 mouseProtocol = .x10
                 mouseMode = .off
+            case 1007: // alternate scroll
+                alternateScrollMode = false
             case 1015: // urxvt ext mode mouse
                 mouseProtocol = .x10
                 mouseMode = .off
@@ -4148,6 +4156,8 @@ open class Terminal {
                 break;
             case 1006: // sgr ext mode mouse
                 mouseProtocol = .sgr
+            case 1007: // alternate scroll
+                alternateScrollMode = true
             case 1015: // urxvt ext mode mouse
                 mouseProtocol = .urxvt
             case 1016: // sgrPixel mode
@@ -5446,7 +5456,7 @@ open class Terminal {
         //print ("got \(mouseProtocol)")
         switch mouseProtocol {
         case .x10:
-            sendResponse(cc.CSI, "M", [UInt8(buttonFlags+32), min (UInt8(255), UInt8(32 + x+1)), min (UInt8(255), UInt8(32+y+1))])
+            sendResponse(cc.CSI, "M", [UInt8(buttonFlags+32), UInt8(min(255, 32+x+1)), UInt8(min(255, 32+y+1))])
         case .sgr:
             let bflags : Int = ((buttonFlags & 3) == 3) ? (buttonFlags & ~3) : buttonFlags
             let m = ((buttonFlags & 3) == 3) ? "m" : "M"

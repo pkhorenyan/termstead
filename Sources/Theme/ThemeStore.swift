@@ -16,6 +16,7 @@ final class ThemeStore {
         static let cursorShape = "terminal.cursorShape"
         static let cursorBlinks = "terminal.cursorBlinks"
         static let rightClickPastes = "terminal.rightClickPastes"
+        static let scrollWithArrowKeys = "terminal.scrollWithArrowKeys"
         static let confirmMultilinePaste = "terminal.confirmMultilinePaste"
         static let bell = "terminal.bell"
         static let optionAsMeta = "terminal.optionAsMeta"
@@ -107,6 +108,11 @@ final class ThemeStore {
     /// menu; ⌃-click still opens it.
     var rightClickPastes: Bool {
         didSet { UserDefaults.standard.set(rightClickPastes, forKey: Key.rightClickPastes) }
+    }
+
+    /// Wheel input sends cursor keys in full-screen apps without mouse reporting.
+    var scrollWithArrowKeys: Bool {
+        didSet { UserDefaults.standard.set(scrollWithArrowKeys, forKey: Key.scrollWithArrowKeys) }
     }
 
     /// A paste of several lines asks first: each line would otherwise reach the
@@ -206,6 +212,7 @@ final class ThemeStore {
         cursorShape = defaults.string(forKey: Key.cursorShape).flatMap(CursorShape.init) ?? .block
         cursorBlinks = Self.bool(defaults, Key.cursorBlinks, default: true)
         rightClickPastes = Self.bool(defaults, Key.rightClickPastes, default: false)
+        scrollWithArrowKeys = Self.bool(defaults, Key.scrollWithArrowKeys, default: true)
         confirmMultilinePaste = Self.bool(defaults, Key.confirmMultilinePaste, default: true)
         bell = defaults.string(forKey: Key.bell).flatMap(BellMode.init) ?? .sound
         optionAsMeta = Self.bool(defaults, Key.optionAsMeta, default: true)
@@ -423,6 +430,7 @@ extension ThemeStore {
         var cursorShape: CursorShape
         var cursorBlinks: Bool
         var rightClickPastes: Bool
+        var scrollWithArrowKeys: Bool
         var confirmMultilinePaste: Bool
         var bell: BellMode
         var optionAsMeta: Bool
@@ -442,7 +450,8 @@ extension ThemeStore {
         Snapshot(selectedID: selectedID, followSystem: followSystem,
                  terminalFontSize: terminalFontSize, terminalFontFamily: terminalFontFamily,
                  copyOnSelect: copyOnSelect, cursorShape: cursorShape, cursorBlinks: cursorBlinks,
-                 rightClickPastes: rightClickPastes, confirmMultilinePaste: confirmMultilinePaste,
+                 rightClickPastes: rightClickPastes, scrollWithArrowKeys: scrollWithArrowKeys,
+                 confirmMultilinePaste: confirmMultilinePaste,
                  bell: bell, optionAsMeta: optionAsMeta,
                  confirmClosingConnection: confirmClosingConnection, highlighting: highlighting,
                  scrollbackLines: scrollbackLines, sidebarSide: sidebarSide,
@@ -460,6 +469,7 @@ extension ThemeStore {
         cursorShape = snapshot.cursorShape
         cursorBlinks = snapshot.cursorBlinks
         rightClickPastes = snapshot.rightClickPastes
+        scrollWithArrowKeys = snapshot.scrollWithArrowKeys
         confirmMultilinePaste = snapshot.confirmMultilinePaste
         bell = snapshot.bell
         optionAsMeta = snapshot.optionAsMeta

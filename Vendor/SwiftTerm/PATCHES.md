@@ -7,6 +7,17 @@ need Xcode's separately downloaded Metal Toolchain to build.
 Only `Sources/SwiftTerm` is kept (without `Documentation.docc`), and
 `Package.swift` declares the library alone.
 
+## Mouse wheel input for terminal applications
+
+`TerminalView.scrollWheel` sends wheel events using the application's mouse
+protocol and pointer position. In the alternate screen without mouse reporting,
+`scrollWithArrowKeys` allows cursor-key scrolling with the negotiated cursor
+mode. Trackpad deltas accumulate by cell height. DEC private mode 1007 can be
+set, reset and queried by applications and defaults to enabled after a reset.
+The normal buffer continues to use the existing scrollback handling.
+Legacy mouse coordinates are clamped before conversion to a byte so wide
+terminal windows can report wheel input without an integer overflow.
+
 ## Keep the scrollback viewport on new output
 
 `Terminal.scroll` now derives whether to follow new output from the active

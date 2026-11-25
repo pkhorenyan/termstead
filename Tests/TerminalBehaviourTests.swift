@@ -81,6 +81,162 @@ struct TerminalBehaviourTests {
         #expect(view.getTerminal().options.cursorStyle == .steadyBar)
     }
 
+    private func wheel(_ delta: Int32, units: CGScrollEventUnit = .line,
+                       flags: CGEventFlags = []) throws -> NSEvent {
+        let event = try #require(CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 1,
+                                        wheel1: delta, wheel2: 0, wheel3: 0))
+        event.flags = flags
+        event.location = CGPoint(x: 40, y: (NSScreen.main?.frame.height ?? 300) - 80)
+        return try #require(NSEvent(cgEvent: event))
+    }
+
+    private func recordedTerminal() -> (SSHTerminalView, InputRecorder) {
+        let view = SSHTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        let recorder = InputRecorder(frame: .zero)
+        view.startProcess(executable: "/bin/cat", args: [], environment: nil, execName: "cat")
+        view.terminalDelegate = recorder
+        return (view, recorder)
+    }
+
+    @Test func fullScreenScrollingUsesTheCursorModeAndHonorsTheSetting() throws {
+        let (view, recorder) = recordedTerminal()
+        defer { view.terminate() }
+        view.feed(text: "\u{1b}[?1049h")
+        view.scrollWheel(with: try wheel(1))
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input == ["\u{1b}[A", "\u{1b}[B"])
+
+        recorder.input = []
+        view.feed(text: "\u{1b}[?1h")
+        view.scrollWheel(with: try wheel(1))
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input == ["\u{1b}OA", "\u{1b}OB"])
+
+        recorder.input = []
+        view.scrollWithArrowKeys = false
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input.isEmpty)
+        view.scrollWithArrowKeys = true
+        view.feed(text: "\u{1b}[?1049l")
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input.isEmpty, "Arrow scrolling is confined to the alternate screen")
+    }
+
+    @Test func applicationsCanDisableEnableAndQueryAlternateScrolling() throws {
+        let (view, recorder) = recordedTerminal()
+        defer { view.terminate() }
+        view.feed(text: "\u{1b}[?1049h\u{1b}[?1007l\u{1b}[?1007$p")
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input == ["\u{1b}[?1007;2$y"])
+
+        recorder.input = []
+        view.feed(text: "\u{1b}[?1007h\u{1b}[?1007$p")
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input == ["\u{1b}[?1007;1$y", "\u{1b}[B"])
+
+        view.feed(text: "\u{1b}[?1007l\u{1b}c\u{1b}[?1049h")
+        recorder.input = []
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input == ["\u{1b}[B"], "Reset restores alternate scrolling")
+    }
+
+    @Test func mouseWheelReportsKeepTheirPositionAndWorkWithArrowScrollingDisabled() throws {
+        let (view, recorder) = recordedTerminal()
+        defer { view.terminate() }
+        view.scrollWithArrowKeys = false
+        view.feed(text: "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1006h")
+        view.scrollWheel(with: try wheel(1))
+        view.scrollWheel(with: try wheel(-1, flags: [.maskControl]))
+        try #require(recorder.input.count == 2)
+        let upward = recorder.input[0]
+        #expect(upward.hasPrefix("\u{1b}[<64;"))
+        #expect(upward.hasSuffix("M"))
+        #expect(recorder.input[1] == upward.replacingOccurrences(of: "<64;", with: "<81;"))
+
+        recorder.input = []
+        view.scrollWithArrowKeys = true
+        view.scrollWheel(with: try wheel(-1))
+        #expect(recorder.input == [upward.replacingOccurrences(of: "<64;", with: "<65;")],
+                "Mouse reporting takes priority over cursor keys")
+
+        recorder.input = []
+        view.feed(text: "\u{1b}[?1006l\u{1b}[?1000h")
+        view.scrollWheel(with: try wheel(1))
+        #expect(recorder.input.first?.hasPrefix("\u{1b}[M`") == true,
+                "Wheel input also supports the legacy mouse encoding")
+        #expect(recorder.input.count == 1, "The wheel has no button-release event")
+        view.getTerminal().sendEvent(buttonFlags: 64, x: 300, y: 300)
+        #expect(recorder.input.count == 2, "Legacy coordinates beyond its limit must not trap")
+    }
+
+    @Test func trackpadScrollingAccumulatesSmallMovements() throws {
+        let (view, recorder) = recordedTerminal()
+        defer { view.terminate() }
+        view.feed(text: "\u{1b}[?1049h")
+        let event = try wheel(-1, units: .pixel)
+        try #require(event.hasPreciseScrollingDeltas)
+        view.scrollWheel(with: event)
+        #expect(recorder.input.isEmpty)
+        for _ in 0..<100 { view.scrollWheel(with: event) }
+        let arrows = recorder.input.joined()
+        #expect(arrows.contains("\u{1b}[B"))
+        #expect(arrows.count < 60, "A pixel of movement must not become a cursor key")
+
+        recorder.input = []
+        view.scrollWithArrowKeys = false
+        view.scrollWithArrowKeys = true
+        view.scrollWheel(with: event)
+        #expect(recorder.input.isEmpty, "Changing the setting discards a partial scroll")
+    }
+
+    @Test func scrollingStaysInItsPaneWhileTypedKeysStillBroadcast() async throws {
+        let store = ConnectionStore()
+        defer { store.closeAll() }
+        store.setLayout(.sideBySide)
+        var output = ["", ""]
+        let views = (0..<2).map { pane in
+            store.focus(pane: pane)
+            let tab = Connection(sessionID: nil, title: "Test", address: "", keyDescription: "")
+            store.add(tab)
+            let view = tab.terminalView
+            view.onOutput = { output[pane] += String(decoding: $0, as: UTF8.self) }
+            view.startProcess(executable: "/bin/sh", args: ["-c", "stty raw -echo; printf READY; exec /bin/cat"],
+                              environment: nil, execName: "sh")
+            view.eventInProgress = { nil }
+            return view
+        }
+        for _ in 0..<100 where !output.allSatisfy({ $0.contains("READY") }) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try #require(output.allSatisfy { $0.contains("READY") })
+        output = ["", ""]
+        store.toggleBroadcast()
+        try #require(store.isBroadcasting)
+
+        views[0].feed(text: "\u{1b}[?1049h")
+        views[0].scrollWheel(with: try wheel(-1))
+        for _ in 0..<100 where output[0].isEmpty {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(output[0] == "\u{1b}[B")
+        #expect(output[1].isEmpty)
+
+        output = ["", ""]
+        views[0].feed(text: "\u{1b}[?1000h\u{1b}[?1006h")
+        views[0].scrollWheel(with: try wheel(-1))
+        for _ in 0..<100 where output[0].isEmpty {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(output[0].hasPrefix("\u{1b}[<65;"))
+        #expect(output[1].isEmpty)
+
+        views[0].send(txt: "x")
+        for _ in 0..<100 where !output[1].contains("x") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(output[1] == "x", "Ordinary typing must still broadcast")
+    }
+
     private func terminalWithHistory(scrollback: Int) -> SSHTerminalView {
         let view = SSHTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 200))
         view.scrollbackLines = scrollback

@@ -450,6 +450,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     open func bufferActivated(source: Terminal) {
+        pendingScrollDelta = 0
         updateScroller ()
     }
     
@@ -491,6 +492,14 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     /// terminal if it has requested the data.   This poses a problem for selection, so users
     /// need a way of toggling this behavior.
     public var allowMouseReporting: Bool = true
+
+    /// Sends cursor keys when a full-screen application has not requested mouse events.
+    public var scrollWithArrowKeys: Bool = true {
+        didSet {
+            if oldValue != scrollWithArrowKeys { pendingScrollDelta = 0 }
+        }
+    }
+    private var pendingScrollDelta: CGFloat = 0
 
     /**
      * If set to true, this will call the TerminalViewDelegate's rangeChanged method
@@ -1453,15 +1462,52 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         }
     }
     
-    public override func scrollWheel(with event: NSEvent) {
-        if event.deltaY == 0 {
+    open override func scrollWheel(with event: NSEvent) {
+        guard event.scrollingDeltaY != 0 else { return }
+        let reportsMouse = allowMouseReporting && terminal.mouseMode != .off
+        let sendsArrows = scrollWithArrowKeys && terminal.alternateScrollMode &&
+            terminal.isCurrentBufferAlternate && terminal.mouseMode == .off
+        guard reportsMouse || sendsArrows else {
+            pendingScrollDelta = 0
+            let velocity = calcScrollingVelocity(delta: Int(abs(event.deltaY)))
+            if event.deltaY > 0 {
+                scrollUp(lines: velocity)
+            } else {
+                scrollDown(lines: velocity)
+            }
             return
         }
-        let velocity = calcScrollingVelocity(delta: Int (abs (event.deltaY)))
-        if event.deltaY > 0 {
-            scrollUp (lines: velocity)
+
+        // Trackpads report pixels. Keep fractional rows across a gesture so a
+        // slow movement neither disappears nor becomes a keypress per pixel.
+        if event.phase == .began { pendingScrollDelta = 0 }
+        let delta: CGFloat
+        if event.hasPreciseScrollingDeltas {
+            delta = event.scrollingDeltaY / max(cellDimension.height, 1)
         } else {
-            scrollDown(lines: velocity)
+            delta = event.scrollingDeltaY
+        }
+        pendingScrollDelta += delta
+        let lines = Int(pendingScrollDelta)
+        pendingScrollDelta -= CGFloat(lines)
+        guard lines != 0 else { return }
+        selection.selectNone()
+
+        if reportsMouse {
+            let flags = terminal.encodeButton(button: lines > 0 ? 4 : 5, release: false,
+                                              shift: event.modifierFlags.contains(.shift),
+                                              meta: event.modifierFlags.contains(.option),
+                                              control: event.modifierFlags.contains(.control))
+            let hit = calculateMouseHit(with: event)
+            let row = max(0, min(terminal.rows - 1, hit.grid.row - terminal.displayBuffer.yDisp))
+            for _ in 0..<abs(lines) {
+                terminal.sendEvent(buttonFlags: flags, x: hit.grid.col, y: row,
+                                   pixelX: hit.pixels.col, pixelY: hit.pixels.row)
+            }
+        } else {
+            let prefix = terminal.applicationCursor ? "\u{1b}O" : "\u{1b}["
+            let key = prefix + (lines > 0 ? "A" : "B")
+            send(txt: String(repeating: key, count: abs(lines)))
         }
     }
     
@@ -1575,6 +1621,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     public func mouseModeChanged(source: Terminal) {
+        pendingScrollDelta = 0
         if source.mouseMode == .anyEvent {
             startTracking()
         } else {
