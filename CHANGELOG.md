@@ -14,6 +14,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   arrow keys, controlled by a new Terminal setting enabled by default.
   Scrolling stays in the pane under the pointer when Broadcast Input is on.
 
+### Fixed
+
+- Typing with Broadcast Input returns receiving panes from scrollback to the
+  current input line. Panes excluded from broadcast keep their reading position.
+
 ## [0.10.0] - 2026-11-23
 
 ### Added

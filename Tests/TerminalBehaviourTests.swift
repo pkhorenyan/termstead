@@ -237,6 +237,43 @@ struct TerminalBehaviourTests {
         #expect(output[1] == "x", "Ordinary typing must still broadcast")
     }
 
+    @Test func broadcastTypingReturnsParticipatingPanesToLiveInput() {
+        let store = ConnectionStore()
+        defer { store.closeAll() }
+        store.setLayout(.grid)
+        let views = (0..<4).map { pane in
+            store.focus(pane: pane)
+            let tab = Connection(sessionID: nil, title: "Test", address: "", keyDescription: "")
+            store.add(tab)
+            let view = tab.terminalView
+            view.startProcess(executable: "/bin/cat", args: [], environment: nil, execName: "cat")
+            view.eventInProgress = { nil }
+            view.feed(text: (1...200).map { "line \($0)\r\n" }.joined())
+            view.scrollUp(lines: 30)
+            return view
+        }
+        let readingRows = views.map { $0.getTerminal().getTopVisibleRow() }
+        for (index, view) in views.enumerated() {
+            view.feed(text: "output while reading\r\n")
+            #expect(view.getTerminal().getTopVisibleRow() == readingRows[index])
+        }
+        store.focus(pane: 0)
+        store.toggleBroadcast()
+        store.toggleBroadcast(pane: 2)
+
+        views[0].send(txt: "hello")
+
+        for pane in [0, 1, 3] {
+            let view = views[pane]
+            #expect(view.getTerminal().getTopVisibleRow() > readingRows[pane])
+            let liveRow = view.getTerminal().getTopVisibleRow()
+            view.feed(text: "output after typing\r\n")
+            #expect(view.getTerminal().getTopVisibleRow() == liveRow + 1)
+        }
+        #expect(views[2].getTerminal().getTopVisibleRow() == readingRows[2],
+                "A pane excluded from Broadcast Input keeps its reading position")
+    }
+
     private func terminalWithHistory(scrollback: Int) -> SSHTerminalView {
         let view = SSHTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 200))
         view.scrollbackLines = scrollback

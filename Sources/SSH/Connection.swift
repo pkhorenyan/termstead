@@ -1203,7 +1203,8 @@ final class SSHTerminalView: LocalProcessTerminalView {
     /// Input broadcast from another pane: straight to the program, as if typed
     /// here, without being broadcast again.
     func receiveBroadcast(_ data: ArraySlice<UInt8>) {
-        guard process.running else { return }
+        guard process.running, !data.isEmpty else { return }
+        scroll(toPosition: 1)
         process.send(data: data)
         if data.contains(13) { onReturnWhileRunning?() }
     }
