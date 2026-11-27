@@ -70,6 +70,16 @@ struct TelnetProtocolTests {
         telnet.rows = 24
         #expect(telnet.windowSize() == [B.iac, B.sb, O.windowSize, 0, 255, 255, 0, 24, B.iac, B.se])
     }
+
+    @Test func lineEndingOverridesHandleMixedAndSplitInput() {
+        let cases: [(TelnetLineEnding, UInt8)] = [(.lf, 0x0a), (.cr, 0x0d)]
+        for (mode, terminator) in cases {
+            var telnet = TelnetProtocol()
+            telnet.lineEnding = mode
+            #expect(telnet.encode([0x61, 0x0d]) == [0x61, terminator])
+            #expect(telnet.encode([0x0a, 0x0a, B.iac, 0x0d, 0x0a]) == [terminator, B.iac, B.iac, terminator])
+        }
+    }
 }
 
 /// A Telnet tab against the lab's busybox telnetd on 127.0.0.1:2323.
@@ -214,10 +224,17 @@ struct TelnetTabTests {
 
     @Test func aTelnetSessionKeepsItsJumpHosts() throws {
         let lab = SessionStore.sample()
-        let session = try #require(lab.sessions["lab-telnet-via-bastion"])
+        var session = try #require(lab.sessions["lab-telnet-via-bastion"])
         #expect(session.statusAddress.hasPrefix("telnet app:23 · via"))
         let data = try JSONEncoder().encode(session)
-        #expect(try JSONDecoder().decode(Session.self, from: data).jumps == session.jumps)
+        let restored = try JSONDecoder().decode(Session.self, from: data)
+        #expect(restored.jumps == session.jumps)
+        #expect(restored.telnetLineEnding == .crlf)
+        for mode in [TelnetLineEnding.lf, .cr] {
+            session.telnetLineEnding = mode
+            let encoded = try JSONEncoder().encode(session)
+            #expect(try JSONDecoder().decode(Session.self, from: encoded).telnetLineEnding == mode)
+        }
     }
 
     @Test func anUnreachableHostIsSaid() async throws {

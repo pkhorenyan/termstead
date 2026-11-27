@@ -259,7 +259,8 @@ final class ConnectionStore {
         if session.kind == .telnet {
             do {
                 let tunnel = session.jumps.isEmpty ? nil : try Self.tunnelPlan(for: session, in: store)
-                connection.startTelnet(host: session.host, port: session.port, tunnel: tunnel)
+                connection.startTelnet(host: session.host, port: session.port,
+                                       lineEnding: session.telnetLineEnding, tunnel: tunnel)
             } catch {
                 connection.fail(String(describing: error))
             }

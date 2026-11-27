@@ -1,8 +1,8 @@
 import Darwin
 import Foundation
 
-// termstead-telnet host [port]
-// termstead-telnet --via socket host port ssh [ssh arguments]
+// termstead-telnet [--line-ending CRLF|LF|CR] host [port]
+// termstead-telnet [--line-ending CRLF|LF|CR] --via socket host port ssh [ssh arguments]
 //
 // A Telnet client for a Termstead tab: macOS has had no `telnet` since High
 // Sierra. It runs in the tab's terminal as ssh does, so the tab's log,
@@ -20,6 +20,18 @@ setvbuf(stdout, nil, _IONBF, 0)
 // SIGPIPE — exit code 141 in the tab — instead of saying so.
 signal(SIGPIPE, SIG_IGN)
 var arguments = CommandLine.arguments
+func invalidArguments() -> Never {
+    FileHandle.standardError.write(Data("usage: termstead-telnet [--line-ending CRLF|LF|CR] host [port]\n".utf8))
+    exit(2)
+}
+var lineEnding = TelnetLineEnding.crlf
+if arguments.dropFirst().first == "--line-ending" {
+    guard arguments.count >= 4, let selected = TelnetLineEnding(rawValue: arguments[2]) else {
+        invalidArguments()
+    }
+    lineEnding = selected
+    arguments.removeSubrange(1...2)
+}
 var tunnelSocket: String?
 var sshCommand: [String] = []
 if arguments.count >= 6, arguments[1] == "--via" {
@@ -28,8 +40,7 @@ if arguments.count >= 6, arguments[1] == "--via" {
     arguments = [arguments[0], arguments[3], arguments[4]]
 }
 guard arguments.count >= 2 else {
-    FileHandle.standardError.write(Data("usage: termstead-telnet host [port]\n".utf8))
-    exit(2)
+    invalidArguments()
 }
 let host = arguments[1]
 let port = arguments.count > 2 ? arguments[2] : "23"
@@ -183,6 +194,7 @@ let isTerminal = tcgetattr(STDIN_FILENO, &original) == 0
 }
 
 var telnet = TelnetProtocol()
+telnet.lineEnding = lineEnding
 @MainActor func updateSize() {
     var size = winsize()
     if ioctl(STDIN_FILENO, TIOCGWINSZ, &size) == 0, size.ws_col > 0 {

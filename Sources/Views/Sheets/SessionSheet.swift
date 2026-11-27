@@ -48,6 +48,7 @@ struct SessionSheet: View {
     /// save here untouched.
     @State private var forwards: [PortForward] = []
     @State private var rdp = RDPOptions()
+    @State private var telnetLineEnding = TelnetLineEnding.crlf
     @State private var vnc = VNCOptions()
     @State private var vncFileAccess = VNCFileAccess()
     @State private var vncFileAccessEnabled = false
@@ -434,9 +435,12 @@ struct SessionSheet: View {
         }
     }
 
-    /// Telnet logs in on screen, so only the way there is left to set.
     private var telnetColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
+            FormField(label: "Enter sends") {
+                SegmentedPicker(options: TelnetLineEnding.allCases, selection: $telnetLineEnding,
+                                label: \.rawValue, title: "Enter sends")
+            }
             VStack(alignment: .leading, spacing: 12) {
                 FormLabel("Login")
                 InsetNote(text: "The server asks for its user and password in the terminal, as Telnet does. Nothing is stored.")
@@ -970,6 +974,7 @@ struct SessionSheet: View {
             forwards = session.forwards
             kind = session.kind
             rdp = session.rdp
+            telnetLineEnding = session.telnetLineEnding
             vnc = session.vnc
             if let access = session.vnc.fileAccess {
                 vncFileAccess = access
@@ -1065,7 +1070,9 @@ struct SessionSheet: View {
             session.vnc = vnc
         case .ssh:
             session.forwards = forwards
-        case .sftp, .telnet:
+        case .telnet:
+            session.telnetLineEnding = telnetLineEnding
+        case .sftp:
             break
         }
 

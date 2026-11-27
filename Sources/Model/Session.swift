@@ -307,6 +307,7 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     /// Read through `rdp`; `nil` until an RDP session is saved.
     var rdpOptions: RDPOptions? = nil
     var vncOptions: VNCOptions? = nil
+    var telnetLineEndingOverride: TelnetLineEnding? = nil
     /// Read through `logs`; `nil` (off) in every file from before logs.
     var logToFile: Bool? = nil
     /// Permanent identity for references from other sessions. The historical
@@ -333,6 +334,11 @@ struct Session: Identifiable, Hashable, Codable, Sendable {
     var vnc: VNCOptions {
         get { vncOptions ?? VNCOptions() }
         set { vncOptions = newValue }
+    }
+
+    var telnetLineEnding: TelnetLineEnding {
+        get { telnetLineEndingOverride ?? .crlf }
+        set { telnetLineEndingOverride = newValue == .crlf ? nil : newValue }
     }
 
     /// Each tab of the session writes its output to a file (`SessionLog`).

@@ -324,7 +324,8 @@ final class Connection: Identifiable {
                 // Telnet has the terminal in the end, so it is the tab's
                 // process, and ssh its child until then and after.
                 terminalView.startProcess(executable: Self.telnetExecutable,
-                                          args: ["--via", directory.appendingPathComponent(Self.telnetSocket).path,
+                                          args: ["--line-ending", telnetTarget.lineEnding.rawValue,
+                                                 "--via", directory.appendingPathComponent(Self.telnetSocket).path,
                                                  telnetTarget.host, String(telnetTarget.port),
                                                  SSHLaunch.executable] + arguments,
                                           environment: Self.environment(extra: extra),
@@ -440,7 +441,8 @@ final class Connection: Identifiable {
     }
 
     /// Where a Telnet tab connects, to connect again on Return.
-    @ObservationIgnored private var telnetTarget: (host: String, port: Int, tunnel: SSHLaunchPlan?)?
+    @ObservationIgnored private var telnetTarget: (host: String, port: Int, lineEnding: TelnetLineEnding,
+                                                   tunnel: SSHLaunchPlan?)?
     /// Where a Telnet tab's tunnel comes out, in its work folder.
     nonisolated private static let telnetSocket = "telnet"
 
@@ -448,9 +450,9 @@ final class Connection: Identifiable {
     /// ssh would be: there is no login to watch for, and the server asks
     /// for user and password on screen. With a `tunnel` ssh logs in to the
     /// jump hosts first, on the same terminal.
-    func startTelnet(host: String, port: Int, tunnel: SSHLaunchPlan? = nil) {
+    func startTelnet(host: String, port: Int, lineEnding: TelnetLineEnding = .crlf, tunnel: SSHLaunchPlan? = nil) {
         guard !didClose else { return }
-        telnetTarget = (host, port, tunnel)
+        telnetTarget = (host, port, lineEnding, tunnel)
         if let tunnel {
             let route = (tunnel.hops + [tunnel.target]).map(\.host).joined(separator: " → ")
             terminalView.feed(text: "\u{1b}[2mOpening a tunnel through \(route)…\u{1b}[0m\r\n")
@@ -458,7 +460,8 @@ final class Connection: Identifiable {
             return
         }
         state = .running
-        terminalView.startProcess(executable: Self.telnetExecutable, args: [host, String(port)],
+        terminalView.startProcess(executable: Self.telnetExecutable,
+                                  args: ["--line-ending", lineEnding.rawValue, host, String(port)],
                                   environment: Self.environment(extra: [:]), execName: "termstead-telnet",
                                   currentDirectory: NSHomeDirectory())
         watchForExit(of: terminalView.process.shellPid)
@@ -489,7 +492,8 @@ final class Connection: Identifiable {
         if let telnetTarget {
             guard !state.isRunning else { return }
             terminalView.feed(text: "\r\n")
-            startTelnet(host: telnetTarget.host, port: telnetTarget.port, tunnel: telnetTarget.tunnel)
+            startTelnet(host: telnetTarget.host, port: telnetTarget.port,
+                        lineEnding: telnetTarget.lineEnding, tunnel: telnetTarget.tunnel)
             return
         }
         if isLocalShell {

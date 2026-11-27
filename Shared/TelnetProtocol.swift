@@ -1,5 +1,19 @@
 import Foundation
 
+enum TelnetLineEnding: String, Codable, CaseIterable, Identifiable, Sendable {
+    case crlf = "CRLF", lf = "LF", cr = "CR"
+
+    var id: String { rawValue }
+
+    var bytes: [UInt8] {
+        switch self {
+        case .crlf: [0x0d, 0x0a]
+        case .lf: [0x0a]
+        case .cr: [0x0d]
+        }
+    }
+}
+
 /// Telnet's side channel (RFC 854 and the options a terminal needs), kept
 /// apart from the socket so it can be tested: what the server sends is split
 /// into the text to show and the answers to its questions, and what is typed
@@ -22,6 +36,7 @@ struct TelnetProtocol {
     /// The window, for NAWS; set before a server asks, and on each resize.
     var columns: UInt16 = 80
     var rows: UInt16 = 24
+    var lineEnding: TelnetLineEnding = .crlf
 
     /// The server echoes what is typed (it said WILL ECHO), so the terminal
     /// must not. Until then the line is edited and echoed here, as Telnet's
@@ -133,17 +148,17 @@ struct TelnetProtocol {
         return [Byte.iac, Byte.sb, Option.windowSize] + payload + [Byte.iac, Byte.se]
     }
 
-    /// What is typed, for the wire: 255 doubled, and Return — CR, LF, or
-    /// both — as Telnet's CR LF, as PuTTY sends it.
+    /// Escape 255 and normalize each input line ending for the peer.
     mutating func encode(_ typed: some Sequence<UInt8>) -> [UInt8] {
         var out: [UInt8] = []
+        let terminator = lineEnding.bytes
         for byte in typed {
             defer { lastTypedCR = byte == 0x0d }
             switch byte {
             case 0x0d:
-                out += [0x0d, 0x0a]
+                out += terminator
             case 0x0a:
-                if !lastTypedCR { out += [0x0d, 0x0a] }
+                if !lastTypedCR { out += terminator }
             case Byte.iac:
                 out += [Byte.iac, Byte.iac]
             default:
