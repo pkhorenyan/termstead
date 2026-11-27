@@ -370,6 +370,11 @@ enum Metrics {
     static let sidebarWidth: CGFloat = 282
     /// The narrowest still fits the SFTP toolbar's seven buttons.
     static let sidebarWidthRange: ClosedRange<Double> = 230...434
+    /// Leave room for the server's toolbar and file list at the far end of the drag.
+    static func sftpSidebarWidthRange(windowWidth: CGFloat) -> ClosedRange<Double> {
+        let minimum = sidebarWidthRange.lowerBound
+        return minimum...max(minimum, Double(windowWidth) - 240)
+    }
     static let tabBarHeight: CGFloat = 38
     /// The longest a tab's title gets before it is shortened in the middle,
     /// where a host name and a port both stay readable.

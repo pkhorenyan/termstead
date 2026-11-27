@@ -14,6 +14,10 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   either direction. Switch between a compact list and a detailed list with
   sortable column headers.
 
+### Changed
+
+- Resize the local SFTP pane across the available window width.
+
 ### Fixed
 
 - Fix stale rows after pasting multiline text in nano, including when

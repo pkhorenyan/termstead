@@ -12,23 +12,38 @@ struct MainView: View {
 
     /// Sidebar width is user-set and remembered between launches.
     @AppStorage("sidebar.width") private var sidebarWidth: Double = Double(Metrics.sidebarWidth)
+    @AppStorage("sidebar.sftpWidth") private var sftpSidebarWidth: Double?
+
+    private var showsSFTP: Bool { connectionStore.active?.kind == .sftp }
 
     private var sidebarSide: ThemeStore.SidebarSide {
-        connectionStore.active?.kind == .sftp ? .left : themeStore.sidebarSide
+        showsSFTP ? .left : themeStore.sidebarSide
     }
 
     /// The sidebar, on whichever side Settings puts it. Its divider and the
     /// grab strip that resizes it sit on the edge facing the terminal.
-    private var sidebar: some View {
+    private func sidebar(windowWidth: CGFloat) -> some View {
         let side = sidebarSide
+        let sftp = showsSFTP
         let inner: Alignment = side == .left ? .trailing : .leading
+        let range = sftp ? Metrics.sftpSidebarWidthRange(windowWidth: windowWidth) : Metrics.sidebarWidthRange
+        let width = Binding(
+            get: {
+                let preferred = sftp ? sftpSidebarWidth ?? sidebarWidth : sidebarWidth
+                return min(range.upperBound, max(range.lowerBound, preferred))
+            },
+            set: { newWidth in
+                if sftp { sftpSidebarWidth = newWidth }
+                else { sidebarWidth = newWidth }
+            }
+        )
         return SidebarView(side: side)
-            .frame(width: CGFloat(sidebarWidth))
+            .frame(width: CGFloat(width.wrappedValue))
             .background(theme.sidebar.color)
             .overlay(alignment: inner) { Divider1(theme.border, vertical: true) }
             .overlay(alignment: inner) {
-                SidebarResizeHandle(width: $sidebarWidth,
-                                    range: Metrics.sidebarWidthRange,
+                SidebarResizeHandle(width: width,
+                                    range: range,
                                     defaultWidth: Double(Metrics.sidebarWidth),
                                     growsLeftward: side == .right)
                     .frame(width: SidebarResizeHandle.grabWidth)
@@ -53,16 +68,16 @@ struct MainView: View {
         @Bindable var appState = appState
 
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if sidebarSide == .left {
-                    if !appState.isSidebarHidden && !connectionStore.presentsDesktop { sidebar }
+            GeometryReader { geometry in
+                let showsSidebar = !appState.isSidebarHidden && !connectionStore.presentsDesktop
+                HStack(spacing: 0) {
+                    if showsSidebar && sidebarSide == .left { sidebar(windowWidth: geometry.size.width) }
                     mainColumn
-                } else {
-                    mainColumn
-                    if !appState.isSidebarHidden && !connectionStore.presentsDesktop { sidebar }
+                        .frame(maxWidth: .infinity)
+                    if showsSidebar && sidebarSide == .right { sidebar(windowWidth: geometry.size.width) }
                 }
+                .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
             // Keeps every background in this row out of the titlebar. SwiftUI
             // backgrounds bleed up into the safe area, so the strip used to be
             // painted by whatever happened to be at the top of each column:

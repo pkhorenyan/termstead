@@ -14,6 +14,15 @@ struct SidebarSideTests {
         #expect(SidebarResizeHandle.width(from: 282, dragged: -500, growsLeftward: true, range: range) == 434)
     }
 
+    @Test func sftpSidebarUsesTheWindowWidth() {
+        let wide = Metrics.sftpSidebarWidthRange(windowWidth: 1280)
+        let narrow = Metrics.sftpSidebarWidthRange(windowWidth: Metrics.minWindowSize.width)
+
+        #expect(SidebarResizeHandle.width(from: 282, dragged: 500, growsLeftward: false, range: wide) == 782)
+        #expect(SidebarResizeHandle.width(from: 782, dragged: 500, growsLeftward: false, range: narrow) == 720)
+        #expect(Metrics.sftpSidebarWidthRange(windowWidth: 0) == 230...230)
+    }
+
     @Test func itStartsOnTheLeftAndRemembersTheRight() throws {
         let suite = "termstead-sidebar-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
