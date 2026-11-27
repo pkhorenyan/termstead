@@ -16,7 +16,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Resize the local SFTP pane across the available window width.
+- Resize the sidebar across the available window width in terminal and SFTP
+  sessions.
 
 ### Fixed
 

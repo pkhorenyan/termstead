@@ -15,6 +15,7 @@ struct MainView: View {
     @AppStorage("sidebar.sftpWidth") private var sftpSidebarWidth: Double?
 
     private var showsSFTP: Bool { connectionStore.active?.kind == .sftp }
+    private var showsWelcome: Bool { connectionStore.connections.isEmpty && connectionStore.layout == .single }
 
     private var sidebarSide: ThemeStore.SidebarSide {
         showsSFTP ? .left : themeStore.sidebarSide
@@ -26,10 +27,11 @@ struct MainView: View {
         let side = sidebarSide
         let sftp = showsSFTP
         let inner: Alignment = side == .left ? .trailing : .leading
-        let range = sftp ? Metrics.sftpSidebarWidthRange(windowWidth: windowWidth) : Metrics.sidebarWidthRange
+        let range = Metrics.sidebarWidthRange(windowWidth: windowWidth,
+                                              workspaceMinimum: showsWelcome ? EmptyStateView.contentWidth : 240)
         let width = Binding(
             get: {
-                let preferred = sftp ? sftpSidebarWidth ?? sidebarWidth : sidebarWidth
+                let preferred = sftp ? sftpSidebarWidth ?? Double(Metrics.sidebarWidth) : sidebarWidth
                 return min(range.upperBound, max(range.lowerBound, preferred))
             },
             set: { newWidth in
@@ -57,7 +59,7 @@ struct MainView: View {
     @ViewBuilder
     private var mainColumn: some View {
         // Split, the panes show even when empty: each says how to fill it.
-        if connectionStore.connections.isEmpty && connectionStore.layout == .single {
+        if showsWelcome {
             EmptyStateView()
         } else {
             terminalColumn

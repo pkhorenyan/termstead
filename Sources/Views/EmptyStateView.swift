@@ -2,6 +2,8 @@ import SwiftUI
 
 /// What the terminal column shows on first launch, before any session exists.
 struct EmptyStateView: View {
+    static let contentWidth: CGFloat = 520
+
     @Environment(ThemeStore.self) private var themeStore
     @Environment(\.theme) private var theme
     @Environment(AppState.self) private var appState
@@ -100,7 +102,7 @@ struct EmptyStateView: View {
             }
             .padding(.top, 6)
         }
-        .frame(width: 520)
+        .frame(width: Self.contentWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.terminal.color)
         .onChange(of: appState.quickConnectFocusToken) { addressFocused = true }

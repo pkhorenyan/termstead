@@ -368,12 +368,10 @@ enum Metrics {
     static let toolbarHeight: CGFloat = 28
     /// Including the 34pt tab rail on its left edge (`SidebarTabRail`).
     static let sidebarWidth: CGFloat = 282
-    /// The narrowest still fits the SFTP toolbar's seven buttons.
-    static let sidebarWidthRange: ClosedRange<Double> = 230...434
-    /// Leave room for the server's toolbar and file list at the far end of the drag.
-    static func sftpSidebarWidthRange(windowWidth: CGFloat) -> ClosedRange<Double> {
-        let minimum = sidebarWidthRange.lowerBound
-        return minimum...max(minimum, Double(windowWidth) - 240)
+    static func sidebarWidthRange(windowWidth: CGFloat, workspaceMinimum: CGFloat) -> ClosedRange<Double> {
+        // The narrowest sidebar still fits the file toolbar's seven buttons.
+        let minimum = 230.0
+        return minimum...max(minimum, Double(windowWidth - workspaceMinimum))
     }
     static let tabBarHeight: CGFloat = 38
     /// The longest a tab's title gets before it is shortened in the middle,
@@ -381,8 +379,7 @@ enum Metrics {
     static let tabTitleMaxWidth: CGFloat = 180
     static let statusBarHeight: CGFloat = 26
     static let defaultWindowSize = CGSize(width: 1280, height: 800)
-    // Wide enough that the toolbar still fits with the sidebar dragged out to
-    // its maximum: gutter + quick connect at its narrowest + every button.
+    // Wide enough for the window controls and the welcome screen.
     static let minWindowSize = CGSize(width: 960, height: 560)
 }
 

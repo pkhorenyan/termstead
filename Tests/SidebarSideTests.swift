@@ -7,20 +7,21 @@ import Testing
 @MainActor
 struct SidebarSideTests {
     @Test func dragsWidenTowardTheTerminal() {
-        let range = 230.0...434.0
+        let range = Metrics.sidebarWidthRange(windowWidth: 960, workspaceMinimum: 240)
         #expect(SidebarResizeHandle.width(from: 282, dragged: 40, growsLeftward: false, range: range) == 322)
         #expect(SidebarResizeHandle.width(from: 282, dragged: -40, growsLeftward: true, range: range) == 322)
         #expect(SidebarResizeHandle.width(from: 282, dragged: 40, growsLeftward: true, range: range) == 242)
-        #expect(SidebarResizeHandle.width(from: 282, dragged: -500, growsLeftward: true, range: range) == 434)
+        #expect(SidebarResizeHandle.width(from: 282, dragged: -500, growsLeftward: true, range: range) == 720)
     }
 
-    @Test func sftpSidebarUsesTheWindowWidth() {
-        let wide = Metrics.sftpSidebarWidthRange(windowWidth: 1280)
-        let narrow = Metrics.sftpSidebarWidthRange(windowWidth: Metrics.minWindowSize.width)
+    @Test func sidebarUsesTheWindowWidthAndLeavesRoomForTheWorkspace() {
+        let wide = Metrics.sidebarWidthRange(windowWidth: 1280, workspaceMinimum: 240)
+        let narrow = Metrics.sidebarWidthRange(windowWidth: Metrics.minWindowSize.width, workspaceMinimum: 240)
 
         #expect(SidebarResizeHandle.width(from: 282, dragged: 500, growsLeftward: false, range: wide) == 782)
         #expect(SidebarResizeHandle.width(from: 782, dragged: 500, growsLeftward: false, range: narrow) == 720)
-        #expect(Metrics.sftpSidebarWidthRange(windowWidth: 0) == 230...230)
+        #expect(Metrics.sidebarWidthRange(windowWidth: 0, workspaceMinimum: 240) == 230...230)
+        #expect(Metrics.sidebarWidthRange(windowWidth: 960, workspaceMinimum: EmptyStateView.contentWidth).upperBound == 440)
     }
 
     @Test func itStartsOnTheLeftAndRemembersTheRight() throws {
