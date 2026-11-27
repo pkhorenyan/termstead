@@ -95,6 +95,42 @@ struct FileBrowserOrderingTests {
         return (browser, client)
     }
 
+    @Test func changingSortReordersTheVisibleListAndKeepsSelectedPaths() async throws {
+        let (browser, client) = browser()
+        defer { browser.stop() }
+        let older = Date(timeIntervalSince1970: 1)
+        let newer = Date(timeIntervalSince1970: 2)
+        func file(_ name: String, _ size: Int64, _ modified: Date?, kind: RemoteFile.Kind = .file) -> RemoteFile {
+            RemoteFile(name: name, path: "/folder/\(name)", kind: kind, size: size,
+                       modified: modified, permissions: "", owner: "", group: "")
+        }
+        let folder = file("z-folder", 4096, older, kind: .directory)
+        let small = file("file2", 1, newer)
+        let large = file("file10", 20, older)
+        let undated = file("file20", 10, nil)
+        let hidden = file(".hidden", 30, nil)
+        let load = Task { await browser.load("/folder") }
+        try await wait { await client.hasListing("/folder") }
+        await client.finishListing("/folder", files: [large, hidden, folder, undated, small])
+        await load.value
+        #expect(browser.visibleFiles == [folder, small, large, undated])
+
+        browser.select(small)
+        browser.select(large, modifiers: .command)
+        browser.sortField = .size
+        #expect(browser.visibleFiles == [folder, small, undated, large])
+        browser.sortAscending = false
+        #expect(browser.visibleFiles == [folder, large, undated, small])
+        #expect(browser.selectedFiles == [large, small])
+
+        browser.sortField = .modified
+        #expect(browser.visibleFiles == [folder, small, large, undated])
+        browser.sortAscending = true
+        #expect(browser.visibleFiles == [folder, large, small, undated])
+        browser.showHidden = true
+        #expect(browser.visibleFiles == [folder, large, small, hidden, undated])
+    }
+
     @Test func commandAndShiftClicksSelectSeveralFilesForOneCopy() async throws {
         let (browser, client) = browser()
         defer { browser.stop() }

@@ -10,6 +10,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Choose what Enter sends per Telnet session: CRLF (default), LF, or CR.
+- Sort local and remote file lists by name, size, or modification date in
+  either direction.
 
 ### Fixed
 

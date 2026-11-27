@@ -7,6 +7,14 @@ import Observation
 @MainActor
 @Observable
 final class FileBrowser {
+    enum SortField: String, CaseIterable, Identifiable {
+        case name = "Name"
+        case size = "Size"
+        case modified = "Date Modified"
+
+        var id: Self { self }
+    }
+
     /// One line in the panel's activity strip.
     struct Activity: Identifiable, Equatable {
         enum State: Equatable {
@@ -30,13 +38,19 @@ final class FileBrowser {
 
     private(set) var path: String?
     private(set) var files: [RemoteFile] = [] {
-        didSet { visibleFiles = Self.sortedForDisplay(files, showHidden: showHidden) }
+        didSet { updateVisibleFiles() }
     }
     private(set) var isLoading = false
     private(set) var problem: String?
     private(set) var activities: [Activity] = []
     var showHidden = false {
-        didSet { visibleFiles = Self.sortedForDisplay(files, showHidden: showHidden) }
+        didSet { updateVisibleFiles() }
+    }
+    var sortField: SortField = .name {
+        didSet { updateVisibleFiles() }
+    }
+    var sortAscending = true {
+        didSet { updateVisibleFiles() }
     }
     var selection: String?
     var selectedPaths: Set<String> = []
@@ -81,12 +95,34 @@ final class FileBrowser {
         }
     }
 
-    static func sortedForDisplay(_ files: [RemoteFile], showHidden: Bool) -> [RemoteFile] {
+    private func updateVisibleFiles() {
+        visibleFiles = Self.sortedForDisplay(files, showHidden: showHidden,
+                                            by: sortField, ascending: sortAscending)
+    }
+
+    static func sortedForDisplay(_ files: [RemoteFile], showHidden: Bool,
+                                 by field: SortField = .name, ascending: Bool = true) -> [RemoteFile] {
         let shown = showHidden ? files : files.filter { !$0.isHidden }
         // Folders first, as in Finder's list view with "Keep folders on top".
         return shown.sorted { lhs, rhs in
             let lhsFolder = lhs.kind == .directory, rhsFolder = rhs.kind == .directory
             if lhsFolder != rhsFolder { return lhsFolder }
+            switch field {
+            case .name:
+                let order = lhs.name.localizedStandardCompare(rhs.name)
+                return order == (ascending ? .orderedAscending : .orderedDescending)
+            case .size:
+                // An SFTP directory's listed size is not its total content size.
+                if !lhsFolder, lhs.size != rhs.size { return ascending ? lhs.size < rhs.size : lhs.size > rhs.size }
+            case .modified:
+                switch (lhs.modified, rhs.modified) {
+                case let (left?, right?) where left != right:
+                    return ascending ? left < right : left > right
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: break
+                }
+            }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
     }

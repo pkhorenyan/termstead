@@ -221,16 +221,40 @@ struct FileBrowserView: View {
     }
 
     private var pathField: some View {
-        TextField("", text: $pathText, prompt: Text("/path").foregroundStyle(theme.textFaint.color))
-            .textFieldStyle(.plain)
-            .font(SBFont.mono(11.5))
-            .foregroundStyle(theme.text.color)
-            .onSubmit { browser.go(to: pathText) }
-            .padding(.horizontal, 9 + listOutlineOutset)
-            .frame(height: 28)
-            .background(FieldBackground(theme: theme, cornerRadius: panelCornerRadius))
-            .padding(.horizontal, -listOutlineOutset)
-            .accessibilityLabel(browser.isLocal ? "Local folder" : "Remote folder")
+        HStack(spacing: 4) {
+            TextField("", text: $pathText, prompt: Text("/path").foregroundStyle(theme.textFaint.color))
+                .textFieldStyle(.plain)
+                .font(SBFont.mono(11.5))
+                .foregroundStyle(theme.text.color)
+                .onSubmit { browser.go(to: pathText) }
+                .accessibilityLabel(browser.isLocal ? "Local folder" : "Remote folder")
+            Menu {
+                Picker("Sort by", selection: $browser.sortField) {
+                    ForEach(FileBrowser.SortField.allCases) { field in
+                        Text(field.rawValue).tag(field)
+                    }
+                }
+                Divider()
+                Picker("Sort order", selection: $browser.sortAscending) {
+                    Text("Ascending").tag(true)
+                    Text("Descending").tag(false)
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.textSecondary.color)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Sort files")
+            .accessibilityLabel("Sort files")
+        }
+        .padding(.leading, 9 + listOutlineOutset)
+        .padding(.trailing, 8)
+        .frame(height: 28)
+        .background(FieldBackground(theme: theme, cornerRadius: panelCornerRadius))
+        .padding(.horizontal, -listOutlineOutset)
     }
 
     // MARK: - List
