@@ -7,6 +7,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-27
+
 ### Added
 
 - Choose what Enter sends per Telnet session: CRLF (default), LF, or CR.
