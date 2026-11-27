@@ -11,7 +11,8 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Choose what Enter sends per Telnet session: CRLF (default), LF, or CR.
 - Sort local and remote file lists by name, size, or modification date in
-  either direction. The menu above each list shows its current sort order.
+  either direction. Switch between a compact list and a detailed list with
+  sortable column headers.
 
 ### Fixed
 

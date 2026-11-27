@@ -15,6 +15,13 @@ final class FileBrowser {
         var id: Self { self }
     }
 
+    enum ListStyle: String, CaseIterable, Identifiable {
+        case compact = "Compact List"
+        case detailed = "Detailed List"
+
+        var id: Self { self }
+    }
+
     /// One line in the panel's activity strip.
     struct Activity: Identifiable, Equatable {
         enum State: Equatable {
@@ -52,9 +59,18 @@ final class FileBrowser {
     var sortAscending = true {
         didSet { updateVisibleFiles() }
     }
+    var listStyle: ListStyle?
     var selection: String?
     var selectedPaths: Set<String> = []
     @ObservationIgnored private var selectionAnchor: String?
+
+    func sort(by field: SortField) {
+        if sortField == field {
+            sortAscending.toggle()
+        } else {
+            sortField = field
+        }
+    }
 
     func select(_ file: RemoteFile, modifiers: NSEvent.ModifierFlags = []) {
         let path = file.path

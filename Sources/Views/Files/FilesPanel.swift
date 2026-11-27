@@ -88,6 +88,7 @@ struct FileBrowserView: View {
     var title: String
     var transfer: Transfer? = nil
     var onFocus: () -> Void = {}
+    var defaultListStyle: FileBrowser.ListStyle = .compact
 
     private let listOutlineOutset: CGFloat = 3
     private let panelCornerRadius: CGFloat = 8
@@ -105,12 +106,11 @@ struct FileBrowserView: View {
     var body: some View {
         VStack(spacing: 8) {
             toolbar
-            pathField
-            VStack(spacing: 6) {
-                sortMenu
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                list
+            HStack(spacing: 8) {
+                pathField
+                viewMenu
             }
+            list
             // Its own view, so a progress tick re-renders the strip and not
             // the file list above it.
             FileActivityStrip(browser: browser, theme: theme) { transferConflict = browser.transfers.conflict }
@@ -240,42 +240,56 @@ struct FileBrowserView: View {
 
     // MARK: - List
 
-    private var sortMenu: some View {
+    private var listStyle: FileBrowser.ListStyle { browser.listStyle ?? defaultListStyle }
+
+    private var viewMenu: some View {
         Menu {
-            Picker("Sort by", selection: $browser.sortField) {
-                ForEach(FileBrowser.SortField.allCases) { field in
-                    Text(field.rawValue).tag(field)
+            Picker("View as", selection: Binding(
+                get: { listStyle },
+                set: { browser.listStyle = $0 }
+            )) {
+                ForEach(FileBrowser.ListStyle.allCases) { style in
+                    Text(style.rawValue).tag(style)
                 }
             }
-            Divider()
-            Picker("Sort order", selection: $browser.sortAscending) {
-                Text("Ascending").tag(true)
-                Text("Descending").tag(false)
+            .pickerStyle(.inline)
+            if listStyle == .compact {
+                Divider()
+                Picker("Sort by", selection: $browser.sortField) {
+                    ForEach(FileBrowser.SortField.allCases) { field in
+                        Text(field.rawValue).tag(field)
+                    }
+                }
+                Picker("Sort order", selection: $browser.sortAscending) {
+                    Text("Ascending").tag(true)
+                    Text("Descending").tag(false)
+                }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(browser.sortField.rawValue)
-                    .font(SBFont.ui(11, .medium))
-                Image(systemName: browser.sortAscending ? "arrow.up" : "arrow.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .foregroundStyle(theme.textSecondary.color)
+            Image(systemName: listStyle == .compact ? "list.bullet" : "list.bullet.rectangle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.textSecondary.color)
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
         .fixedSize()
-        .help("Sort files")
-        .accessibilityLabel("Sort files")
-        .accessibilityValue("\(browser.sortField.rawValue), \(browser.sortAscending ? "Ascending" : "Descending")")
+        .help("File view options")
+        .accessibilityLabel("File view options")
+        .accessibilityValue(listStyle.rawValue)
     }
 
     private var list: some View {
         GeometryReader { viewport in
+            let columns = listStyle == .detailed ? FileListColumns(width: viewport.size.width) : nil
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(browser.visibleFiles) { file in
-                            row(file)
+                    LazyVStack(alignment: .leading, spacing: 1, pinnedViews: .sectionHeaders) {
+                        Section {
+                            ForEach(browser.visibleFiles) { file in
+                                row(file, columns: columns)
+                            }
+                        } header: {
+                            if let columns { columnHeaders(columns) }
                         }
                     }
                     Spacer(minLength: 0)
@@ -330,6 +344,43 @@ struct FileBrowserView: View {
         }
     }
 
+    private func columnHeaders(_ columns: FileListColumns) -> some View {
+        HStack(spacing: FileListColumns.spacing) {
+            sortHeader(.name, title: "Name", alignment: .leading)
+                .frame(maxWidth: .infinity)
+            sortHeader(.size, title: "Size", alignment: .trailing)
+                .frame(width: columns.sizeWidth)
+            sortHeader(.modified, title: "Date", alignment: .leading)
+                .frame(width: columns.dateWidth)
+        }
+        .padding(.horizontal, FileListColumns.inset)
+        .frame(height: 24)
+        .background(theme.sidebar.color)
+        .overlay(alignment: .bottom) { Divider1(theme.border).allowsHitTesting(false) }
+    }
+
+    private func sortHeader(_ field: FileBrowser.SortField, title: String, alignment: Alignment) -> some View {
+        let isActive = browser.sortField == field
+        return Button {
+            browser.sort(by: field)
+        } label: {
+            HStack(spacing: 4) {
+                Text(title).font(SBFont.ui(11, .semibold)).lineLimit(1)
+                if isActive {
+                    Image(systemName: browser.sortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+            }
+            .foregroundStyle((isActive ? theme.text : theme.textMuted).color)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Sort by \(field.rawValue.lowercased())")
+        .accessibilityLabel(field.rawValue)
+        .accessibilityValue(isActive ? (browser.sortAscending ? "Ascending" : "Descending") : "")
+    }
+
     private var listOutlineColor: Color {
         if theme.id == Theme.sepia.id { return theme.ansiBlue.color }
         return Color(nsColor: .keyboardFocusIndicatorColor)
@@ -365,8 +416,8 @@ struct FileBrowserView: View {
         }
     }
 
-    private func row(_ file: RemoteFile) -> some View {
-        FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme)
+    private func row(_ file: RemoteFile, columns: FileListColumns?) -> some View {
+        FileRow(file: file, isSelected: browser.selectedPaths.contains(file.path), theme: theme, columns: columns)
             .overlay {
                 if targetedFolder == file.path {
                     RoundedRectangle(cornerRadius: 6).strokeBorder(listOutlineColor, lineWidth: 1)
@@ -540,32 +591,51 @@ struct FileActivityStrip: View {
     }
 }
 
+private struct FileListColumns {
+    static let spacing: CGFloat = 7
+    static let inset: CGFloat = 7
+    let width: CGFloat
+
+    var sizeWidth: CGFloat { min(84, width * 0.21) }
+
+    var dateWidth: CGFloat {
+        // Use room for the time only as the panel gets wider.
+        let widthWithTime = 58 + max(0, width - 270) * 0.5
+        return min(164, width * 0.34, widthWithTime)
+    }
+}
+
 private struct FileRow: View {
     var file: RemoteFile
     var isSelected: Bool
     var theme: Theme
+    var columns: FileListColumns?
 
     var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: symbol)
-                .font(.system(size: 12))
-                .foregroundStyle((file.kind == .directory ? theme.accent : theme.textMuted).color)
-                .frame(width: 16)
-            Text(file.name)
-                .font(SBFont.ui(12.5))
-                .foregroundStyle((file.isHidden ? theme.textMuted : theme.text).color)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 6)
-            if file.kind == .file {
-                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-                    .font(SBFont.mono(10.5))
-                    .foregroundStyle(theme.textFaint.color)
+        HStack(spacing: FileListColumns.spacing) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12))
+                    .foregroundStyle((file.kind == .directory ? theme.accent : theme.textMuted).color)
+                    .frame(width: 16)
+                Text(file.name)
+                    .font(SBFont.ui(12.5))
+                    .foregroundStyle((file.isHidden ? theme.textMuted : theme.text).color)
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let columns {
+                fileSize
+                    .minimumScaleFactor(0.8)
+                    .frame(width: columns.sizeWidth, alignment: .trailing)
+                modificationDate
+                    .frame(width: columns.dateWidth, alignment: .leading)
+            } else if file.kind == .file {
+                fileSize.fixedSize()
             }
         }
-        .padding(.horizontal, 7)
+        .padding(.horizontal, FileListColumns.inset)
         .frame(height: 24)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -573,6 +643,30 @@ private struct FileRow: View {
         )
         .contentShape(Rectangle())
         .help(details)
+    }
+
+    private var fileSize: some View {
+        Text(file.kind == .file ? ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file) : "")
+            .font(SBFont.mono(10.5))
+            .foregroundStyle(theme.textFaint.color)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var modificationDate: some View {
+        if let modified = file.modified {
+            ViewThatFits(in: .horizontal) {
+                Text(modified, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(modified, format: .dateTime.day().month(.twoDigits).year(.twoDigits))
+                    .minimumScaleFactor(0.8)
+            }
+            .font(SBFont.ui(11))
+            .foregroundStyle(theme.textMuted.color)
+            .lineLimit(1)
+        } else {
+            Text("")
+        }
     }
 
     private var symbol: String {

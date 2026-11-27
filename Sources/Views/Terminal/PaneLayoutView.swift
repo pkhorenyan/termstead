@@ -272,7 +272,7 @@ struct PaneView: View {
             connectionStore.focus(pane: pane)
             appState.showLocalFiles()
             remote.download(files, into: local)
-        }, onFocus: { connectionStore.focus(pane: pane) })
+        }, onFocus: { connectionStore.focus(pane: pane) }, defaultListStyle: .detailed)
             .id(connection.id)
             .padding(12)
             .background(theme.sidebar.color)

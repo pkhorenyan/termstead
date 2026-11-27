@@ -117,13 +117,13 @@ struct FileBrowserOrderingTests {
 
         browser.select(small)
         browser.select(large, modifiers: .command)
-        browser.sortField = .size
+        browser.sort(by: .size)
         #expect(browser.visibleFiles == [folder, small, undated, large])
-        browser.sortAscending = false
+        browser.sort(by: .size)
         #expect(browser.visibleFiles == [folder, large, undated, small])
         #expect(browser.selectedFiles == [large, small])
 
-        browser.sortField = .modified
+        browser.sort(by: .modified)
         #expect(browser.visibleFiles == [folder, small, large, undated])
         browser.sortAscending = true
         #expect(browser.visibleFiles == [folder, large, small, undated])
