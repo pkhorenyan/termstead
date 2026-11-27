@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Testing
 @testable import Termstead
 
@@ -16,6 +17,7 @@ private actor ControlledFiles: FileSource {
     private(set) var activeSaves = 0
     private(set) var maximumActiveSaves = 0
     private var interruptedDownloads = 0
+    private var folderCreation: CheckedContinuation<Void, any Error>?
     private var downloadDelay: Duration?
     private(set) var stagedDownload: URL?
 
@@ -39,7 +41,7 @@ private actor ControlledFiles: FileSource {
         if let error { reply?.resume(throwing: error) } else { reply?.resume(returning: (path, files)) }
     }
 
-    func replace(_ remote: String, with local: URL) async throws {
+    func replace(_ remote: String, with local: URL, matching expectedContents: SHA256Digest?) async throws {
         let data = try Data(contentsOf: local)
         let index = saveContents.count
         saveContents.append(data)
@@ -71,7 +73,18 @@ private actor ControlledFiles: FileSource {
         try Data("complete".utf8).write(to: target)
     }
     func upload(_ local: URL, to remoteDirectory: String) async throws {}
-    func makeDirectory(_ path: String) async throws {}
+    func makeDirectory(_ path: String) async throws {
+        if path == "/original/new" {
+            try await withCheckedThrowingContinuation { folderCreation = $0 }
+        }
+    }
+    func isCreatingFolder() -> Bool { folderCreation != nil }
+    func finishCreatingFolder(error: SFTPError?) {
+        let request = folderCreation
+        folderCreation = nil
+        if let error { request?.resume(throwing: error) }
+        else { request?.resume() }
+    }
     func rename(_ path: String, to newPath: String) async throws {}
     func removeFile(_ path: String) async throws {}
     func removeDirectory(_ path: String) async throws {}
@@ -93,6 +106,30 @@ struct FileBrowserOrderingTests {
         let browser = FileBrowser(connection: nil)
         browser.clientOverride = client
         return (browser, client)
+    }
+
+    @Test(arguments: [true, false])
+    func finishingFolderCreationDoesNotUndoNavigation(succeeds: Bool) async throws {
+        let (browser, client) = browser()
+        defer { browser.stop() }
+        let original = Task { await browser.load("/original") }
+        try await wait { await client.hasListing("/original") }
+        await client.finishListing("/original")
+        await original.value
+
+        browser.makeDirectory(named: "new")
+        try await wait { await client.isCreatingFolder() }
+        let current = Task { await browser.load("/current") }
+        try await wait { await client.hasListing("/current") }
+        await client.finishListing("/current")
+        await current.value
+
+        let error = SFTPError.failed("Could not create folder.")
+        await client.finishCreatingFolder(error: succeeds ? nil : error)
+        try await wait { browser.activities.last?.state == (succeeds ? .done : .failed(error.description)) }
+        #expect(browser.path == "/current")
+        #expect(browser.selection == nil)
+        #expect(!browser.isLoading)
     }
 
     @Test func changingSortReordersTheVisibleListAndKeepsSelectedPaths() async throws {

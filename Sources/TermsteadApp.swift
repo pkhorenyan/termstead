@@ -368,6 +368,12 @@ enum Metrics {
     static let toolbarHeight: CGFloat = 28
     /// Including the 34pt tab rail on its left edge (`SidebarTabRail`).
     static let sidebarWidth: CGFloat = 282
+    static let minimumPaneWidth: CGFloat = 240
+
+    static func minimumWorkspaceWidth(columns: Int) -> CGFloat {
+        CGFloat(columns) * minimumPaneWidth + CGFloat(columns - 1)
+    }
+
     static func sidebarWidthRange(windowWidth: CGFloat, workspaceMinimum: CGFloat) -> ClosedRange<Double> {
         // The narrowest sidebar still fits the file toolbar's seven buttons.
         let minimum = 230.0

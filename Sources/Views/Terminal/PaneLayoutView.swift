@@ -47,18 +47,26 @@ struct PaneSplit<First: View, Second: View>: View {
     /// Neither pane gets narrower than this share.
     static var range: ClosedRange<Double> { 0.2...0.8 }
 
+    static func horizontalRange(available: CGFloat) -> ClosedRange<Double> {
+        guard available > 0 else { return 0.5...0.5 }
+        let lower = min(0.5, max(range.lowerBound, Double(Metrics.minimumPaneWidth / available)))
+        return lower...(1 - lower)
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let total = axis == .horizontal ? geometry.size.width : geometry.size.height
-            let firstSize = max(0, (total - 1) * min(max(fraction, Self.range.lowerBound), Self.range.upperBound))
+            let available = max(0, total - 1)
+            let range = axis == .horizontal ? Self.horizontalRange(available: available) : Self.range
+            let firstSize = available * min(max(fraction, range.lowerBound), range.upperBound)
             if axis == .horizontal {
                 HStack(spacing: 0) {
                     first.frame(width: firstSize)
                     Divider1(theme.border, vertical: true)
-                    second.frame(maxWidth: .infinity)
+                    second.frame(width: available - firstSize)
                 }
                 .overlay(alignment: .leading) {
-                    handle(total: total)
+                    handle(total: total, range: range)
                         .frame(width: PaneSplitHandle.grab)
                         .offset(x: firstSize + 0.5 - PaneSplitHandle.grab / 2)
                 }
@@ -69,7 +77,7 @@ struct PaneSplit<First: View, Second: View>: View {
                     second.frame(maxHeight: .infinity)
                 }
                 .overlay(alignment: .top) {
-                    handle(total: total)
+                    handle(total: total, range: range)
                         .frame(height: PaneSplitHandle.grab)
                         .offset(y: firstSize + 0.5 - PaneSplitHandle.grab / 2)
                 }
@@ -78,9 +86,9 @@ struct PaneSplit<First: View, Second: View>: View {
     }
 
     @ViewBuilder
-    private func handle(total: CGFloat) -> some View {
+    private func handle(total: CGFloat, range: ClosedRange<Double>) -> some View {
         let handle = PaneSplitHandle(fraction: $fraction, total: total, vertical: axis == .vertical,
-                                     range: Self.range)
+                                     range: range)
         if #available(macOS 15.0, *) {
             handle.pointerStyle(axis == .horizontal ? .columnResize : .rowResize)
         } else {

@@ -25,8 +25,10 @@ struct MainView: View {
     private func sidebar(windowWidth: CGFloat) -> some View {
         let side = sidebarSide
         let inner: Alignment = side == .left ? .trailing : .leading
+        let workspaceMinimum = showsWelcome ? EmptyStateView.contentWidth
+            : Metrics.minimumWorkspaceWidth(columns: connectionStore.layout.columns)
         let range = Metrics.sidebarWidthRange(windowWidth: windowWidth,
-                                              workspaceMinimum: showsWelcome ? EmptyStateView.contentWidth : 240)
+                                              workspaceMinimum: workspaceMinimum)
         let width = Binding(
             get: { min(range.upperBound, max(range.lowerBound, sidebarWidth)) },
             set: { sidebarWidth = $0 }

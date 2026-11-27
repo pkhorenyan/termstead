@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Darwin
 
 enum SFTPError: Error, Equatable, CustomStringConvertible {
@@ -91,7 +92,7 @@ struct SFTPClient: Equatable, Sendable {
     }
 
     /// Writes a local file over a remote one, for Open and Edit.
-    func replace(_ remote: String, with local: URL) async throws {
+    func replace(_ remote: String, with local: URL, matching expectedContents: SHA256Digest?) async throws {
         let folder = RemotePath.parent(of: remote)
         let name = RemotePath.name(of: remote)
         let listing = try await list(folder)
@@ -113,11 +114,32 @@ struct SFTPClient: Equatable, Sendable {
                 (mode << 1) | ("rwxst".contains(bit) ? 1 : 0)
             }
             try await run(["chmod \(String(mode, radix: 8)) \(Self.quote(staged))"])
+            if let expectedContents {
+                let check = local.deletingLastPathComponent().appendingPathComponent(".verify-\(UUID())")
+                defer { try? FileManager.default.removeItem(at: check) }
+                try await download(destination, recursive: false, to: check.deletingLastPathComponent(),
+                                   as: check.lastPathComponent)
+                guard try await Self.contentDigest(of: check) == expectedContents else {
+                    throw SFTPError.failed("The file on the server changed. Your edits are still in the open local copy.")
+                }
+            }
             guard try await list(listing.path).files.first(where: { $0.name == name }) == original else {
-                throw SFTPError.failed("The original file changed during the save. Reopen it before editing again.")
+                throw SFTPError.failed("The file on the server changed during the save. Your edits are still in the open local copy.")
             }
             try Task.checkCancellation()
             try await Task { try await finishTransfer(staged, at: destination, replacing: true) }.value
+        }
+    }
+
+    static func contentDigest(of file: URL) async throws -> SHA256Digest {
+        try await BlockingWork.run {
+            let handle = try FileHandle(forReadingFrom: file)
+            defer { try? handle.close() }
+            var digest = SHA256()
+            while let bytes = try handle.read(upToCount: 256 * 1024), !bytes.isEmpty {
+                digest.update(data: bytes)
+            }
+            return digest.finalize()
         }
     }
 

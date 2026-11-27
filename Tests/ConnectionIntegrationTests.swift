@@ -803,8 +803,19 @@ final class ConnectionIntegrationTests {
         // Editing writes the local copy back over the remote file.
         let originalFile = remote.appendingPathComponent(odd)
         try FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: originalFile.path)
-        try "edited".write(to: local.appendingPathComponent(odd), atomically: true, encoding: .utf8)
-        try await client.replace(RemotePath.join(listing.path, odd), with: local.appendingPathComponent(odd))
+        let localEdit = local.appendingPathComponent(odd)
+        let openedContents = try await SFTPClient.contentDigest(of: localEdit)
+        try "edited".write(to: localEdit, atomically: true, encoding: .utf8)
+        // A same-sized update can be invisible in the server's ls metadata.
+        try "other".write(to: originalFile, atomically: false, encoding: .utf8)
+        let remoteFile = RemotePath.join(listing.path, odd)
+        await #expect(throws: SFTPError.self) {
+            try await client.replace(remoteFile, with: localEdit, matching: openedContents)
+        }
+        #expect(try String(contentsOf: originalFile, encoding: .utf8) == "other")
+        #expect(try String(contentsOf: localEdit, encoding: .utf8) == "edited")
+        try "hello".write(to: originalFile, atomically: false, encoding: .utf8)
+        try await client.replace(remoteFile, with: localEdit, matching: openedContents)
         #expect(try String(contentsOf: originalFile, encoding: .utf8) == "edited")
         let attributes = try FileManager.default.attributesOfItem(atPath: originalFile.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o640)

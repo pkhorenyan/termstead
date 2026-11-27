@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Darwin
 
 /// Where the Files panel's files are: a server over SFTP, or this Mac for a
@@ -15,7 +16,7 @@ protocol FileSource: Sendable {
     func download(_ remote: String, recursive: Bool, to localDirectory: URL, as name: String) async throws
     func upload(_ local: URL, to remoteDirectory: String) async throws
     /// Writes a local file over a remote one, for Open and Edit.
-    func replace(_ remote: String, with local: URL) async throws
+    func replace(_ remote: String, with local: URL, matching expectedContents: SHA256Digest?) async throws
     func makeDirectory(_ path: String) async throws
     func rename(_ path: String, to newPath: String) async throws
     func removeFile(_ path: String) async throws
@@ -28,6 +29,10 @@ protocol FileSource: Sendable {
 }
 
 extension FileSource {
+    func replace(_ remote: String, with local: URL) async throws {
+        try await replace(remote, with: local, matching: nil)
+    }
+
     func makeTransferStage(_ path: String) async throws { try await makeDirectory(path) }
     func discardTransferStage(_ path: String) async throws { try await removeDirectory(path) }
     func finishTransfer(_ path: String, at destination: String, replacing: Bool) async throws {
@@ -127,7 +132,7 @@ struct LocalFiles: FileSource {
         try await copy(local, to: URL(fileURLWithPath: remoteDirectory).appendingPathComponent(local.lastPathComponent))
     }
 
-    func replace(_ remote: String, with local: URL) async throws {
+    func replace(_ remote: String, with local: URL, matching expectedContents: SHA256Digest?) async throws {
         // Never called: a local file is edited where it is.
         try await Self.offMain {
             _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: remote), withItemAt: local)

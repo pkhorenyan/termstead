@@ -21,6 +21,9 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Preserve server changes when saving a file opened for editing through SFTP.
+- Keep the current folder when a new folder finishes creating after navigation.
+- Keep both columns usable when expanding the sidebar in split layouts.
 - Fix stale rows after pasting multiline text in nano, including when
   editing a drop-in with `systemctl edit`.
 

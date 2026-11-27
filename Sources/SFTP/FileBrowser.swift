@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Observation
 
 /// The Files panel's state for one tab: where it is, what is there, and what
@@ -378,10 +379,18 @@ final class FileBrowser {
 
     func makeDirectory(named name: String) {
         guard let path, let client, let name = Self.validName(name) else { return }
+        let currentListing = loadRequest
+        let revision = sourceRevision
         Task {
-            await perform("New folder “\(name)”") { try await client.makeDirectory(RemotePath.join(path, name)) }
-            await load(path)
-            selection = RemotePath.join(path, name)
+            guard !stopped, revision == sourceRevision else { return }
+            let newPath = RemotePath.join(path, name)
+            let created = await perform("New folder “\(name)”") { try await client.makeDirectory(newPath) }
+            guard created, revision == sourceRevision, isCurrent(currentListing), self.path == path, !isLoading else { return }
+            let refresh = beginLoad()
+            await load(path, request: refresh)
+            if isCurrent(refresh), let folder = files.first(where: { $0.path == newPath }) {
+                select(folder)
+            }
         }
     }
 
@@ -558,7 +567,8 @@ final class FileBrowser {
     /// Runs one operation with a line in the activity strip; says whether it worked.
     @discardableResult
     private func perform(_ title: String, isTransfer: Bool = false, expectedSize: Int64? = nil, growing: URL? = nil,
-                         result: URL? = nil, _ work: @escaping () async throws -> Void) async -> Bool {
+                         result: URL? = nil, recovering localCopy: URL? = nil,
+                         _ work: @escaping () async throws -> Void) async -> Bool {
         let id = addActivity(title, state: .running(progress: expectedSize == nil ? nil : 0), isTransfer: isTransfer)
         // `sftp` only draws a progress bar on a terminal, so a download's
         // progress is read off the file growing on disk instead.
@@ -589,7 +599,10 @@ final class FileBrowser {
         } catch {
             watcher?.cancel()
             let message = (error as? SFTPError)?.description ?? error.localizedDescription
-            updateActivity(id) { $0.state = .failed(message) }
+            updateActivity(id) {
+                $0.state = .failed(message)
+                $0.localURL = localCopy
+            }
             return false
         }
     }
@@ -667,16 +680,22 @@ final class FileBrowser {
             activities.append(Activity(title: "Open “\(file.name)”", state: .failed(error.localizedDescription)))
             return
         }
-        let succeeded = await perform("Open “\(file.name)”", expectedSize: file.size,
-                                      growing: folder.appendingPathComponent(file.name)) {
+        let local = folder.appendingPathComponent(file.name)
+        var originalContents: SHA256Digest?
+        let succeeded = await perform("Open “\(file.name)”", expectedSize: file.size, growing: local) {
             try await client.download(file.path, recursive: false, to: folder, as: file.name)
+            originalContents = try await SFTPClient.contentDigest(of: local)
         }
-        guard succeeded, !stopped, revision == sourceRevision else {
+        guard succeeded, let originalContents, !stopped, revision == sourceRevision else {
             try? FileManager.default.removeItem(at: folder)
             return
         }
-        let local = folder.appendingPathComponent(file.name)
-        let edit = RemoteEdit(local: local, remote: file.path) { [weak self] in
+        if let existing = edits[file.path] {
+            try? FileManager.default.removeItem(at: folder)
+            existing.open()
+            return
+        }
+        let edit = RemoteEdit(local: local, remote: file.path, serverContents: originalContents) { [weak self] in
             guard let self, self.sourceRevision == revision else { return }
             self.saveBack(file.name, local: local, remote: file.path)
         }
@@ -694,7 +713,7 @@ final class FileBrowser {
             guard let self, !Task.isCancelled, !stopped, revision == sourceRevision else { return }
             defer { if pendingSaves[remote]?.id == id { pendingSaves[remote] = nil } }
             let snapshot = local.deletingLastPathComponent().appendingPathComponent(".upload-\(id)")
-            await perform("Save “\(name)” to the server") {
+            await perform("Save “\(name)” to the server", recovering: local) {
                 // Editors can replace the local file while sftp is reading it.
                 // Each upload gets an immutable copy, and the next upload waits
                 // for this one before reading the latest saved contents.
@@ -702,7 +721,14 @@ final class FileBrowser {
                 try Task.checkCancellation()
                 try await BlockingWork.run { try FileManager.default.copyItem(at: local, to: snapshot) }
                 try Task.checkCancellation()
-                try await client.replace(remote, with: snapshot)
+                if let edit = self.edits[remote] {
+                    let contents = try await SFTPClient.contentDigest(of: snapshot)
+                    try Task.checkCancellation()
+                    try await client.replace(remote, with: snapshot, matching: edit.serverContents)
+                    edit.serverContents = contents
+                } else {
+                    try await client.replace(remote, with: snapshot)
+                }
             }
         }
         pendingSaves[remote] = (id, task)
@@ -734,14 +760,16 @@ final class FileBrowser {
 final class RemoteEdit {
     let local: URL
     let remote: String
+    var serverContents: SHA256Digest
     private let onSave: () -> Void
     private var source: (any DispatchSourceFileSystemObject)?
     private var lastModified: Date?
     private var pending: Task<Void, Never>?
 
-    init(local: URL, remote: String, onSave: @escaping () -> Void) {
+    init(local: URL, remote: String, serverContents: SHA256Digest, onSave: @escaping () -> Void) {
         self.local = local
         self.remote = remote
+        self.serverContents = serverContents
         self.onSave = onSave
         lastModified = Self.modified(local)
         watch()

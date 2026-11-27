@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Termstead
 
@@ -22,6 +23,16 @@ struct SidebarSideTests {
         #expect(SidebarResizeHandle.width(from: 782, dragged: 500, growsLeftward: false, range: narrow) == 720)
         #expect(Metrics.sidebarWidthRange(windowWidth: 0, workspaceMinimum: 240) == 230...230)
         #expect(Metrics.sidebarWidthRange(windowWidth: 960, workspaceMinimum: EmptyStateView.contentWidth).upperBound == 440)
+    }
+
+    @Test func bothColumnsStayUsableWhenTheSidebarIsFullyExpanded() {
+        let width = Metrics.minWindowSize.width
+        let minimum = Metrics.minimumWorkspaceWidth(columns: PaneLayout.sideBySide.columns)
+        let sidebar = Metrics.sidebarWidthRange(windowWidth: width, workspaceMinimum: minimum).upperBound
+        let available = width - CGFloat(sidebar) - 1
+        #expect(available == 480)
+        #expect(PaneSplit<EmptyView, EmptyView>.horizontalRange(available: available) == 0.5...0.5)
+        #expect(PaneSplit<EmptyView, EmptyView>.horizontalRange(available: 600) == 0.4...0.6)
     }
 
     @Test func itStartsOnTheLeftAndRemembersTheRight() throws {

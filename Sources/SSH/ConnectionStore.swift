@@ -24,7 +24,7 @@ enum PaneLayout: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    private var columns: Int { self == .sideBySide || self == .grid ? 2 : 1 }
+    var columns: Int { self == .sideBySide || self == .grid ? 2 : 1 }
     private var rows: Int { self == .stacked || self == .grid ? 2 : 1 }
 
     /// Where a tab in `pane` goes when `source` becomes `target`: to the pane
