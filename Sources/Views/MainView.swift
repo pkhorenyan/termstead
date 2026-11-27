@@ -10,9 +10,8 @@ struct MainView: View {
     @Environment(SessionStorage.self) private var storage
     @Environment(ConnectionStore.self) private var connectionStore
 
-    /// Sidebar width is user-set and remembered between launches.
+    /// All tabs share the same preferred width, remembered between launches.
     @AppStorage("sidebar.width") private var sidebarWidth: Double = Double(Metrics.sidebarWidth)
-    @AppStorage("sidebar.sftpWidth") private var sftpSidebarWidth: Double?
 
     private var showsSFTP: Bool { connectionStore.active?.kind == .sftp }
     private var showsWelcome: Bool { connectionStore.connections.isEmpty && connectionStore.layout == .single }
@@ -25,19 +24,12 @@ struct MainView: View {
     /// grab strip that resizes it sit on the edge facing the terminal.
     private func sidebar(windowWidth: CGFloat) -> some View {
         let side = sidebarSide
-        let sftp = showsSFTP
         let inner: Alignment = side == .left ? .trailing : .leading
         let range = Metrics.sidebarWidthRange(windowWidth: windowWidth,
                                               workspaceMinimum: showsWelcome ? EmptyStateView.contentWidth : 240)
         let width = Binding(
-            get: {
-                let preferred = sftp ? sftpSidebarWidth ?? Double(Metrics.sidebarWidth) : sidebarWidth
-                return min(range.upperBound, max(range.lowerBound, preferred))
-            },
-            set: { newWidth in
-                if sftp { sftpSidebarWidth = newWidth }
-                else { sidebarWidth = newWidth }
-            }
+            get: { min(range.upperBound, max(range.lowerBound, sidebarWidth)) },
+            set: { sidebarWidth = $0 }
         )
         return SidebarView(side: side)
             .frame(width: CGFloat(width.wrappedValue))

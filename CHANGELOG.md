@@ -17,7 +17,7 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Resize the sidebar across the available window width in terminal and SFTP
-  sessions.
+  sessions. The sidebar keeps the same width when switching tabs.
 
 ### Fixed
 
