@@ -11,6 +11,11 @@ the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Choose what Enter sends per Telnet session: CRLF (default), LF, or CR.
 
+### Fixed
+
+- Fix stale rows after pasting multiline text in nano, including when
+  editing a drop-in with `systemctl edit`.
+
 ## [0.11.0] - 2026-11-25
 
 ### Added

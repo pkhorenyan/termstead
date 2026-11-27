@@ -5,6 +5,15 @@ import Testing
 
 @MainActor
 struct TerminalBehaviourTests {
+    @Test func scrollingDownMovesEntireRowsInTheAlternateScreen() {
+        let view = SSHTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        let terminal = view.getTerminal()
+        view.feed(text: "\u{1b}[?1049h\u{1b}[1;1HHeader\r\nOriginal line\r\nAnother line\r\nDiscarded line\r\nFooter")
+        view.feed(text: "\u{1b}[2;4r\u{1b}[2;1H\u{1b}[T\u{1b}[r")
+        let rows = (0..<5).map { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
+        #expect(rows == ["Header", "", "Original line", "Another line", "Footer"])
+    }
+
     /// A loop rather than test arguments: SwiftTerm's `CursorStyle` is not
     /// `Sendable`, which parameterised tests require.
     @Test func cursorShapeAndBlinkMapToSwiftTerm() {

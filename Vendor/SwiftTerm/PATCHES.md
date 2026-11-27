@@ -7,6 +7,13 @@ need Xcode's separately downloaded Metal Toolchain to build.
 Only `Sources/SwiftTerm` is kept (without `Documentation.docc`), and
 `Package.swift` declares the library alone.
 
+## Scroll down uses the full width with horizontal margins disabled
+
+`CSI Ps T` used the stored horizontal margins even when margin mode was off.
+In a fresh alternate screen this could move only the first column, leaving
+stale text after nano inserted rows. The command now uses the full width when
+margin mode is off and respects explicit margins when it is on.
+
 ## Mouse wheel input for terminal applications
 
 `TerminalView.scrollWheel` sends wheel events using the application's mouse

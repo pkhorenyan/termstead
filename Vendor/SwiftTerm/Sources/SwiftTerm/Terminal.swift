@@ -4478,17 +4478,19 @@ open class Terminal {
 
         let row = buffer.scrollTop + buffer.yBase
 
-        let columnCount = buffer.marginRight-buffer.marginLeft+1
+        let left = marginMode ? buffer.marginLeft : 0
+        let right = marginMode ? buffer.marginRight : cols - 1
+        let columnCount = right - left + 1
         let rowCount = buffer.scrollBottom-buffer.scrollTop
         for _ in 0..<p {
             for i in (0..<rowCount).reversed() {
                 let src = buffer.lines [row+i]
                 let dst = buffer.lines [row+i+1]
                 
-                dst.copyFrom(src, srcCol: buffer.marginLeft, dstCol: buffer.marginLeft, len: columnCount)
+                dst.copyFrom(src, srcCol: left, dstCol: left, len: columnCount)
             }
             let last = buffer.lines [row]
-            last.fill (with: CharData (attribute: da), atCol: buffer.marginLeft, len: columnCount)
+            last.fill (with: CharData (attribute: da), atCol: left, len: columnCount)
         }
         // this.maxRange();
         updateRange (startLine: buffer.scrollTop, endLine: buffer.scrollBottom)
