@@ -106,7 +106,11 @@ struct FileBrowserView: View {
         VStack(spacing: 8) {
             toolbar
             pathField
-            list
+            VStack(spacing: 6) {
+                sortMenu
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                list
+            }
             // Its own view, so a progress tick re-renders the strip and not
             // the file list above it.
             FileActivityStrip(browser: browser, theme: theme) { transferConflict = browser.transfers.conflict }
@@ -221,43 +225,49 @@ struct FileBrowserView: View {
     }
 
     private var pathField: some View {
-        HStack(spacing: 4) {
-            TextField("", text: $pathText, prompt: Text("/path").foregroundStyle(theme.textFaint.color))
-                .textFieldStyle(.plain)
-                .font(SBFont.mono(11.5))
-                .foregroundStyle(theme.text.color)
-                .onSubmit { browser.go(to: pathText) }
-                .accessibilityLabel(browser.isLocal ? "Local folder" : "Remote folder")
-            Menu {
-                Picker("Sort by", selection: $browser.sortField) {
-                    ForEach(FileBrowser.SortField.allCases) { field in
-                        Text(field.rawValue).tag(field)
-                    }
-                }
-                Divider()
-                Picker("Sort order", selection: $browser.sortAscending) {
-                    Text("Ascending").tag(true)
-                    Text("Descending").tag(false)
-                }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.textSecondary.color)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Sort files")
-            .accessibilityLabel("Sort files")
-        }
-        .padding(.leading, 9 + listOutlineOutset)
-        .padding(.trailing, 8)
-        .frame(height: 28)
-        .background(FieldBackground(theme: theme, cornerRadius: panelCornerRadius))
-        .padding(.horizontal, -listOutlineOutset)
+        TextField("", text: $pathText, prompt: Text("/path").foregroundStyle(theme.textFaint.color))
+            .textFieldStyle(.plain)
+            .font(SBFont.mono(11.5))
+            .foregroundStyle(theme.text.color)
+            .onSubmit { browser.go(to: pathText) }
+            .accessibilityLabel(browser.isLocal ? "Local folder" : "Remote folder")
+            .padding(.leading, 9 + listOutlineOutset)
+            .padding(.trailing, 8)
+            .frame(height: 28)
+            .background(FieldBackground(theme: theme, cornerRadius: panelCornerRadius))
+            .padding(.horizontal, -listOutlineOutset)
     }
 
     // MARK: - List
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort by", selection: $browser.sortField) {
+                ForEach(FileBrowser.SortField.allCases) { field in
+                    Text(field.rawValue).tag(field)
+                }
+            }
+            Divider()
+            Picker("Sort order", selection: $browser.sortAscending) {
+                Text("Ascending").tag(true)
+                Text("Descending").tag(false)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(browser.sortField.rawValue)
+                    .font(SBFont.ui(11, .medium))
+                Image(systemName: browser.sortAscending ? "arrow.up" : "arrow.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(theme.textSecondary.color)
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+        .fixedSize()
+        .help("Sort files")
+        .accessibilityLabel("Sort files")
+        .accessibilityValue("\(browser.sortField.rawValue), \(browser.sortAscending ? "Ascending" : "Descending")")
+    }
 
     private var list: some View {
         GeometryReader { viewport in
